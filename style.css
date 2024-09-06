@@ -106,6 +106,7 @@
 /*Nuking padding and margin*/
 
 :root {
+    text-align: center;
 }
 
 body {
