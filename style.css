@@ -149,7 +149,7 @@ body {
     display: flex;
     position: fixed;
     top: 0;
-    justify-content: center;
+    justify-content: space-between;
     align-items: center;
     width: 100vw;
     height: auto;
@@ -159,7 +159,7 @@ body {
 
 .navBar ul {
     display: flex;
-    width: 100%;
+    width: fit-content;
     list-style: none;
     justify-content: flex-end;
 }
@@ -186,10 +186,31 @@ body {
 }
 
 .title {
-    text-wrap: nowrap;
     margin-left: 10px;
     font-size: 2rem;
     font-weight: 800 !important;
     text-decoration: none;
     color: var(--light-accent-color);
+}
+
+.footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: absolute;
+    bottom: 0;
+    padding: 10px;
+    background-color: var(--dark-accent-color);
+    width: 100vw;
+    color: var(--light-accent-color);
+}
+
+.footerlink {
+    text-decoration: none;
+    color: var(--light-accent-color);
+    margin: 10px;
+}
+
+.copyright {
+    margin-left: 10px;
 }
