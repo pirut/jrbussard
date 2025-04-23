@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Markup ↔ Margin Calculator</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                padding: 2rem;
+                background-color: #f8f9fa;
+            }
+            .container {
+                max-width: 500px;
+                margin: auto;
+                background: #fff;
+                padding: 2rem;
+                border-radius: 12px;
+                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            }
+            input,
+            button {
+                width: 100%;
+                padding: 0.75rem;
+                margin: 0.5rem 0;
+                font-size: 1rem;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+            }
+            button {
+                background-color: #007bff;
+                color: white;
+                cursor: pointer;
+            }
+            button:hover {
+                background-color: #0056b3;
+            }
+            .result {
+                margin-top: 1rem;
+                font-size: 1.1rem;
+                font-weight: bold;
+                color: #333;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>Markup ↔ Margin Calculator</h2>
+
+            <label for="markup">Enter Markup (%)</label>
+            <input type="number" id="markup" placeholder="e.g., 45" />
+            <button onclick="convertMarkupToMargin()">Convert to Margin</button>
+            <div class="result" id="marginResult"></div>
+
+            <hr />
+
+            <label for="margin">Enter Margin (%)</label>
+            <input type="number" id="margin" placeholder="e.g., 31.03" />
+            <button onclick="convertMarginToMarkup()">Convert to Markup</button>
+            <div class="result" id="markupResult"></div>
+        </div>
+
+        <script>
+            function convertMarkupToMargin() {
+                const markup = parseFloat(document.getElementById("markup").value);
+                if (isNaN(markup)) return;
+                const margin = markup / (1 + markup);
+                document.getElementById("marginResult").textContent = `Margin: ${(margin * 100).toFixed(2)}%`;
+            }
+
+            function convertMarginToMarkup() {
+                const margin = parseFloat(document.getElementById("margin").value);
+                if (isNaN(margin)) return;
+                const markup = margin / (100 - margin);
+                document.getElementById("markupResult").textContent = `Markup: ${markup.toFixed(2)}%`;
+            }
+        </script>
+    </body>
+</html>
