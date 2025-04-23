@@ -4,6 +4,7 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Markup ↔ Margin Calculator</title>
+        <link rel="stylesheet" href="../style.css" />
         <style>
             body {
                 font-family: Arial, sans-serif;
@@ -44,6 +45,16 @@
         </style>
     </head>
     <body>
+        <nav class="navBar">
+            <a href="./index.html" class="title suse">JR Bussard</a>
+            <ul>
+                <li class="navElement"><a href="./index.html">Home</a></li>
+                <li class="navElement"><a href="./pages/projects.html">Projects</a></li>
+                <li class="navElement"><a href="./pages/about.html">About Me</a></li>
+                <li class="navElement"><a href="./pages/contact.html">Contact</a></li>
+                <li class="navElement"><a href="./pages/calculator.html">Calculator</a></li>
+            </ul>
+        </nav>
         <div class="container">
             <h2>Markup ↔ Margin Calculator</h2>
 
@@ -64,15 +75,15 @@
             function convertMarkupToMargin() {
                 const markup = parseFloat(document.getElementById("markup").value);
                 if (isNaN(markup)) return;
-                const margin = markup / (1 + markup);
+                const margin = markup / (100 + markup);
                 document.getElementById("marginResult").textContent = `Margin: ${(margin * 100).toFixed(2)}%`;
             }
 
             function convertMarginToMarkup() {
                 const margin = parseFloat(document.getElementById("margin").value);
-                if (isNaN(margin)) return;
+                if (isNaN(margin) || margin >= 100) return;
                 const markup = margin / (100 - margin);
-                document.getElementById("markupResult").textContent = `Markup: ${markup.toFixed(2)}%`;
+                document.getElementById("markupResult").textContent = `Markup: ${(markup * 100).toFixed(2)}%`;
             }
         </script>
     </body>
