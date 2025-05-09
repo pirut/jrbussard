@@ -15,8 +15,8 @@ const Home = () => {
                         programming. No corporate vibes here - just pure coding fun! 🚀
                     </p>
                     <div className="hero-buttons">
-                        <Link to="/projects" className="btn primary-btn">
-                            Check Out My Projects
+                        <Link to="/about" className="btn primary-btn">
+                            Learn More About Me
                         </Link>
                         <Link to="/contact" className="btn secondary-btn">
                             Say Hi!
@@ -46,20 +46,6 @@ const Home = () => {
                             <div className="service-icon">🔧</div>
                             <h3>Random Tools</h3>
                             <p>Creating useful (and sometimes not so useful) tools.</p>
-                        </div>
-                    </div>
-                </section>
-
-                <section className="featured-work">
-                    <h2 className="section-title">Latest Creation</h2>
-                    <div className="featured-project">
-                        <div className="featured-project-image placeholder"></div>
-                        <div className="featured-project-content">
-                            <h3>My Latest Project</h3>
-                            <p>Check out what I've been tinkering with lately. It might be useful, it might be silly, but it's definitely fun!</p>
-                            <Link to="/projects" className="featured-link">
-                                Take a Look
-                            </Link>
                         </div>
                     </div>
                 </section>
