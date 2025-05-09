@@ -8,28 +8,12 @@ const Contact = () => {
     });
 
     const [errors, setErrors] = useState({});
-    const [submitStatus, setSubmitStatus] = useState("");
-
-    const validateForm = () => {
-        const newErrors = {};
-        if (!formData.name.trim()) {
-            newErrors.name = "Name is required";
-        }
-        if (!formData.email.trim()) {
-            newErrors.email = "Email is required";
-        } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-            newErrors.email = "Email is invalid";
-        }
-        if (!formData.message.trim()) {
-            newErrors.message = "Message is required";
-        }
-        return newErrors;
-    };
+    const [submitStatus, setSubmitStatus] = useState("idle");
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData((prevState) => ({
-            ...prevState,
+        setFormData((prev) => ({
+            ...prev,
             [name]: value,
         }));
         // Clear error when user starts typing
@@ -41,20 +25,30 @@ const Contact = () => {
         }
     };
 
+    const validateForm = () => {
+        const newErrors = {};
+        if (!formData.name.trim()) {
+            newErrors.name = "Hey, I'd love to know your name!";
+        }
+        if (!formData.email.trim()) {
+            newErrors.email = "How am I supposed to reply without an email?";
+        } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+            newErrors.email = "That doesn't look like a valid email address!";
+        }
+        if (!formData.message.trim()) {
+            newErrors.message = "Don't be shy, say something!";
+        }
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const newErrors = validateForm();
-
-        if (Object.keys(newErrors).length > 0) {
-            setErrors(newErrors);
-            return;
-        }
+        if (!validateForm()) return;
 
         setSubmitStatus("sending");
+        // Simulate form submission
         try {
-            // Add your form submission logic here
-            console.log("Form submitted:", formData);
-            // Simulate API call
             await new Promise((resolve) => setTimeout(resolve, 1000));
             setSubmitStatus("success");
             setFormData({ name: "", email: "", message: "" });
@@ -65,14 +59,14 @@ const Contact = () => {
 
     return (
         <div className="contact-page">
-            <h1 className="page-title ibm-plex-sans-regular">Contact Me</h1>
+            <h1 className="page-title ibm-plex-sans-regular">Let's Chat!</h1>
             <p className="contact-intro">
-                I'd love to hear from you! Feel free to reach out using the form below or connect with me via email or social media.
+                Want to talk about coding, share project ideas, or just say hi? Drop me a message below! I promise to reply (unless I'm lost in code). 😄
             </p>
 
             <div className="contact-container">
                 <div className="contact-info">
-                    <h2>Get in Touch</h2>
+                    <h2>Find Me Here</h2>
                     <div className="contact-methods">
                         <div className="contact-method">
                             <div className="contact-icon">📧</div>
@@ -82,42 +76,34 @@ const Contact = () => {
                             </div>
                         </div>
                         <div className="contact-method">
-                            <div className="contact-icon">📱</div>
+                            <div className="contact-icon">💻</div>
                             <div className="contact-details">
-                                <h3>Phone</h3>
-                                <p>(555) 123-4567</p>
-                            </div>
-                        </div>
-                        <div className="contact-method">
-                            <div className="contact-icon">🔗</div>
-                            <div className="contact-details">
-                                <h3>Social</h3>
-                                <div className="social-links">
-                                    <a href="#" className="social-link">
-                                        LinkedIn
-                                    </a>
-                                    <a href="#" className="social-link">
-                                        GitHub
-                                    </a>
-                                    <a href="#" className="social-link">
-                                        Twitter
-                                    </a>
-                                </div>
+                                <h3>GitHub</h3>
+                                <p>github.com/jrbussard</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <div className="contact-form-container">
-                    <h2>Send a Message</h2>
-                    <form onSubmit={handleSubmit} className="contact-form">
+                    <h2>Send Me a Message</h2>
+                    <form className="contact-form" onSubmit={handleSubmit}>
                         <div className="form-group">
-                            <label htmlFor="name">Name</label>
-                            <input type="text" id="name" name="name" value={formData.name} onChange={handleChange} className={errors.name ? "error" : ""} />
-                            {errors.name && <span className="error-message">{errors.name}</span>}
+                            <label htmlFor="name">Your Name</label>
+                            <input
+                                type="text"
+                                id="name"
+                                name="name"
+                                value={formData.name}
+                                onChange={handleChange}
+                                className={errors.name ? "error" : ""}
+                                placeholder="What should I call you?"
+                            />
+                            {errors.name && <div className="error-message">{errors.name}</div>}
                         </div>
+
                         <div className="form-group">
-                            <label htmlFor="email">Email</label>
+                            <label htmlFor="email">Your Email</label>
                             <input
                                 type="email"
                                 id="email"
@@ -125,9 +111,11 @@ const Contact = () => {
                                 value={formData.email}
                                 onChange={handleChange}
                                 className={errors.email ? "error" : ""}
+                                placeholder="Where should I reply?"
                             />
-                            {errors.email && <span className="error-message">{errors.email}</span>}
+                            {errors.email && <div className="error-message">{errors.email}</div>}
                         </div>
+
                         <div className="form-group">
                             <label htmlFor="message">Message</label>
                             <textarea
@@ -136,15 +124,17 @@ const Contact = () => {
                                 value={formData.message}
                                 onChange={handleChange}
                                 className={errors.message ? "error" : ""}
+                                placeholder="What's on your mind?"
                                 rows="5"
                             ></textarea>
-                            {errors.message && <span className="error-message">{errors.message}</span>}
+                            {errors.message && <div className="error-message">{errors.message}</div>}
                         </div>
+
                         <button type="submit" className="submit-button" disabled={submitStatus === "sending"}>
                             {submitStatus === "sending" ? "Sending..." : "Send Message"}
                         </button>
-                        {submitStatus === "success" && <div className="success-message">Message sent successfully!</div>}
-                        {submitStatus === "error" && <div className="error-message">Failed to send message. Please try again.</div>}
+                        {submitStatus === "success" && <div className="success-message">Message sent! I'll get back to you soon! 🎉</div>}
+                        {submitStatus === "error" && <div className="error-message">Oops! Something went wrong. Try again? 🤔</div>}
                     </form>
                 </div>
             </div>

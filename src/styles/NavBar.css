@@ -3,8 +3,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem 2rem;
-    background-color: #ffffff;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    background-color: var(--dark-accent-color);
+    box-shadow: var(--shadow-elevation-medium);
 }
 
 .navBar ul {
@@ -20,18 +20,25 @@
 
 .navElement a {
     text-decoration: none;
-    color: #333;
+    color: var(--light-accent-color);
     font-weight: 500;
-    transition: color 0.3s ease;
+    transition: all 0.3s ease;
 }
 
 .navElement a:hover {
-    color: #007bff;
+    color: var(--accent-color);
+    transform: scale(1.1);
 }
 
 .title {
     font-size: 1.5rem;
     font-weight: bold;
     text-decoration: none;
-    color: #333;
+    color: var(--light-accent-color);
+    transition: all 0.3s ease;
+}
+
+.title:hover {
+    color: var(--accent-color);
+    transform: scale(1.05);
 }
