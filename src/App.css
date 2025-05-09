@@ -1,0 +1,44 @@
+.App {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+    padding: 2rem;
+}
+
+.footer {
+    background-color: #f8f9fa;
+    padding: 1rem 2rem;
+    margin-top: auto;
+}
+
+.copyright {
+    margin: 0;
+    color: #666;
+}
+
+.linkWrapper {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.footerlink {
+    text-decoration: none;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.footerlink:hover {
+    color: #007bff;
+}
+
+.ibm-plex-sans-regular {
+    font-family: "IBM Plex Sans", sans-serif;
+    font-weight: 400;
+}
