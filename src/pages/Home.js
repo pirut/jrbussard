@@ -12,7 +12,7 @@ const Home = () => {
                     <h2 className="hero-subtitle">Just a dude who likes to code</h2>
                     <p className="hero-description">
                         Welcome to my little corner of the internet! This is where I mess around with code, build random stuff, and share my adventures in
-                        programming. No corporate vibes here - just pure coding fun! 🚀
+                        programming. 🚀
                     </p>
                     <div className="hero-buttons">
                         <Link to="/about" className="btn primary-btn">

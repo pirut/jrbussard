@@ -61,7 +61,7 @@ const Contact = () => {
         <div className="contact-page">
             <h1 className="page-title ibm-plex-sans-regular">Let's Chat!</h1>
             <p className="contact-intro">
-                Want to talk about coding, share project ideas, or just say hi? Drop me a message below! I promise to reply (unless I'm lost in code). 😄
+                Want to talk about coding, share project ideas, or just say hi? Drop me a message below! I promise to reply (maybe). 😄
             </p>
 
             <div className="contact-container">
@@ -72,14 +72,14 @@ const Contact = () => {
                             <div className="contact-icon">📧</div>
                             <div className="contact-details">
                                 <h3>Email</h3>
-                                <p>jrbussard@example.com</p>
+                                <li href="mailto:jr@jrbussard.com">jr@jrbussard.com</li>
                             </div>
                         </div>
                         <div className="contact-method">
                             <div className="contact-icon">💻</div>
                             <div className="contact-details">
                                 <h3>GitHub</h3>
-                                <p>github.com/jrbussard</p>
+                                <a href="https://github.com/pirut">github.com/pirut</a>
                             </div>
                         </div>
                     </div>

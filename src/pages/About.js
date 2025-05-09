@@ -12,9 +12,9 @@ const About = () => {
                         <h1 className="page-title ibm-plex-sans-regular">About Me</h1>
                         <p className="job-title">Code Enthusiast & Problem Solver</p>
                         <p className="about-description">
-                            Hey! I'm just a regular person who loves playing with code and building cool stuff. I'm not here to sell you anything or pretend to
-                            be some coding guru. I just enjoy the process of creating things and solving puzzles with code. Whether it's a silly game, a useful
-                            tool, or just experimenting with new technologies, I'm always up for a coding adventure! 🚀
+                            Hey! I'm a dad who loves playing with code and building cool stuff. I'm not here to sell you anything or pretend to be some coding
+                            guru. I just enjoy the process of creating things and solving puzzles with code. Whether it's a silly game, a useful tool, or just
+                            experimenting with new technologies, I'm always trying to learn something new (in my limited free time)! 🚀
                         </p>
                     </div>
                 </div>
@@ -28,14 +28,12 @@ const About = () => {
                                 <li>React</li>
                                 <li>JavaScript</li>
                                 <li>HTML/CSS</li>
-                                <li>Three.js</li>
-                                <li>Canvas</li>
                             </ul>
                         </div>
                         <div className="skill-category">
                             <h4>Backend Basics</h4>
                             <ul className="skills-list">
-                                <li>Node.js</li>
+                                <li>C++</li>
                                 <li>Python</li>
                                 <li>SQL</li>
                                 <li>APIs</li>
@@ -46,8 +44,7 @@ const About = () => {
                             <ul className="skills-list">
                                 <li>Git</li>
                                 <li>VS Code</li>
-                                <li>Docker</li>
-                                <li>Linux</li>
+                                <li>Cursor</li>
                             </ul>
                         </div>
                     </div>
