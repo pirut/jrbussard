@@ -1,0 +1,63 @@
+.site-shell {
+    position: relative;
+    min-height: 100vh;
+}
+
+.site-shell__content {
+    position: relative;
+    z-index: 2;
+}
+
+.ambient {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.ambient__orb {
+    position: absolute;
+    border-radius: 999px;
+    filter: blur(0px);
+    opacity: 0.7;
+    mix-blend-mode: multiply;
+    animation: drift 16s ease-in-out infinite;
+}
+
+.ambient__orb--one {
+    width: 320px;
+    height: 320px;
+    background: radial-gradient(circle, rgba(255, 107, 53, 0.4), rgba(255, 107, 53, 0));
+    top: -80px;
+    left: -60px;
+    animation-delay: 0s;
+}
+
+.ambient__orb--two {
+    width: 440px;
+    height: 440px;
+    background: radial-gradient(circle, rgba(29, 127, 115, 0.35), rgba(29, 127, 115, 0));
+    bottom: -140px;
+    right: -100px;
+    animation-delay: 3s;
+}
+
+.ambient__orb--three {
+    width: 220px;
+    height: 220px;
+    background: radial-gradient(circle, rgba(255, 207, 64, 0.35), rgba(255, 207, 64, 0));
+    top: 40%;
+    right: 25%;
+    animation-delay: 6s;
+}
+
+@keyframes drift {
+    0%,
+    100% {
+        transform: translateY(0px) translateX(0px);
+    }
+    50% {
+        transform: translateY(-20px) translateX(16px);
+    }
+}

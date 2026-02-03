@@ -1,3 +1,20 @@
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+:root {
+    color-scheme: light;
+    --font-sans: "Sora", "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", "Courier New", monospace;
+    --bg: #f6f2ed;
+    --bg-deep: #efe7de;
+    --ink: #121417;
+    --muted: #4b5560;
+    --accent: #ff6b35;
+    --accent-soft: rgba(255, 107, 53, 0.18);
+    --stroke: rgba(18, 20, 23, 0.12);
+    --card: rgba(255, 255, 255, 0.7);
+    --shadow-soft: 0 20px 60px rgba(18, 20, 23, 0.12);
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -5,16 +22,30 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
+    font-family: var(--font-sans);
+    background: radial-gradient(circle at 20% 20%, #ffffff 0%, var(--bg) 55%, var(--bg-deep) 100%);
+    color: var(--ink);
+    min-height: 100vh;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    background-color: #f8f9fa;
+    overflow-x: hidden;
 }
 
-code {
-    font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+#root {
+    min-height: 100vh;
 }
 
-/* Import IBM Plex Sans font */
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+img {
+    max-width: 100%;
+    display: block;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+p {
+    color: var(--muted);
+}
