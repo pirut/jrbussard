@@ -1,16 +1,11 @@
-.App {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    background-color: var(--main-color);
+.page {
+    width: min(1120px, 92vw);
+    margin: 0 auto;
+    padding: 96px 0 120px;
 }
 
-main {
-    flex: 1;
-    padding: 2rem;
-}
-
-.ibm-plex-sans-regular {
-    font-family: "IBM Plex Sans", sans-serif;
-    font-weight: 400;
+@media (max-width: 720px) {
+    .page {
+        padding: 72px 0 96px;
+    }
 }

@@ -1,26 +1,20 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import NavBar from "./components/NavBar";
-import Home from "./pages/Home";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { routes } from "./routes";
+import SiteShell from "./components/SiteShell";
 import "./App.css";
-import "./styles/Pages.css";
 
 function App() {
     return (
-        <Router>
-            <div className="App">
-                <NavBar />
-                <main>
-                    <Routes>
-                        <Route path="/" element={<Home />} />
-                        <Route path="/about" element={<About />} />
-                        <Route path="/contact" element={<Contact />} />
-                    </Routes>
-                </main>
-            </div>
-        </Router>
+        <BrowserRouter>
+            <SiteShell>
+                <Routes>
+                    {routes.map((route) => (
+                        <Route key={route.path} path={route.path} element={route.element} />
+                    ))}
+                </Routes>
+            </SiteShell>
+        </BrowserRouter>
     );
 }
 
