@@ -1,18 +1,18 @@
 @import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
 :root {
-    color-scheme: light;
+    color-scheme: dark;
     --font-sans: "Sora", "Segoe UI", sans-serif;
     --font-mono: "JetBrains Mono", "Courier New", monospace;
-    --bg: #f6f2ed;
-    --bg-deep: #efe7de;
-    --ink: #121417;
-    --muted: #4b5560;
-    --accent: #ff6b35;
-    --accent-soft: rgba(255, 107, 53, 0.18);
-    --stroke: rgba(18, 20, 23, 0.12);
-    --card: rgba(255, 255, 255, 0.7);
-    --shadow-soft: 0 20px 60px rgba(18, 20, 23, 0.12);
+    --bg: #0c0f14;
+    --bg-deep: #07090c;
+    --ink: #f5f7fb;
+    --muted: #b3bac8;
+    --accent: #ff8a3d;
+    --accent-soft: rgba(255, 138, 61, 0.18);
+    --stroke: rgba(245, 247, 251, 0.12);
+    --card: rgba(12, 16, 22, 0.8);
+    --shadow-soft: 0 24px 70px rgba(0, 0, 0, 0.55);
 }
 
 * {
@@ -23,7 +23,7 @@
 
 body {
     font-family: var(--font-sans);
-    background: radial-gradient(circle at 20% 20%, #ffffff 0%, var(--bg) 55%, var(--bg-deep) 100%);
+    background: radial-gradient(circle at 18% 18%, rgba(42, 50, 68, 0.7) 0%, var(--bg) 55%, var(--bg-deep) 100%);
     color: var(--ink);
     min-height: 100vh;
     line-height: 1.5;
@@ -48,4 +48,13 @@ a {
 
 p {
     color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
 }
