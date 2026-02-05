@@ -24,6 +24,44 @@
     max-width: 520px;
 }
 
+.hero__project {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px 20px;
+    border-radius: 20px;
+    background: rgba(12, 16, 22, 0.6);
+    border: 1px solid var(--stroke);
+    max-width: 420px;
+}
+
+.hero__project-label {
+    font-size: 0.8rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.hero__project-link {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--ink);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hero__project-link::after {
+    content: "↗";
+    font-size: 1rem;
+    color: var(--accent);
+}
+
+.hero__project-copy {
+    font-size: 0.95rem;
+    color: var(--muted);
+}
+
 .hero__media {
     display: flex;
     justify-content: center;
