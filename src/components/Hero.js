@@ -3,7 +3,7 @@ import "../styles/Hero.css";
 
 const Hero = () => {
     const heroSrc = `${process.env.PUBLIC_URL}/assets/hero.jpg`;
-    const makeWavesUrl = "https://makewaves.jrbussard.com";
+    const makeWavesUrl = "https://waves.jrbussard.com";
 
     return (
         <section className="hero">
