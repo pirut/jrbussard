@@ -3,6 +3,7 @@ import "../styles/Hero.css";
 
 const Hero = () => {
     const heroSrc = `${process.env.PUBLIC_URL}/assets/hero.jpg`;
+    const makeWavesUrl = "https://makewaves.jrbussard.com";
 
     return (
         <section className="hero">
@@ -16,6 +17,15 @@ const Hero = () => {
                     </a>
                     <p className="hero__project-copy">
                         A browser-based MMO with simple graphics and extremely deep systems for building and progression.
+                    </p>
+                </div>
+                <div className="hero__project">
+                    <p className="hero__project-label">Social Impact Project</p>
+                    <a className="hero__project-link" href={makeWavesUrl} target="_blank" rel="noreferrer">
+                        Make Waves
+                    </a>
+                    <p className="hero__project-copy">
+                        A social platform built to promote social change by helping people sign up for events and host events in their communities.
                     </p>
                 </div>
             </div>
