@@ -1,17 +1,15 @@
-@import url("https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,700;6..96,900&family=Chakra+Petch:wght@300;400;500;600;700&family=Saira+Condensed:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=Overpass+Mono:wght@500;600&display=swap");
 
 :root {
-    --font-display: "Bodoni Moda", "Times New Roman", serif;
-    --font-body: "Chakra Petch", "Trebuchet MS", sans-serif;
-    --font-accent: "Saira Condensed", "Arial Narrow", sans-serif;
-    --paper: #ede7d8;
-    --ink: #101c33;
-    --ink-soft: #30415f;
-    --ink-dim: #3f4f6b;
-    --line: rgba(16, 28, 51, 0.2);
-    --line-strong: rgba(16, 28, 51, 0.3);
-    --panel: rgba(255, 252, 244, 0.62);
-    --ease-out: cubic-bezier(0.17, 0.84, 0.44, 1);
+    --font-display: "Instrument Serif", "Times New Roman", serif;
+    --font-body: "Manrope", "Avenir Next", sans-serif;
+    --font-accent: "Overpass Mono", "Menlo", monospace;
+    --paper: #f7f5ef;
+    --ink: #171f2b;
+    --ink-soft: #3a4558;
+    --ink-dim: #2a3343;
+    --line: rgba(23, 31, 43, 0.2);
+    --panel: #fcfbf8;
 }
 
 * {
@@ -27,15 +25,12 @@ body,
 
 body {
     font-family: var(--font-body);
+    background: var(--paper);
     color: var(--ink);
-    line-height: 1.45;
-    letter-spacing: 0.012em;
-    background:
-        linear-gradient(145deg, rgba(247, 238, 222, 0.95) 0%, rgba(233, 224, 209, 0.95) 45%, rgba(236, 230, 218, 0.98) 100%),
-        repeating-linear-gradient(120deg, rgba(44, 58, 92, 0.04), rgba(44, 58, 92, 0.04) 2px, transparent 2px, transparent 26px);
+    line-height: 1.65;
+    letter-spacing: 0.004em;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    overflow-x: hidden;
 }
 
 img {
@@ -45,15 +40,6 @@ img {
 
 a {
     color: inherit;
-}
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-    font-weight: 700;
 }
 
 @media (prefers-reduced-motion: reduce) {
