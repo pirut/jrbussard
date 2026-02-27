@@ -3,14 +3,21 @@ import "../styles/Home.css";
 
 const featuredProjects = [
     {
+        title: "Cornerstone Companies",
+        label: "Main job",
+        href: "https://cstonefl.com",
+        description:
+            "Building Cornerstone Companies, a South Florida luxury impact windows and doors company delivering design-forward, high-performance fenestration solutions.",
+    },
+    {
         title: "Land",
-        label: "Browser MMO",
+        label: "Side project",
         href: "https://land.jrbussard.com",
         description: "A persistent browser world focused on progression systems, player economies, and long-term experimentation.",
     },
     {
         title: "Make Waves",
-        label: "Social Impact Platform",
+        label: "Side project",
         href: "https://waves.jrbussard.com",
         description: "A platform for community organizers to host events, coordinate participants, and keep momentum between campaigns.",
     },
@@ -32,7 +39,7 @@ const Home = () => {
                     <p className="kicker">JR BUSSARD</p>
                     <h1 id="home-title">Building clear, useful web projects.</h1>
                     <p>
-                        I work on browser games, social platforms, and practical tools. This page is a simple overview of current work.
+                        I am building Cornerstone Companies as my main job, alongside side projects in games, social platforms, and practical tools.
                     </p>
                 </div>
                 <figure className="hero__media">
@@ -41,7 +48,7 @@ const Home = () => {
             </section>
 
             <section className="section" aria-labelledby="projects-title">
-                <h2 id="projects-title">Selected projects</h2>
+                <h2 id="projects-title">Main job and side projects</h2>
                 <div className="project-list">
                     {featuredProjects.map((project) => (
                         <article key={project.title} className="project-item">
