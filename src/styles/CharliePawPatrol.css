@@ -1,0 +1,700 @@
+:root {
+    --charlie-sky: #79d6ff;
+    --charlie-sky-deep: #2c8eff;
+    --charlie-grass: #4fc55c;
+    --charlie-road: #343f57;
+    --charlie-road-stripe: #ffd647;
+    --charlie-card: #fffdf7;
+    --charlie-ink: #16233f;
+    --charlie-red: #f84d3f;
+    --charlie-shadow: 0 14px 0 rgba(22, 35, 63, 0.12), 0 26px 40px rgba(22, 35, 63, 0.16);
+}
+
+.charlie-patrol {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.45), transparent 18rem),
+        linear-gradient(180deg, var(--charlie-sky) 0%, #b9efff 45%, #dbf8ff 64%, #72d66f 64%, var(--charlie-grass) 100%);
+    color: var(--charlie-ink);
+}
+
+.charlie-patrol::before {
+    content: "";
+    position: absolute;
+    inset: auto 0 0;
+    height: 18vh;
+    background:
+        linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.18)),
+        repeating-linear-gradient(90deg, transparent 0 8vw, rgba(255, 255, 255, 0.08) 8vw 8.25vw),
+        linear-gradient(180deg, #56627a 0%, var(--charlie-road) 100%);
+    border-top: 10px solid #ffffff;
+    box-shadow: inset 0 14px 0 rgba(255, 214, 71, 0.8);
+}
+
+.charlie-patrol::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, var(--alert-color), transparent 52%);
+    opacity: 0.2;
+    pointer-events: none;
+    transition: opacity 140ms ease;
+}
+
+.charlie-patrol__content {
+    position: relative;
+    z-index: 2;
+    width: min(1180px, calc(100vw - 28px));
+    margin: 0 auto;
+    padding: 24px 0 96px;
+}
+
+.charlie-patrol__sky {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.charlie-patrol__cloud {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.82);
+    border-radius: 999px;
+    filter: drop-shadow(0 8px 14px rgba(18, 48, 84, 0.1));
+    animation: driftCloud 18s linear infinite;
+}
+
+.charlie-patrol__cloud::before,
+.charlie-patrol__cloud::after {
+    content: "";
+    position: absolute;
+    background: inherit;
+    border-radius: 999px;
+}
+
+.charlie-patrol__cloud::before {
+    width: 52%;
+    height: 92%;
+    left: 14%;
+    top: -30%;
+}
+
+.charlie-patrol__cloud::after {
+    width: 34%;
+    height: 74%;
+    right: 16%;
+    top: -18%;
+}
+
+.charlie-patrol__cloud--one {
+    width: 180px;
+    height: 62px;
+    top: 7%;
+    left: -10%;
+}
+
+.charlie-patrol__cloud--two {
+    width: 150px;
+    height: 52px;
+    top: 15%;
+    left: 48%;
+    animation-duration: 22s;
+}
+
+.charlie-patrol__cloud--three {
+    width: 220px;
+    height: 70px;
+    top: 24%;
+    left: 72%;
+    animation-duration: 26s;
+}
+
+.charlie-patrol__pawtrail {
+    position: absolute;
+    top: 10%;
+    right: 2%;
+    display: grid;
+    gap: 18px;
+    font-size: 2rem;
+    opacity: 0.26;
+    color: #ffffff;
+    transform: rotate(18deg);
+}
+
+.charlie-patrol__pawtrail span:nth-child(even) {
+    transform: translateX(-20px);
+}
+
+.charlie-patrol__lights {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at 16% 12%, rgba(255, 75, 67, 0.28), transparent 18rem),
+        radial-gradient(circle at 84% 16%, rgba(47, 120, 255, 0.22), transparent 18rem),
+        radial-gradient(circle at 55% 11%, rgba(255, 212, 55, 0.22), transparent 15rem);
+    animation: blinkLights 3.6s ease-in-out infinite;
+}
+
+.charlie-patrol__topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+.charlie-patrol__backlink,
+.charlie-patrol__sound-toggle,
+.charlie-patrol__hq-badge {
+    border-radius: 18px;
+    border: 3px solid rgba(255, 255, 255, 0.65);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 8px 18px rgba(22, 35, 63, 0.1);
+}
+
+.charlie-patrol__backlink {
+    display: inline-flex;
+    align-items: center;
+    min-height: 52px;
+    padding: 0 18px;
+    color: var(--charlie-ink);
+    text-decoration: none;
+    font-weight: 700;
+}
+
+.charlie-patrol__utility-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.charlie-patrol__sound-toggle {
+    min-height: 52px;
+    padding: 0 20px;
+    font: inherit;
+    font-weight: 800;
+    color: var(--charlie-ink);
+    cursor: pointer;
+}
+
+.charlie-patrol__hq-badge {
+    margin: 0;
+    min-height: 52px;
+    padding: 0 18px;
+    display: inline-flex;
+    align-items: center;
+    font-weight: 800;
+}
+
+.charlie-patrol__hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
+    gap: 22px;
+    margin-bottom: 22px;
+}
+
+.charlie-patrol__hero-copy,
+.charlie-patrol__hero-badge,
+.charlie-panel {
+    background: var(--charlie-card);
+    border: 4px solid rgba(255, 255, 255, 0.74);
+    box-shadow: var(--charlie-shadow);
+}
+
+.charlie-patrol__hero-copy {
+    border-radius: 34px;
+    padding: 28px 28px 30px;
+    position: relative;
+}
+
+.charlie-patrol__hero-copy::after {
+    content: "";
+    position: absolute;
+    right: 20px;
+    top: 16px;
+    width: 98px;
+    height: 98px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at center, #fff7b5 0 24%, #ffce24 25% 58%, transparent 59%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.6), transparent);
+    opacity: 0.92;
+}
+
+.charlie-patrol__intro {
+    margin: 0 0 8px;
+    font-size: 1rem;
+    font-weight: 800;
+}
+
+.charlie-patrol__hero h1 {
+    margin: 0;
+    max-width: 10ch;
+    font-family: var(--font-display);
+    font-size: clamp(2.8rem, 7vw, 5.8rem);
+    line-height: 0.94;
+    letter-spacing: -0.04em;
+}
+
+.charlie-patrol__support {
+    margin: 16px 0 0;
+    max-width: 30rem;
+    font-size: clamp(1.05rem, 2vw, 1.35rem);
+    font-weight: 700;
+}
+
+.charlie-patrol__hero-badge {
+    border-radius: 36px;
+    padding: 24px 22px;
+    display: grid;
+    place-items: center;
+    gap: 8px;
+    text-align: center;
+    background:
+        linear-gradient(180deg, #fffcf5 0%, #fff7d1 100%);
+    animation: badgeBounce 3s ease-in-out infinite;
+}
+
+.charlie-patrol__hero-badge-top,
+.charlie-patrol__hero-badge-bottom {
+    display: inline-flex;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #fff;
+    font-weight: 800;
+}
+
+.charlie-patrol__hero-badge strong {
+    font-size: clamp(2.4rem, 6vw, 4.2rem);
+    line-height: 1;
+    font-family: var(--font-display);
+}
+
+.charlie-patrol__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 22px;
+}
+
+.charlie-panel {
+    border-radius: 28px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.charlie-panel--mission {
+    min-height: 318px;
+}
+
+.charlie-panel--sirens,
+.charlie-panel--paws {
+    min-height: 290px;
+}
+
+.charlie-panel--pups {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 250, 238, 0.98)),
+        radial-gradient(circle at top right, color-mix(in srgb, var(--selected-pup), white 45%), transparent 10rem);
+}
+
+.charlie-panel__heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.charlie-panel__heading h2 {
+    margin: 0;
+    font-size: clamp(1.55rem, 3vw, 2.1rem);
+    line-height: 1;
+}
+
+.charlie-panel__heading p,
+.charlie-panel__message {
+    margin: 0;
+    font-weight: 700;
+}
+
+.charlie-panel__message {
+    min-height: 4.6rem;
+    max-width: 28rem;
+    font-size: clamp(1.05rem, 2vw, 1.3rem);
+}
+
+.charlie-patrol__mission-button {
+    margin-top: 18px;
+    min-width: min(100%, 360px);
+    min-height: 92px;
+    border: 0;
+    border-radius: 28px;
+    background: linear-gradient(180deg, #ff7768 0%, var(--charlie-red) 100%);
+    box-shadow: inset 0 -8px 0 rgba(0, 0, 0, 0.14), 0 16px 24px rgba(248, 77, 63, 0.22);
+    color: #fff9f5;
+    font: inherit;
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.charlie-patrol__mission-button:active {
+    transform: translateY(2px);
+}
+
+.charlie-patrol__confetti {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.charlie-patrol__confetti span {
+    position: absolute;
+    top: 38%;
+    left: 48%;
+    width: 16px;
+    height: 26px;
+    border-radius: 10px;
+    animation: confettiBurst 700ms ease-out both;
+}
+
+.charlie-patrol__confetti span:nth-child(1) {
+    background: #ff4f40;
+    transform: rotate(12deg);
+}
+
+.charlie-patrol__confetti span:nth-child(2) {
+    background: #2b77ff;
+    animation-delay: 30ms;
+}
+
+.charlie-patrol__confetti span:nth-child(3) {
+    background: #ffd548;
+    animation-delay: 60ms;
+}
+
+.charlie-patrol__confetti span:nth-child(4) {
+    background: #47c95b;
+    animation-delay: 90ms;
+}
+
+.charlie-patrol__confetti span:nth-child(5) {
+    background: #ff7bbb;
+    animation-delay: 120ms;
+}
+
+.charlie-patrol__confetti span:nth-child(6) {
+    background: #ffffff;
+    animation-delay: 150ms;
+}
+
+.charlie-patrol__pup-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.charlie-patrol__pup-card {
+    min-height: 132px;
+    padding: 18px 16px;
+    border-radius: 22px;
+    border: 4px solid transparent;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--pup-color), white 70%), white 72%);
+    color: var(--charlie-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    display: grid;
+    gap: 8px;
+    transition: border-color 140ms ease, transform 140ms ease;
+}
+
+.charlie-patrol__pup-card.is-active {
+    border-color: var(--pup-accent);
+    animation: pupWiggle 460ms ease;
+}
+
+.charlie-patrol__pup-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 16px;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--pup-color), white 18%);
+    font-size: 1.6rem;
+}
+
+.charlie-patrol__pup-name {
+    font-size: 1.35rem;
+    font-weight: 900;
+}
+
+.charlie-patrol__pup-copy {
+    font-weight: 700;
+}
+
+.charlie-patrol__siren-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 12px;
+}
+
+.charlie-patrol__siren-pad {
+    min-height: 136px;
+    border: 0;
+    border-radius: 26px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--pad-color), white 28%), var(--pad-color));
+    box-shadow: inset 0 -10px 0 rgba(0, 0, 0, 0.12);
+    color: #fffdf7;
+    font: inherit;
+    font-size: clamp(1.25rem, 2.2vw, 1.65rem);
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.charlie-patrol__siren-pad:active {
+    transform: translateY(2px);
+}
+
+.charlie-patrol__paw-field {
+    position: relative;
+    min-height: 208px;
+    border-radius: 24px;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), transparent 10rem),
+        linear-gradient(180deg, #c3f2ff 0%, #ecfcff 55%, #fff8e8 100%);
+    border: 3px dashed rgba(22, 35, 63, 0.12);
+}
+
+.charlie-patrol__paw-bubble {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.96), transparent 22%),
+        linear-gradient(180deg, #ffffff 0%, #dcf5ff 100%);
+    color: #ff784f;
+    box-shadow: 0 14px 24px rgba(47, 120, 255, 0.14);
+    cursor: pointer;
+}
+
+.charlie-patrol__paw-bubble.is-popped {
+    animation: bubblePop 170ms ease-out forwards;
+}
+
+.charlie-patrol__paw-bubble-core {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    transform: rotate(var(--bubble-rotate));
+    animation-name: floatBubble;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+}
+
+.charlie-patrol__backlink:hover,
+.charlie-patrol__sound-toggle:hover,
+.charlie-patrol__mission-button:hover,
+.charlie-patrol__pup-card:hover,
+.charlie-patrol__siren-pad:hover,
+.charlie-patrol__paw-bubble:hover {
+    filter: saturate(1.06);
+}
+
+.charlie-patrol__backlink:focus-visible,
+.charlie-patrol__sound-toggle:focus-visible,
+.charlie-patrol__mission-button:focus-visible,
+.charlie-patrol__pup-card:focus-visible,
+.charlie-patrol__siren-pad:focus-visible,
+.charlie-patrol__paw-bubble:focus-visible {
+    outline: 4px solid rgba(15, 31, 61, 0.22);
+    outline-offset: 3px;
+}
+
+@keyframes driftCloud {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(120vw);
+    }
+}
+
+@keyframes blinkLights {
+    0%,
+    100% {
+        opacity: 0.9;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+@keyframes badgeBounce {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-8px);
+    }
+}
+
+@keyframes confettiBurst {
+    from {
+        opacity: 0;
+        transform: translate(0, 0) rotate(0deg) scale(0.4);
+    }
+    to {
+        opacity: 0.95;
+        transform: translate(calc(-110px + 40px * var(--x, 1)), calc(-90px + 30px * var(--y, 1))) rotate(160deg) scale(1);
+    }
+}
+
+.charlie-patrol__confetti span:nth-child(1) {
+    --x: -1;
+    --y: -1;
+}
+
+.charlie-patrol__confetti span:nth-child(2) {
+    --x: 0;
+    --y: -1;
+}
+
+.charlie-patrol__confetti span:nth-child(3) {
+    --x: 1;
+    --y: -1;
+}
+
+.charlie-patrol__confetti span:nth-child(4) {
+    --x: -0.5;
+    --y: 0.2;
+}
+
+.charlie-patrol__confetti span:nth-child(5) {
+    --x: 0.6;
+    --y: 0.1;
+}
+
+.charlie-patrol__confetti span:nth-child(6) {
+    --x: 0.1;
+    --y: 0.4;
+}
+
+@keyframes pupWiggle {
+    0%,
+    100% {
+        transform: rotate(0deg) scale(1);
+    }
+    25% {
+        transform: rotate(-2deg) scale(1.02);
+    }
+    75% {
+        transform: rotate(2deg) scale(1.02);
+    }
+}
+
+@keyframes floatBubble {
+    0%,
+    100% {
+        transform: rotate(var(--bubble-rotate)) translateY(0);
+    }
+    50% {
+        transform: rotate(var(--bubble-rotate)) translateY(-10px);
+    }
+}
+
+@keyframes bubblePop {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(1.35);
+    }
+}
+
+@media (max-width: 920px) {
+    .charlie-patrol__hero,
+    .charlie-patrol__grid {
+        grid-template-columns: 1fr;
+    }
+
+    .charlie-patrol__hero h1 {
+        max-width: none;
+    }
+}
+
+@media (max-width: 720px) {
+    .charlie-patrol__content {
+        width: min(100vw - 18px, 100%);
+        padding-top: 16px;
+        padding-bottom: 120px;
+    }
+
+    .charlie-patrol__topbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .charlie-patrol__utility-group {
+        justify-content: stretch;
+    }
+
+    .charlie-patrol__sound-toggle,
+    .charlie-patrol__hq-badge,
+    .charlie-patrol__backlink {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .charlie-patrol__hero-copy,
+    .charlie-patrol__hero-badge,
+    .charlie-panel {
+        border-radius: 24px;
+    }
+
+    .charlie-patrol__hero-copy {
+        padding: 22px 20px 24px;
+    }
+
+    .charlie-patrol__pup-list,
+    .charlie-patrol__siren-row {
+        grid-template-columns: 1fr;
+    }
+
+    .charlie-patrol__mission-button,
+    .charlie-patrol__siren-pad {
+        min-height: 96px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .charlie-patrol__cloud,
+    .charlie-patrol__lights,
+    .charlie-patrol__hero-badge,
+    .charlie-patrol__paw-bubble-core,
+    .charlie-patrol__confetti span,
+    .charlie-patrol__pup-card.is-active {
+        animation: none !important;
+    }
+
+    .charlie-patrol::after {
+        transition: none;
+    }
+}
