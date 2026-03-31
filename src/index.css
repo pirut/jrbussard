@@ -1,15 +1,18 @@
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=Overpass+Mono:wght@500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=Overpass+Mono:wght@500;600&display=swap");
 
 :root {
+    /* Legacy fonts — used by CharliePawPatrol and sub-pages */
     --font-display: "Instrument Serif", "Times New Roman", serif;
     --font-body: "Manrope", "Avenir Next", sans-serif;
     --font-accent: "Overpass Mono", "Menlo", monospace;
-    --paper: #f7f5ef;
-    --ink: #171f2b;
-    --ink-soft: #3a4558;
-    --ink-dim: #2a3343;
-    --line: rgba(23, 31, 43, 0.2);
-    --panel: #fcfbf8;
+
+    /* Legacy palette — kept for sub-page compatibility */
+    --paper: #0a0a0a;
+    --ink: #e6e1d8;
+    --ink-soft: #7a7567;
+    --ink-dim: #6b6560;
+    --line: rgba(230, 225, 216, 0.12);
+    --panel: #111;
 }
 
 * {
@@ -25,10 +28,10 @@ body,
 
 body {
     font-family: var(--font-body);
-    background: var(--paper);
-    color: var(--ink);
-    line-height: 1.65;
-    letter-spacing: 0.004em;
+    background: #0a0a0a;
+    color: #e6e1d8;
+    line-height: 1.55;
+    letter-spacing: 0.01em;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
 }
@@ -40,6 +43,23 @@ img {
 
 a {
     color: inherit;
+}
+
+::selection {
+    background: #ff2200;
+    color: #0a0a0a;
+}
+
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
 }
 
 @media (prefers-reduced-motion: reduce) {
