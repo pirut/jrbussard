@@ -17,7 +17,7 @@ const featuredProjects = [
         label: "Side project",
         href: "https://meltdown.jrbussard.com",
         description:
-            "A nuclear reactor sim where everything eventually goes wrong. Try to keep it running.",
+            "Parents share why their kid had a meltdown today. Made it because the stories are too funny not to have a place for them.",
     },
     {
         title: "Make Waves",
