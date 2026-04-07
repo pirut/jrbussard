@@ -13,11 +13,11 @@ const featuredProjects = [
             "South Florida impact windows and doors. I got curious about the website and kept going.",
     },
     {
-        title: "Land",
+        title: "Meltdown",
         label: "Side project",
-        href: "https://land.jrbussard.com",
+        href: "https://meltdown.jrbussard.com",
         description:
-            "A browser game I wanted to exist. You click, things grow, systems stack up. I keep adding to it.",
+            "A nuclear reactor sim where everything eventually goes wrong. Try to keep it running.",
     },
     {
         title: "Make Waves",
