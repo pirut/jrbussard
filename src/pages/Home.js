@@ -10,28 +10,28 @@ const featuredProjects = [
         label: "Day job",
         href: "https://cstonefl.com",
         description:
-            "South Florida impact windows and doors. I build and run the web platform.",
+            "South Florida impact windows and doors. I got curious about the website and kept going.",
     },
     {
         title: "Land",
         label: "Side project",
         href: "https://land.jrbussard.com",
         description:
-            "A browser game where things compound. Progression, economies, and systems that layer on each other.",
+            "A browser game I wanted to exist. You click, things grow, systems stack up. I keep adding to it.",
     },
     {
         title: "Make Waves",
         label: "Side project",
         href: "https://waves.jrbussard.com",
         description:
-            "Event coordination for community organizers. Keeps momentum going between campaigns.",
+            "Built this for friends who organize community events. Helps them keep things moving between campaigns.",
     },
 ];
 
 const focusAreas = [
-    "Writing frontend code that ages well",
-    "Making games that run in a browser tab",
-    "Building tools for people who organize",
+    "Seeing how far AI tools can take an idea",
+    "Browser games I'd actually want to play",
+    "Making useful things for people I know",
 ];
 
 const langColors = {
@@ -153,16 +153,17 @@ const Home = () => {
             <section className="hero" aria-labelledby="home-title">
                 <div className="hero__text">
                     <h1 id="home-title">
-                        <span className="hero__line">I MAKE</span>
-                        <span className="hero__line">WEBSITES,</span>
+                        <span className="hero__line">JUST A GUY</span>
+                        <span className="hero__line">WHO LIKES TO</span>
                         <span className="hero__line">
-                            GAMES, &amp; TOOLS
+                            BUILD THINGS
                             <span className="accent-dot">.</span>
                         </span>
                     </h1>
                     <p className="hero__sub">
-                        Developer at Cornerstone Companies. Side projects on
-                        nights and weekends.
+                        Websites, games, tools — whatever sounds fun.
+                        I work at Cornerstone Companies by day and tinker
+                        with this stuff the rest of the time.
                     </p>
                 </div>
                 <figure className="hero__media">
@@ -213,7 +214,7 @@ const Home = () => {
             <Section aria-labelledby="feed-title" delay={100}>
                 <div className="section__header">
                     <span className="section__number">02</span>
-                    <h2 id="feed-title">LIVE FEED</h2>
+                    <h2 id="feed-title">RECENT ACTIVITY</h2>
                     <span className="live-badge">
                         <span className="live-dot" /> LIVE
                     </span>
@@ -344,7 +345,7 @@ const Home = () => {
             <Section aria-labelledby="focus-title" delay={100}>
                 <div className="section__header">
                     <span className="section__number">04</span>
-                    <h2 id="focus-title">CURRENT FOCUS</h2>
+                    <h2 id="focus-title">WHAT I'M INTO</h2>
                 </div>
                 <ul className="focus-list">
                     {focusAreas.map((area, i) => (
@@ -363,7 +364,7 @@ const Home = () => {
             {/* Footer */}
             <footer className="bfooter">
                 <div className="bfooter__inner">
-                    <span>BUILT WITH REACT</span>
+                    <span>BUILT WITH AI + CURIOSITY</span>
                     <span className="bfooter__sep">/</span>
                     <span>HOSTED ON VERCEL</span>
                     <span className="bfooter__sep">/</span>
