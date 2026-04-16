@@ -9,6 +9,7 @@ const featuredProjects = [
         title: "Cornerstone Companies",
         label: "Day job",
         href: "https://cstonefl.com",
+        domain: "cstonefl.com",
         description:
             "South Florida impact windows and doors. I got curious about the website and kept going.",
     },
@@ -16,6 +17,7 @@ const featuredProjects = [
         title: "Meltdown",
         label: "Side project",
         href: "https://meltdown.jrbussard.com",
+        domain: "meltdown.jrbussard.com",
         description:
             "Parents share why their kid had a meltdown today. Made it because the stories are too funny not to have a place for them.",
     },
@@ -23,51 +25,51 @@ const featuredProjects = [
         title: "Make Waves",
         label: "Side project",
         href: "https://waves.jrbussard.com",
+        domain: "waves.jrbussard.com",
         description:
             "Built this for friends who organize community events. Helps them keep things moving between campaigns.",
     },
 ];
 
-const focusAreas = [
+const pursuits = [
     "Seeing how far AI tools can take an idea",
     "Browser games I'd actually want to play",
     "Making useful things for people I know",
 ];
 
 const langColors = {
-    JavaScript: "#f1e05a",
-    TypeScript: "#3178c6",
-    HTML: "#e34c26",
-    CSS: "#563d7c",
-    Python: "#3572A5",
-    Java: "#b07219",
-    Go: "#00ADD8",
-    Rust: "#dea584",
-    Ruby: "#701516",
-    Shell: "#89e051",
-    C: "#555555",
-    "C++": "#f34b7d",
-    "C#": "#178600",
-    PHP: "#4F5D95",
-    Swift: "#F05138",
-    Kotlin: "#A97BFF",
+    JavaScript: "#d9b94a",
+    TypeScript: "#2f5ea8",
+    HTML: "#c0452a",
+    CSS: "#5c3c86",
+    Python: "#2e5d85",
+    Java: "#986326",
+    Go: "#1d8ca8",
+    Rust: "#b8744a",
+    Ruby: "#6a1316",
+    Shell: "#6f9e38",
+    C: "#4a4a4a",
+    "C++": "#c33a67",
+    "C#": "#186116",
+    PHP: "#404f7d",
+    Swift: "#c44631",
+    Kotlin: "#7b54c7",
 };
 
 function timeAgo(dateStr) {
     const seconds = Math.floor((Date.now() - new Date(dateStr)) / 1000);
-    if (seconds < 60) return `${seconds}S AGO`;
+    if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}M AGO`;
+    if (minutes < 60) return `${minutes}m ago`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}H AGO`;
+    if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
-    if (days < 30) return `${days}D AGO`;
+    if (days < 30) return `${days}d ago`;
     const months = Math.floor(days / 30);
-    return `${months}MO AGO`;
+    return `${months}mo ago`;
 }
 
-/* Scroll-triggered reveal wrapper */
-function Section({ children, className = "", delay = 0, ...props }) {
+function Reveal({ as: Tag = "section", children, className = "", delay = 0, ...rest }) {
     const ref = useRef(null);
     const [visible, setVisible] = useState(false);
 
@@ -88,296 +90,228 @@ function Section({ children, className = "", delay = 0, ...props }) {
     }, []);
 
     return (
-        <section
+        <Tag
             ref={ref}
-            className={`bsection ${className} ${visible ? "is-visible" : ""}`}
+            className={`reveal ${className} ${visible ? "is-visible" : ""}`}
             style={{ transitionDelay: `${delay}ms` }}
-            {...props}
+            {...rest}
         >
             {children}
-        </section>
+        </Tag>
     );
 }
 
 const Home = () => {
     const heroSrc = `${process.env.PUBLIC_URL}/assets/hero.jpg`;
     const { repos, activity, loading, error } = useGitHub();
-    const [time, setTime] = useState(new Date());
+    const [now, setNow] = useState(new Date());
 
     useEffect(() => {
-        const interval = setInterval(() => setTime(new Date()), 1000);
-        return () => clearInterval(interval);
+        const id = setInterval(() => setNow(new Date()), 60000);
+        return () => clearInterval(id);
     }, []);
+
+    const dateLabel = now.toLocaleDateString("en-US", {
+        month: "short",
+        year: "numeric",
+    });
 
     const displayRepos = repos.slice(0, 6);
 
     return (
-        <main className="home">
-            {/* Grain noise overlay */}
+        <main className="journal">
             <svg className="grain" aria-hidden="true">
-                <filter id="grain-filter">
+                <filter id="paper-grain">
                     <feTurbulence
                         type="fractalNoise"
-                        baseFrequency="0.65"
-                        numOctaves="3"
+                        baseFrequency="0.82"
+                        numOctaves="2"
                         stitchTiles="stitch"
                     />
+                    <feColorMatrix
+                        type="matrix"
+                        values="0 0 0 0 0.05
+                                0 0 0 0 0.04
+                                0 0 0 0 0.02
+                                0 0 0 0.7 0"
+                    />
                 </filter>
-                <rect
-                    width="100%"
-                    height="100%"
-                    filter="url(#grain-filter)"
-                />
+                <rect width="100%" height="100%" filter="url(#paper-grain)" />
             </svg>
 
-            {/* CRT scan lines */}
-            <div className="scanlines" aria-hidden="true" />
-
-            {/* Status bar */}
-            <header className="status-bar">
-                <span className="status-bar__name">JR BUSSARD</span>
-                <span className="status-bar__status">
-                    <span className="status-dot" /> ONLINE
-                </span>
-                <span className="status-bar__time">
-                    {time.toLocaleTimeString("en-US", {
-                        hour12: false,
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                    })}
-                </span>
+            <header className="masthead">
+                <h1 className="masthead__title" aria-label="JR Bussard">
+                    <span className="masthead__title-jr">JR</span>
+                    <span className="masthead__title-bussard">Bussard</span>
+                </h1>
+                <span className="masthead__date">{dateLabel}</span>
             </header>
 
-            {/* Hero */}
-            <section className="hero" aria-labelledby="home-title">
+            <hr className="rule rule--heavy" aria-hidden="true" />
+
+            <section className="hero">
                 <div className="hero__text">
-                    <h1 id="home-title">
-                        <span className="hero__line">JUST A GUY</span>
-                        <span className="hero__line">WHO LIKES TO</span>
-                        <span className="hero__line">
-                            BUILD THINGS
-                            <span className="accent-dot">.</span>
+                    <h2 className="hero__headline">
+                        <span className="hero__line">Builds things</span>
+                        <span className="hero__line hero__line--italic">
+                            on nights &amp; weekends.
                         </span>
-                    </h1>
+                    </h2>
                     <p className="hero__sub">
-                        Websites, games, tools — whatever sounds fun.
-                        I work at Cornerstone Companies by day and tinker
-                        with this stuff the rest of the time.
+                        Websites, games, tools &mdash; whatever sounds fun.
+                        I work at Cornerstone Companies by day and tinker with
+                        this stuff the rest of the time.
                     </p>
                 </div>
-                <figure className="hero__media">
+                <figure className="hero__portrait">
                     <img src={heroSrc} alt="JR Bussard" loading="eager" />
-                    <div className="hero__media-border" aria-hidden="true" />
                 </figure>
             </section>
 
-            <div className="divider" aria-hidden="true" />
+            <hr className="rule" aria-hidden="true" />
 
-            {/* Projects */}
-            <Section aria-labelledby="projects-title">
-                <div className="section__header">
-                    <span className="section__number">01</span>
-                    <h2 id="projects-title">PROJECTS</h2>
-                </div>
-                <div className="project-grid">
+            <Reveal className="article" aria-labelledby="projects-title">
+                <header className="article__head">
+                    <span className="article__num">01</span>
+                    <h2 id="projects-title">Projects</h2>
+                </header>
+
+                <div className="works">
                     {featuredProjects.map((project, i) => (
                         <a
                             key={project.title}
                             href={project.href}
                             target="_blank"
                             rel="noreferrer"
-                            className="project-card"
-                            style={{ animationDelay: `${i * 100 + 200}ms` }}
+                            className="work"
+                            style={{ animationDelay: `${i * 80 + 120}ms` }}
                         >
-                            <span className="project-card__label">
-                                {project.label}
-                            </span>
-                            <h3 className="project-card__title">
-                                {project.title}
-                            </h3>
-                            <p className="project-card__desc">
-                                {project.description}
-                            </p>
-                            <span className="project-card__link">
-                                OPEN SITE{" "}
-                                <span className="arrow">&rarr;</span>
+                            <span className="work__label">{project.label}</span>
+                            <h3 className="work__title">{project.title}</h3>
+                            <p className="work__desc">{project.description}</p>
+                            <span className="work__domain">
+                                {project.domain}
+                                <span className="work__arrow" aria-hidden="true">
+                                    ↗
+                                </span>
                             </span>
                         </a>
                     ))}
                 </div>
-            </Section>
+            </Reveal>
 
-            <div className="divider" aria-hidden="true" />
+            <hr className="rule" aria-hidden="true" />
 
-            {/* GitHub Live Feed */}
-            <Section aria-labelledby="feed-title" delay={100}>
-                <div className="section__header">
-                    <span className="section__number">02</span>
-                    <h2 id="feed-title">RECENT ACTIVITY</h2>
-                    <span className="live-badge">
-                        <span className="live-dot" /> LIVE
-                    </span>
-                </div>
-                <div className="terminal">
-                    {loading && (
-                        <div className="terminal__status">
-                            <span className="blink">
-                                FETCHING GITHUB DATA...
-                            </span>
-                        </div>
-                    )}
+            <Reveal className="article" aria-labelledby="activity-title" delay={60}>
+                <header className="article__head">
+                    <span className="article__num">02</span>
+                    <h2 id="activity-title">Recent activity</h2>
+                </header>
+
+                <div className="feed">
+                    {loading && <div className="feed__status">Loading…</div>}
                     {error && (
-                        <div className="terminal__status terminal__error">
-                            <span className="terminal__prefix">!</span>{" "}
-                            CONNECTION FAILED &mdash; {error}
+                        <div className="feed__status feed__status--error">
+                            Couldn&rsquo;t reach GitHub — {error}
                         </div>
                     )}
-                    {!loading &&
-                        !error &&
-                        activity.length === 0 && (
-                            <div className="terminal__status">
-                                NO RECENT ACTIVITY
-                            </div>
-                        )}
-                    {!loading &&
-                        !error &&
-                        activity.map((commit, i) => (
-                            <a
-                                key={`${commit.sha}-${i}`}
-                                href={commit.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="terminal__line"
-                                style={{
-                                    animationDelay: `${i * 60}ms`,
-                                }}
-                            >
-                                <div className="terminal__line-main">
-                                    <span className="terminal__sha">
-                                        {commit.sha.slice(0, 7)}
-                                    </span>
-                                    <span className="terminal__repo">
-                                        {commit.repo}
-                                    </span>
-                                    <span className="terminal__time">
-                                        {timeAgo(commit.date)}
-                                    </span>
-                                </div>
-                                <div className="terminal__detail">
-                                    {commit.message}
-                                </div>
-                            </a>
-                        ))}
-                    <div className="terminal__cursor" aria-hidden="true">
-                        <span className="blink">&block;</span>
-                    </div>
+                    {!loading && !error && activity.length === 0 && (
+                        <div className="feed__status">Nothing recent.</div>
+                    )}
+                    {!loading && !error && activity.length > 0 && (
+                        <ol className="feed__list">
+                            {activity.map((commit, i) => (
+                                <li key={`${commit.sha}-${i}`} style={{ animationDelay: `${i * 40}ms` }}>
+                                    <a href={commit.url} target="_blank" rel="noreferrer" className="feed__entry">
+                                        <span className="feed__body">
+                                            <span className="feed__message">{commit.message}</span>
+                                            <span className="feed__meta">
+                                                <span className="feed__repo">{commit.repo}</span>
+                                                <span className="feed__dot" aria-hidden="true">·</span>
+                                                <span className="feed__sha">{commit.sha.slice(0, 7)}</span>
+                                                <span className="feed__dot" aria-hidden="true">·</span>
+                                                <span className="feed__time">{timeAgo(commit.date)}</span>
+                                            </span>
+                                        </span>
+                                        <span className="feed__arrow" aria-hidden="true">↗</span>
+                                    </a>
+                                </li>
+                            ))}
+                        </ol>
+                    )}
                 </div>
-            </Section>
+            </Reveal>
 
-            <div className="divider" aria-hidden="true" />
+            <hr className="rule" aria-hidden="true" />
 
-            {/* Repositories */}
-            <Section aria-labelledby="repos-title" delay={100}>
-                <div className="section__header">
-                    <span className="section__number">03</span>
-                    <h2 id="repos-title">REPOSITORIES</h2>
-                </div>
-                {loading && (
-                    <p className="loading-text">
-                        <span className="blink">LOADING...</span>
-                    </p>
-                )}
+            <Reveal className="article" aria-labelledby="repos-title" delay={60}>
+                <header className="article__head">
+                    <span className="article__num">03</span>
+                    <h2 id="repos-title">Repositories</h2>
+                </header>
+
+                {loading && <p className="stacks__status">Loading…</p>}
                 {!loading && (
-                    <div className="repo-grid">
+                    <ol className="stacks">
                         {displayRepos.map((repo, i) => (
-                            <a
-                                key={repo.id}
-                                href={repo.html_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="repo-card"
-                                style={{
-                                    animationDelay: `${i * 80 + 100}ms`,
-                                }}
-                            >
-                                <h3 className="repo-card__name">
-                                    {repo.name}
-                                </h3>
-                                {repo.description && (
-                                    <p className="repo-card__desc">
-                                        {repo.description}
-                                    </p>
-                                )}
-                                <div className="repo-card__meta">
-                                    {repo.language && (
-                                        <span className="repo-card__lang">
-                                            <span
-                                                className="lang-dot"
-                                                style={{
-                                                    background:
-                                                        langColors[
-                                                            repo.language
-                                                        ] || "#888",
-                                                }}
-                                            />
-                                            {repo.language}
-                                        </span>
+                            <li key={repo.id} style={{ animationDelay: `${i * 50 + 80}ms` }}>
+                                <a href={repo.html_url} target="_blank" rel="noreferrer" className="stack">
+                                    <h3 className="stack__name">{repo.name}</h3>
+                                    {repo.description && (
+                                        <p className="stack__desc">{repo.description}</p>
                                     )}
-                                    {repo.stargazers_count > 0 && (
-                                        <span className="repo-card__stars">
-                                            &#9733; {repo.stargazers_count}
-                                        </span>
-                                    )}
-                                    <span className="repo-card__updated">
-                                        {timeAgo(repo.pushed_at)}
-                                    </span>
-                                </div>
-                            </a>
+                                    <div className="stack__meta">
+                                        {repo.language && (
+                                            <span className="stack__lang">
+                                                <span
+                                                    className="stack__lang-dot"
+                                                    style={{
+                                                        background:
+                                                            langColors[repo.language] ||
+                                                            "var(--ink-muted)",
+                                                    }}
+                                                />
+                                                {repo.language}
+                                            </span>
+                                        )}
+                                        {repo.stargazers_count > 0 && (
+                                            <span className="stack__stars">★ {repo.stargazers_count}</span>
+                                        )}
+                                        <span className="stack__updated">{timeAgo(repo.pushed_at)}</span>
+                                    </div>
+                                </a>
+                            </li>
                         ))}
-                    </div>
+                    </ol>
                 )}
-            </Section>
+            </Reveal>
 
-            <div className="divider" aria-hidden="true" />
+            <hr className="rule" aria-hidden="true" />
 
-            {/* Focus */}
-            <Section aria-labelledby="focus-title" delay={100}>
-                <div className="section__header">
-                    <span className="section__number">04</span>
-                    <h2 id="focus-title">WHAT I'M INTO</h2>
-                </div>
-                <ul className="focus-list">
-                    {focusAreas.map((area, i) => (
-                        <li
-                            key={area}
-                            style={{
-                                animationDelay: `${i * 80 + 200}ms`,
-                            }}
-                        >
-                            <span className="focus-arrow">&rarr;</span> {area}
+            <Reveal className="article" aria-labelledby="pursuits-title" delay={60}>
+                <header className="article__head">
+                    <span className="article__num">04</span>
+                    <h2 id="pursuits-title">What I&rsquo;m into</h2>
+                </header>
+
+                <ul className="pursuits">
+                    {pursuits.map((p, i) => (
+                        <li key={p} style={{ animationDelay: `${i * 80 + 100}ms` }}>
+                            <span className="pursuits__arrow" aria-hidden="true">→</span>
+                            {p}
                         </li>
                     ))}
                 </ul>
-            </Section>
+            </Reveal>
 
-            {/* Footer */}
-            <footer className="bfooter">
-                <div className="bfooter__inner">
-                    <span>BUILT WITH AI + CURIOSITY</span>
-                    <span className="bfooter__sep">/</span>
-                    <span>HOSTED ON VERCEL</span>
-                    <span className="bfooter__sep">/</span>
-                    <span>
-                        <a
-                            href={`https://github.com/${GITHUB_USER}`}
-                            target="_blank"
-                            rel="noreferrer"
-                        >
-                            GITHUB/{GITHUB_USER.toUpperCase()}
-                        </a>
-                    </span>
-                </div>
+            <hr className="rule rule--heavy" aria-hidden="true" />
+
+            <footer className="footer">
+                <span>© JR Bussard {now.getFullYear()}</span>
+                <span className="footer__sep" aria-hidden="true">·</span>
+                <a href={`https://github.com/${GITHUB_USER}`} target="_blank" rel="noreferrer">
+                    github.com/{GITHUB_USER}
+                </a>
             </footer>
         </main>
     );

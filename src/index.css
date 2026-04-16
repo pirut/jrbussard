@@ -1,18 +1,34 @@
-@import url("https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=Overpass+Mono:wght@500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=Fragment+Mono:ital@0;1&display=swap");
 
 :root {
-    /* Legacy fonts — used by CharliePawPatrol and sub-pages */
-    --font-display: "Instrument Serif", "Times New Roman", serif;
-    --font-body: "Manrope", "Avenir Next", sans-serif;
-    --font-accent: "Overpass Mono", "Menlo", monospace;
+    --paper: #f1ece1;
+    --paper-deep: #ebe4d4;
+    --paper-shade: #e4dcc8;
+    --ink: #0e0d0b;
+    --ink-soft: #3a3631;
+    --ink-muted: #857c6d;
+    --ink-faint: #b4aa98;
+    --rule: #16130e;
+    --rule-soft: rgba(22, 19, 14, 0.18);
+    --rule-hair: rgba(22, 19, 14, 0.12);
+    --oxblood: #8a1a2b;
+    --oxblood-deep: #5a1019;
+    --sepia: #c89452;
+    --indigo: #1d2a52;
 
-    /* Legacy palette — kept for sub-page compatibility */
-    --paper: #0a0a0a;
-    --ink: #e6e1d8;
-    --ink-soft: #7a7567;
-    --ink-dim: #6b6560;
-    --line: rgba(230, 225, 216, 0.12);
-    --panel: #111;
+    --font-display: "Fraunces", "Playfair Display", Georgia, serif;
+    --font-body: "Newsreader", "Iowan Old Style", "Georgia", serif;
+    --font-mono: "Fragment Mono", "JetBrains Mono", "Menlo", monospace;
+
+    --grid-gutter: clamp(1rem, 2vw, 1.75rem);
+    --page-pad-x: clamp(1.25rem, 5vw, 4.5rem);
+    --page-pad-y: clamp(1.5rem, 4vw, 3rem);
+
+    /* Legacy tokens kept so the Charlie page keeps working */
+    --ink-dim: var(--ink-muted);
+    --line: var(--rule-soft);
+    --panel: var(--paper-deep);
+    --font-accent: var(--font-mono);
 }
 
 * {
@@ -26,14 +42,23 @@ body,
     min-height: 100%;
 }
 
+html {
+    background: var(--paper);
+}
+
 body {
+    margin: 0;
     font-family: var(--font-body);
-    background: #0a0a0a;
-    color: #e6e1d8;
+    font-variation-settings: "opsz" 18, "wght" 420;
+    font-size: 17px;
     line-height: 1.55;
-    letter-spacing: 0.01em;
+    letter-spacing: 0.002em;
+    color: var(--ink);
+    background: var(--paper);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "ss02", "liga", "dlig";
 }
 
 img {
@@ -46,20 +71,26 @@ a {
 }
 
 ::selection {
-    background: #ff2200;
-    color: #0a0a0a;
+    background: var(--oxblood);
+    color: var(--paper);
 }
 
 ::-webkit-scrollbar {
-    width: 6px;
+    width: 10px;
+    height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-    background: #0a0a0a;
+    background: var(--paper);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #2a2a2a;
+    background: var(--paper-shade);
+    border-right: 2px solid var(--paper);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-faint);
 }
 
 @media (prefers-reduced-motion: reduce) {
