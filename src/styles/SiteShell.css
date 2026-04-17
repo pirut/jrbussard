@@ -1,7 +1,294 @@
-.site-shell {
+/* =============================================================
+   Shell — ambient backdrop, cursor, boot overlay
+   ============================================================= */
+
+.shell {
+    position: relative;
     min-height: 100vh;
+    width: 100%;
+    isolation: isolate;
+    background: var(--obsidian);
+    overflow-x: hidden;
 }
 
-.site-shell__content {
+.shell__content {
+    position: relative;
+    z-index: 1;
+}
+
+/* ---------- Ambient background layer ---------- */
+
+.ambient {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.ambient__grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(to right, rgba(239, 231, 214, 0.035) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(239, 231, 214, 0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 110% 80% at 50% 40%, black 35%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 110% 80% at 50% 40%, black 35%, transparent 80%);
+    opacity: 0.9;
+}
+
+.ambient__aurora {
+    position: absolute;
+    inset: -20%;
+    background:
+        radial-gradient(45% 35% at 15% 25%, rgba(255, 90, 31, 0.18) 0%, transparent 60%),
+        radial-gradient(35% 35% at 85% 30%, rgba(138, 255, 212, 0.08) 0%, transparent 70%),
+        radial-gradient(55% 45% at 50% 110%, rgba(255, 194, 104, 0.07) 0%, transparent 70%);
+    filter: blur(60px);
+    animation: auroraDrift 24s ease-in-out infinite alternate;
+}
+
+@keyframes auroraDrift {
+    0% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-3%, 2%) scale(1.03); }
+    100% { transform: translate(2%, -2%) scale(1.01); }
+}
+
+.ambient__spotlight {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+        350px 350px at var(--sx, 50%) var(--sy, 50%),
+        rgba(255, 90, 31, 0.12) 0%,
+        rgba(255, 90, 31, 0.04) 30%,
+        transparent 60%
+    );
+    transition: background 0.05s linear;
+    mix-blend-mode: screen;
+}
+
+.ambient__scan {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+        to bottom,
+        transparent 0px,
+        transparent 2px,
+        rgba(239, 231, 214, 0.015) 3px,
+        transparent 4px
+    );
+    animation: scanDrift 6s linear infinite;
+    opacity: 0.6;
+}
+
+@keyframes scanDrift {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(4px); }
+}
+
+.ambient__grain {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.35;
+    mix-blend-mode: overlay;
+}
+
+.ambient__vignette {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 85% 70% at 50% 50%, transparent 40%, rgba(7, 8, 10, 0.85) 100%);
+    pointer-events: none;
+}
+
+/* ---------- Custom cursor ---------- */
+
+.cursor {
+    position: fixed;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 9999;
+    will-change: transform;
+    mix-blend-mode: difference;
+}
+
+.cursor--dot {
+    width: 6px;
+    height: 6px;
+    background: var(--bone);
+    border-radius: 50%;
+    transition: width 0.25s var(--ease-out), height 0.25s var(--ease-out);
+}
+
+.cursor--ring {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--bone);
+    border-radius: 50%;
+    transition: width 0.3s var(--ease-out), height 0.3s var(--ease-out),
+        border-color 0.2s linear, background 0.2s linear;
+}
+
+.cursor--ring.is-active {
+    width: 74px;
+    height: 74px;
+    border-color: var(--ember);
+    background: rgba(255, 90, 31, 0.1);
+    mix-blend-mode: normal;
+}
+
+.cursor__label {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ember);
+    white-space: nowrap;
+}
+
+@media (hover: none) {
+    .cursor {
+        display: none;
+    }
+}
+
+/* ---------- Boot overlay ---------- */
+
+.boot {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: var(--void);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    transition: opacity 0.5s var(--ease-out),
+        visibility 0s linear 0.8s,
+        clip-path 0.8s var(--ease-in-out);
+    clip-path: inset(0 0 0 0);
+    color: var(--bone);
+}
+
+.boot--done {
+    opacity: 0;
+    visibility: hidden;
+    clip-path: inset(50% 0 50% 0);
+}
+
+.boot__grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(to right, rgba(239, 231, 214, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(239, 231, 214, 0.05) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 85%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 85%);
+}
+
+.boot__inner {
+    position: relative;
+    padding: clamp(1.25rem, 4vw, 3rem);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
     min-height: 100vh;
+    z-index: 1;
+}
+
+.boot__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--bone-dim);
+}
+
+.boot__row--bot {
+    justify-content: center;
+    color: var(--ember);
+    animation: bootFlash 1.2s steps(2) infinite;
+}
+
+@keyframes bootFlash {
+    0%, 60% { opacity: 1; }
+    70%, 100% { opacity: 0.3; }
+}
+
+.boot__stage {
+    align-self: center;
+    justify-self: center;
+    width: min(540px, 100%);
+    display: grid;
+    gap: 1rem;
+}
+
+.boot__label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--bone-dim);
+}
+
+.boot__counter {
+    display: flex;
+    align-items: baseline;
+    gap: 0.15rem;
+    font-family: var(--font-display);
+    font-size: clamp(4rem, 12vw, 8rem);
+    line-height: 0.9;
+    letter-spacing: -0.02em;
+}
+
+.boot__num {
+    color: var(--bone);
+    font-variant-numeric: tabular-nums;
+}
+
+.boot__pct {
+    font-size: 0.4em;
+    color: var(--ember);
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+    align-self: flex-start;
+    padding-top: 1.2em;
+}
+
+.boot__bar {
+    width: 100%;
+    height: 2px;
+    background: var(--bone-hair);
+    position: relative;
+    overflow: hidden;
+}
+
+.boot__bar-fill {
+    height: 100%;
+    background: var(--ember);
+    transition: width 0.08s linear;
+    box-shadow: 0 0 12px rgba(255, 90, 31, 0.7);
+}
+
+.boot__meta {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--bone-dim);
+}
+
+@media (max-width: 640px) {
+    .boot__meta span:first-child {
+        display: none;
+    }
 }

@@ -1,0 +1,162 @@
+- main [ref=e5]:
+  - img
+  - generic [ref=e6]:
+    - generic [ref=e7]: JR BUSSARD
+    - generic [ref=e8]: ONLINE
+    - generic [ref=e10]: 09:27:15
+  - region "BUILDING CLEAR, USEFUL WEB PROJECTS." [ref=e11]:
+    - generic [ref=e12]:
+      - heading "BUILDING CLEAR, USEFUL WEB PROJECTS." [level=1] [ref=e13]:
+        - generic [ref=e14]: BUILDING
+        - generic [ref=e15]: CLEAR, USEFUL
+        - generic [ref=e16]: WEB PROJECTS.
+      - paragraph [ref=e17]: Web developer. Building Cornerstone Companies as my main gig, alongside side projects in games, social platforms, and practical tools.
+    - figure [ref=e18]:
+      - img "JR Bussard" [ref=e19]
+  - region "PROJECTS" [ref=e22]:
+    - generic [ref=e23]:
+      - generic [ref=e24]: "01"
+      - heading "PROJECTS" [level=2] [ref=e25]
+    - generic [ref=e26]:
+      - link "Main job Cornerstone Companies Building a South Florida luxury impact windows and doors company delivering design-forward, high-performance fenestration solutions. OPEN SITE →" [ref=e27] [cursor=pointer]:
+        - /url: https://cstonefl.com
+        - generic [ref=e28]: Main job
+        - heading "Cornerstone Companies" [level=3] [ref=e29]
+        - paragraph [ref=e30]: Building a South Florida luxury impact windows and doors company delivering design-forward, high-performance fenestration solutions.
+        - generic [ref=e31]:
+          - text: OPEN SITE
+          - generic [ref=e32]: →
+      - link "Side project Land A persistent browser world focused on progression systems, player economies, and long-term experimentation. OPEN SITE →" [ref=e33] [cursor=pointer]:
+        - /url: https://land.jrbussard.com
+        - generic [ref=e34]: Side project
+        - heading "Land" [level=3] [ref=e35]
+        - paragraph [ref=e36]: A persistent browser world focused on progression systems, player economies, and long-term experimentation.
+        - generic [ref=e37]:
+          - text: OPEN SITE
+          - generic [ref=e38]: →
+      - link "Side project Make Waves A platform for community organizers to host events, coordinate participants, and keep momentum between campaigns. OPEN SITE →" [ref=e39] [cursor=pointer]:
+        - /url: https://waves.jrbussard.com
+        - generic [ref=e40]: Side project
+        - heading "Make Waves" [level=3] [ref=e41]
+        - paragraph [ref=e42]: A platform for community organizers to host events, coordinate participants, and keep momentum between campaigns.
+        - generic [ref=e43]:
+          - text: OPEN SITE
+          - generic [ref=e44]: →
+  - region "LIVE FEED" [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]: "02"
+      - heading "LIVE FEED" [level=2] [ref=e49]
+      - generic [ref=e50]: LIVE
+    - generic [ref=e52]:
+      - generic [ref=e54]:
+        - generic [ref=e55]: →
+        - generic [ref=e56]: PUSHED
+        - generic [ref=e57]: jrbussard
+        - generic [ref=e58]: 17H AGO
+      - generic [ref=e60]:
+        - generic [ref=e61]: →
+        - generic [ref=e62]: PUSHED
+        - generic [ref=e63]: clicker
+        - generic [ref=e64]: 17H AGO
+      - generic [ref=e66]:
+        - generic [ref=e67]: →
+        - generic [ref=e68]: PUSHED
+        - generic [ref=e69]: clicker
+        - generic [ref=e70]: 17H AGO
+      - generic [ref=e72]:
+        - generic [ref=e73]: →
+        - generic [ref=e74]: PUSHED
+        - generic [ref=e75]: clicker
+        - generic [ref=e76]: 18H AGO
+      - generic [ref=e78]:
+        - generic [ref=e79]: →
+        - generic [ref=e80]: PUSHED
+        - generic [ref=e81]: ai-test
+        - generic [ref=e82]: 4D AGO
+      - generic [ref=e84]:
+        - generic [ref=e85]: →
+        - generic [ref=e86]: PUSHED
+        - generic [ref=e87]: ai-test
+        - generic [ref=e88]: 5D AGO
+      - generic [ref=e90]:
+        - generic [ref=e91]: →
+        - generic [ref=e92]: PUSHED
+        - generic [ref=e93]: ai-test
+        - generic [ref=e94]: 5D AGO
+      - generic [ref=e96]:
+        - generic [ref=e97]: →
+        - generic [ref=e98]: PUSHED
+        - generic [ref=e99]: ai-test
+        - generic [ref=e100]: 5D AGO
+      - generic [ref=e102]:
+        - generic [ref=e103]: →
+        - generic [ref=e104]: PUSHED
+        - generic [ref=e105]: ai-test
+        - generic [ref=e106]: 5D AGO
+      - generic [ref=e108]:
+        - generic [ref=e109]: →
+        - generic [ref=e110]: PUSHED
+        - generic [ref=e111]: ai-test
+        - generic [ref=e112]: 5D AGO
+      - generic [ref=e113]: "&block;"
+  - region "REPOSITORIES" [ref=e115]:
+    - generic [ref=e116]:
+      - generic [ref=e117]: "03"
+      - heading "REPOSITORIES" [level=2] [ref=e118]
+    - generic [ref=e119]:
+      - link "jrbussard My personal website CSS 17H AGO" [ref=e120] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrbussard
+        - heading "jrbussard" [level=3] [ref=e121]
+        - paragraph [ref=e122]: My personal website
+        - generic [ref=e123]:
+          - generic [ref=e124]: CSS
+          - generic [ref=e126]: 17H AGO
+      - link "clicker TypeScript 17H AGO" [ref=e127] [cursor=pointer]:
+        - /url: https://github.com/pirut/clicker
+        - heading "clicker" [level=3] [ref=e128]
+        - generic [ref=e129]:
+          - generic [ref=e130]: TypeScript
+          - generic [ref=e132]: 17H AGO
+      - link "chunks3 1D AGO" [ref=e133] [cursor=pointer]:
+        - /url: https://github.com/pirut/chunks3
+        - heading "chunks3" [level=3] [ref=e134]
+        - generic [ref=e136]: 1D AGO
+      - link "ai-test TypeScript 4D AGO" [ref=e137] [cursor=pointer]:
+        - /url: https://github.com/pirut/ai-test
+        - heading "ai-test" [level=3] [ref=e138]
+        - generic [ref=e139]:
+          - generic [ref=e140]: TypeScript
+          - generic [ref=e142]: 4D AGO
+      - link "jrland JavaScript 5D AGO" [ref=e143] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrland
+        - heading "jrland" [level=3] [ref=e144]
+        - generic [ref=e145]:
+          - generic [ref=e146]: JavaScript
+          - generic [ref=e148]: 5D AGO
+      - link "kristyfitness Astro 14D AGO" [ref=e149] [cursor=pointer]:
+        - /url: https://github.com/pirut/kristyfitness
+        - heading "kristyfitness" [level=3] [ref=e150]
+        - generic [ref=e151]:
+          - generic [ref=e152]: Astro
+          - generic [ref=e154]: 14D AGO
+  - region "CURRENT FOCUS" [ref=e156]:
+    - generic [ref=e157]:
+      - generic [ref=e158]: "04"
+      - heading "CURRENT FOCUS" [level=2] [ref=e159]
+    - list [ref=e160]:
+      - listitem [ref=e161]:
+        - generic [ref=e162]: →
+        - text: Readable, durable frontend systems
+      - listitem [ref=e163]:
+        - generic [ref=e164]: →
+        - text: Game mechanics and progression loops for the web
+      - listitem [ref=e165]:
+        - generic [ref=e166]: →
+        - text: Tools that help communities organize action
+  - generic [ref=e168]:
+    - generic [ref=e169]: BUILT WITH REACT
+    - generic [ref=e170]: /
+    - generic [ref=e171]: HOSTED ON VERCEL
+    - generic [ref=e172]: /
+    - link "GITHUB/PIRUT" [ref=e174] [cursor=pointer]:
+      - /url: https://github.com/pirut

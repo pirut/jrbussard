@@ -1,33 +1,66 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=Fragment+Mono:ital@0;1&display=swap");
+/* =============================================================
+   JR BUSSARD // CINEMATIC ARCHIVE
+   Obsidian, bone, ember. Terminal-meets-editorial.
+   ============================================================= */
+
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
 
 :root {
-    --paper: #f1ece1;
-    --paper-deep: #ebe4d4;
-    --paper-shade: #e4dcc8;
-    --ink: #0e0d0b;
-    --ink-soft: #3a3631;
-    --ink-muted: #857c6d;
-    --ink-faint: #b4aa98;
-    --rule: #16130e;
-    --rule-soft: rgba(22, 19, 14, 0.18);
-    --rule-hair: rgba(22, 19, 14, 0.12);
-    --oxblood: #8a1a2b;
-    --oxblood-deep: #5a1019;
-    --sepia: #c89452;
-    --indigo: #1d2a52;
+    /* Surfaces */
+    --void: #07080a;
+    --obsidian: #0a0b0e;
+    --graphite: #121317;
+    --slate: #1b1d22;
+    --steel: #2a2d34;
 
-    --font-display: "Fraunces", "Playfair Display", Georgia, serif;
-    --font-body: "Newsreader", "Iowan Old Style", "Georgia", serif;
-    --font-mono: "Fragment Mono", "JetBrains Mono", "Menlo", monospace;
+    /* Ink */
+    --bone: #efe7d6;
+    --bone-soft: rgba(239, 231, 214, 0.72);
+    --bone-dim: rgba(239, 231, 214, 0.48);
+    --bone-faint: rgba(239, 231, 214, 0.26);
+    --bone-hair: rgba(239, 231, 214, 0.12);
+    --bone-ghost: rgba(239, 231, 214, 0.06);
 
-    --grid-gutter: clamp(1rem, 2vw, 1.75rem);
-    --page-pad-x: clamp(1.25rem, 5vw, 4.5rem);
-    --page-pad-y: clamp(1.5rem, 4vw, 3rem);
+    /* Signals */
+    --ember: #ff5a1f;
+    --ember-deep: #c63e0f;
+    --phosphor: #8affd4;
+    --phosphor-dim: #4eb892;
+    --signal: #ffc268;
 
-    /* Legacy tokens kept so the Charlie page keeps working */
-    --ink-dim: var(--ink-muted);
-    --line: var(--rule-soft);
-    --panel: var(--paper-deep);
+    /* Typography */
+    --font-display: "Instrument Serif", "Cormorant Garamond", "Didot", "Bodoni 72", serif;
+    --font-sans: "Instrument Sans", "Söhne", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Berkeley Mono", "SF Mono", ui-monospace, monospace;
+
+    /* Layout */
+    --pad-x: clamp(1.25rem, 4vw, 3.5rem);
+    --pad-y: clamp(2rem, 5vw, 4rem);
+    --max-w: 1600px;
+
+    /* Motion */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.83, 0, 0.17, 1);
+
+    /* Legacy tokens so the Charlie page still works */
+    --paper: var(--obsidian);
+    --paper-deep: var(--graphite);
+    --paper-shade: var(--slate);
+    --ink: var(--bone);
+    --ink-soft: var(--bone-soft);
+    --ink-muted: var(--bone-dim);
+    --ink-faint: var(--bone-faint);
+    --ink-dim: var(--bone-dim);
+    --rule: var(--bone-hair);
+    --rule-soft: var(--bone-hair);
+    --rule-hair: var(--bone-ghost);
+    --oxblood: var(--ember);
+    --oxblood-deep: var(--ember-deep);
+    --sepia: var(--signal);
+    --indigo: var(--phosphor);
+    --line: var(--bone-hair);
+    --panel: var(--graphite);
+    --font-body: var(--font-sans);
     --font-accent: var(--font-mono);
 }
 
@@ -40,25 +73,26 @@ body,
 #root {
     margin: 0;
     min-height: 100%;
+    background: var(--obsidian);
 }
 
 html {
-    background: var(--paper);
+    scroll-behavior: smooth;
 }
 
 body {
     margin: 0;
-    font-family: var(--font-body);
-    font-variation-settings: "opsz" 18, "wght" 420;
-    font-size: 17px;
-    line-height: 1.55;
-    letter-spacing: 0.002em;
-    color: var(--ink);
-    background: var(--paper);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 1.5;
+    letter-spacing: 0.005em;
+    color: var(--bone);
+    background: var(--obsidian);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "ss01", "ss02", "liga", "dlig";
+    overflow-x: hidden;
 }
 
 img {
@@ -68,29 +102,54 @@ img {
 
 a {
     color: inherit;
+    text-decoration: none;
+}
+
+button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
 }
 
 ::selection {
-    background: var(--oxblood);
-    color: var(--paper);
+    background: var(--ember);
+    color: var(--obsidian);
 }
 
 ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-    background: var(--paper);
+    background: var(--obsidian);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--paper-shade);
-    border-right: 2px solid var(--paper);
+    background: var(--steel);
+    border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--ink-faint);
+    background: var(--ember);
+}
+
+/* Global hover hooks used by custom cursor */
+a,
+button,
+[data-hover] {
+    cursor: none;
+}
+
+@media (hover: none) {
+    a,
+    button,
+    [data-hover] {
+        cursor: pointer;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

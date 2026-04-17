@@ -1,0 +1,184 @@
+- main [ref=e5]:
+  - img
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]: № XXIV
+      - generic [ref=e9]: Vol. II · No. IV
+      - generic "Current time" [ref=e10]: 13:24 post meridiem
+    - heading "JR Bussard" [level=1] [ref=e11]:
+      - generic [ref=e12]: JR
+      - generic [ref=e13]: Bussard
+    - generic [ref=e14]:
+      - generic [ref=e15]: A builder’s journal — essays, experiments, & working code
+      - generic [ref=e16]: April · MMXXVI
+  - separator [ref=e17]
+  - region "Builds things on nights & weekends because ideas won’t wait ." [ref=e18]:
+    - generic [ref=e19]:
+      - paragraph [ref=e20]:
+        - generic [ref=e21]: ✶
+        - text: Cover story
+        - generic [ref=e22]: by the builder himself
+      - heading "Builds things on nights & weekends because ideas won’t wait ." [level=2] [ref=e23]:
+        - generic [ref=e24]: Builds things
+        - generic [ref=e25]: on nights & weekends
+        - generic [ref=e26]:
+          - text: because ideas won’t wait
+          - generic [ref=e27]: .
+      - figure "fig. 01 The author, photographed between deploys." [ref=e28]:
+        - img "Portrait of JR Bussard" [ref=e29]
+        - generic [ref=e30]:
+          - generic [ref=e31]: fig. 01
+          - generic [ref=e32]: The author, photographed between deploys.
+      - generic [ref=e33]:
+        - paragraph [ref=e34]:
+          - generic [ref=e35]: S
+          - text: "oftware by day at Cornerstone Companies — South Florida impact windows & doors. Product, code, & small adventures after hours. This journal catches the offcuts: the projects that ship, the repositories still warm from last night, and the ideas worth following to the next morning."
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - term [ref=e38]: Based in
+            - definition [ref=e39]: South Florida
+          - generic [ref=e40]:
+            - term [ref=e41]: Principally
+            - definition [ref=e42]: Builder, writer of code, occasional instigator
+          - generic [ref=e43]:
+            - term [ref=e44]: Correspondence
+            - definition [ref=e45]:
+              - link "github.com/pirut" [ref=e46] [cursor=pointer]:
+                - /url: https://github.com/pirut
+  - separator [ref=e47]
+  - navigation "In this issue" [ref=e48]:
+    - generic [ref=e49]: In this issue
+    - list [ref=e50]:
+      - listitem [ref=e51]:
+        - link "I Selected Works p. i" [ref=e52] [cursor=pointer]:
+          - /url: "#works"
+          - generic [ref=e53]: I
+          - generic [ref=e54]: Selected Works
+          - generic [ref=e56]: p. i
+      - listitem [ref=e57]:
+        - link "II On the Workbench p. ii" [ref=e58] [cursor=pointer]:
+          - /url: "#workbench"
+          - generic [ref=e59]: II
+          - generic [ref=e60]: On the Workbench
+          - generic [ref=e62]: p. ii
+      - listitem [ref=e63]:
+        - link "III From the Stacks p. iii" [ref=e64] [cursor=pointer]:
+          - /url: "#stacks"
+          - generic [ref=e65]: III
+          - generic [ref=e66]: From the Stacks
+          - generic [ref=e68]: p. iii
+      - listitem [ref=e69]:
+        - link "IV Pursuits p. iv" [ref=e70] [cursor=pointer]:
+          - /url: "#pursuits"
+          - generic [ref=e71]: IV
+          - generic [ref=e72]: Pursuits
+          - generic [ref=e74]: p. iv
+  - separator [ref=e75]
+  - region "Selected Works" [ref=e76]:
+    - generic [ref=e77]:
+      - generic [ref=e78]: I
+      - generic [ref=e79]:
+        - paragraph [ref=e80]: Article one
+        - heading "Selected Works" [level=2] [ref=e81]
+        - paragraph [ref=e82]: A short list of projects worth their own page, in the order they keep asking for attention.
+    - generic [ref=e83]:
+      - link "I The Day Job Cornerstone Companies South Florida impact windows and doors. Got curious about the website and kept pulling threads until it was mine to keep. cstonefl.com Read the entry" [ref=e84] [cursor=pointer]:
+        - /url: https://cstonefl.com
+        - generic [ref=e85]:
+          - generic [ref=e86]: I
+          - generic [ref=e87]: The Day Job
+        - heading "Cornerstone Companies" [level=3] [ref=e88]
+        - paragraph [ref=e89]: South Florida impact windows and doors. Got curious about the website and kept pulling threads until it was mine to keep.
+        - generic [ref=e90]:
+          - generic [ref=e91]: cstonefl.com
+          - generic [ref=e92]:
+            - text: Read the entry
+            - generic [ref=e93]: ↗
+      - link "II After Hours Meltdown Parents log the exact reason their kid lost it today. Built it because the stories are too good to lose to group texts. meltdown.jrbussard.com Read the entry" [ref=e94] [cursor=pointer]:
+        - /url: https://meltdown.jrbussard.com
+        - generic [ref=e95]:
+          - generic [ref=e96]: II
+          - generic [ref=e97]: After Hours
+        - heading "Meltdown" [level=3] [ref=e98]
+        - paragraph [ref=e99]: Parents log the exact reason their kid lost it today. Built it because the stories are too good to lose to group texts.
+        - generic [ref=e100]:
+          - generic [ref=e101]: meltdown.jrbussard.com
+          - generic [ref=e102]:
+            - text: Read the entry
+            - generic [ref=e103]: ↗
+      - link "III For Friends Make Waves Quiet software for friends who organize community events — keeps the momentum between campaigns without the spreadsheet grief. waves.jrbussard.com Read the entry" [ref=e104] [cursor=pointer]:
+        - /url: https://waves.jrbussard.com
+        - generic [ref=e105]:
+          - generic [ref=e106]: III
+          - generic [ref=e107]: For Friends
+        - heading "Make Waves" [level=3] [ref=e108]
+        - paragraph [ref=e109]: Quiet software for friends who organize community events — keeps the momentum between campaigns without the spreadsheet grief.
+        - generic [ref=e110]:
+          - generic [ref=e111]: waves.jrbussard.com
+          - generic [ref=e112]:
+            - text: Read the entry
+            - generic [ref=e113]: ↗
+  - separator [ref=e114]
+  - region "On the Workbench" [ref=e115]:
+    - generic [ref=e116]:
+      - generic [ref=e117]: II
+      - generic [ref=e118]:
+        - paragraph [ref=e119]: Article two · live
+        - heading "On the Workbench" [level=2] [ref=e120]
+        - paragraph [ref=e121]: Recent commits, straight from the repository. A running log of what’s being built right now — updated continuously.
+    - generic [ref=e123]:
+      - generic [ref=e124]: ▸
+      - text: Fetching dispatches…
+  - separator [ref=e125]
+  - region "From the Stacks" [ref=e126]:
+    - generic [ref=e127]:
+      - generic [ref=e128]: III
+      - generic [ref=e129]:
+        - paragraph [ref=e130]: Article three · index
+        - heading "From the Stacks" [level=2] [ref=e131]
+        - paragraph [ref=e132]: Repositories worth filing away. Small libraries, half-finished experiments, and a few things already in someone else’s browser.
+    - paragraph [ref=e133]:
+      - generic [ref=e134]: ▸
+      - text: Retrieving index…
+  - separator [ref=e135]
+  - region "Pursuits" [ref=e136]:
+    - generic [ref=e137]:
+      - generic [ref=e138]: IV
+      - generic [ref=e139]:
+        - paragraph [ref=e140]: Article four
+        - heading "Pursuits" [level=2] [ref=e141]
+        - paragraph [ref=e142]: What has the builder’s attention lately, filed without explanation.
+    - list [ref=e143]:
+      - listitem [ref=e144]:
+        - generic [ref=e145]: I.
+        - generic [ref=e146]:
+          - heading "Seeing how far AI tools can take an idea" [level=3] [ref=e147]
+          - paragraph [ref=e148]: From a shower thought to a deployed URL in an afternoon.
+      - listitem [ref=e149]:
+        - generic [ref=e150]: II.
+        - generic [ref=e151]:
+          - heading "Browser games I'd actually want to play" [level=3] [ref=e152]
+          - paragraph [ref=e153]: Short, strange, no signup, no store page.
+      - listitem [ref=e154]:
+        - generic [ref=e155]: III.
+        - generic [ref=e156]:
+          - heading "Making useful things for people I know" [level=3] [ref=e157]
+          - paragraph [ref=e158]: The best feedback loop is still a friend texting back.
+    - blockquote [ref=e159]:
+      - paragraph [ref=e160]: “The best feedback loop is still a friend texting back.”
+      - generic [ref=e161]: — from the margins
+  - separator [ref=e162]
+  - generic [ref=e163]:
+    - paragraph [ref=e164]: §
+    - paragraph [ref=e165]:
+      - text: This issue was set in
+      - emphasis [ref=e166]: Fraunces
+      - text: "&"
+      - emphasis [ref=e167]: Newsreader
+      - text: ", with"
+      - emphasis [ref=e168]: Fragment Mono
+      - text: for timestamps. Printed continuously at
+      - link "github.com/pirut" [ref=e169] [cursor=pointer]:
+        - /url: https://github.com/pirut
+      - text: ", hosted on Vercel. © JR Bussard, MMXXVI."
+    - paragraph [ref=e170]: — fin —

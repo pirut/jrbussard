@@ -1,0 +1,78 @@
+- main [ref=e5]:
+  - img
+  - generic [ref=e6]:
+    - generic [ref=e7]: JR BUSSARD
+    - generic [ref=e8]: ONLINE
+    - generic [ref=e10]: 13:14:53
+  - region "NOT A DEVELOPER, BUT I BUILD STUFF." [ref=e11]:
+    - generic [ref=e12]:
+      - heading "NOT A DEVELOPER, BUT I BUILD STUFF." [level=1] [ref=e13]:
+        - generic [ref=e14]: NOT A
+        - generic [ref=e15]: DEVELOPER,
+        - generic [ref=e16]: BUT I BUILD STUFF.
+      - paragraph [ref=e17]: I use AI tools to make websites, games, and whatever else I get curious about. None of this is my real job.
+    - figure [ref=e18]:
+      - img "JR Bussard" [ref=e19]
+  - region "PROJECTS" [ref=e22]:
+    - generic [ref=e23]:
+      - generic [ref=e24]: "01"
+      - heading "PROJECTS" [level=2] [ref=e25]
+    - generic [ref=e26]:
+      - link "Day job Cornerstone Companies South Florida impact windows and doors. Not a tech company — I just got curious about what the website could be. OPEN SITE →" [ref=e27] [cursor=pointer]:
+        - /url: https://cstonefl.com
+        - generic [ref=e28]: Day job
+        - heading "Cornerstone Companies" [level=3] [ref=e29]
+        - paragraph [ref=e30]: South Florida impact windows and doors. Not a tech company — I just got curious about what the website could be.
+        - generic [ref=e31]:
+          - text: OPEN SITE
+          - generic [ref=e32]: →
+      - link "Side project Land A browser game I wanted to exist. You click, things grow, systems stack up. I keep adding to it. OPEN SITE →" [ref=e33] [cursor=pointer]:
+        - /url: https://land.jrbussard.com
+        - generic [ref=e34]: Side project
+        - heading "Land" [level=3] [ref=e35]
+        - paragraph [ref=e36]: A browser game I wanted to exist. You click, things grow, systems stack up. I keep adding to it.
+        - generic [ref=e37]:
+          - text: OPEN SITE
+          - generic [ref=e38]: →
+      - link "Side project Make Waves Built this for friends who organize community events. Helps them keep things moving between campaigns. OPEN SITE →" [ref=e39] [cursor=pointer]:
+        - /url: https://waves.jrbussard.com
+        - generic [ref=e40]: Side project
+        - heading "Make Waves" [level=3] [ref=e41]
+        - paragraph [ref=e42]: Built this for friends who organize community events. Helps them keep things moving between campaigns.
+        - generic [ref=e43]:
+          - text: OPEN SITE
+          - generic [ref=e44]: →
+  - region "RECENT ACTIVITY" [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]: "02"
+      - heading "RECENT ACTIVITY" [level=2] [ref=e49]
+      - generic [ref=e50]: LIVE
+    - generic [ref=e52]:
+      - generic [ref=e53]: FETCHING GITHUB DATA...
+      - generic [ref=e54]: "&block;"
+  - region "REPOSITORIES" [ref=e56]:
+    - generic [ref=e57]:
+      - generic [ref=e58]: "03"
+      - heading "REPOSITORIES" [level=2] [ref=e59]
+    - paragraph [ref=e60]: LOADING...
+  - region "WHAT I'M INTO" [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]: "04"
+      - heading "WHAT I'M INTO" [level=2] [ref=e65]
+    - list [ref=e66]:
+      - listitem [ref=e67]:
+        - generic [ref=e68]: →
+        - text: Figuring out what AI tools can actually build
+      - listitem [ref=e69]:
+        - generic [ref=e70]: →
+        - text: Browser games that I'd want to play myself
+      - listitem [ref=e71]:
+        - generic [ref=e72]: →
+        - text: Making things for people I know who need them
+  - generic [ref=e74]:
+    - generic [ref=e75]: BUILT WITH AI + CURIOSITY
+    - generic [ref=e76]: /
+    - generic [ref=e77]: HOSTED ON VERCEL
+    - generic [ref=e78]: /
+    - link "GITHUB/PIRUT" [ref=e80] [cursor=pointer]:
+      - /url: https://github.com/pirut

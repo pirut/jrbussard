@@ -1,0 +1,425 @@
+- main [ref=e5]:
+  - img
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]: № XXIV
+      - generic [ref=e9]: Vol. II · No. IV
+      - generic "Current time" [ref=e10]: 13:26 post meridiem
+    - heading "JR Bussard" [level=1] [ref=e11]:
+      - generic [ref=e12]: JR
+      - generic [ref=e13]: Bussard
+    - generic [ref=e14]:
+      - generic [ref=e15]: A builder’s journal — essays, experiments, & working code
+      - generic [ref=e16]: April · MMXXVI
+  - separator [ref=e17]
+  - region "Builds things on nights & weekends because ideas won’t wait ." [ref=e18]:
+    - generic [ref=e19]:
+      - paragraph [ref=e20]:
+        - generic [ref=e21]: ✶
+        - text: Cover story
+        - generic [ref=e22]: by the builder himself
+      - heading "Builds things on nights & weekends because ideas won’t wait ." [level=2] [ref=e23]:
+        - generic [ref=e24]: Builds things
+        - generic [ref=e25]: on nights & weekends
+        - generic [ref=e26]:
+          - text: because ideas won’t wait
+          - generic [ref=e27]: .
+      - figure "fig. 01 The author, photographed between deploys." [ref=e28]:
+        - img "Portrait of JR Bussard" [ref=e29]
+        - generic [ref=e30]:
+          - generic [ref=e31]: fig. 01
+          - generic [ref=e32]: The author, photographed between deploys.
+      - generic [ref=e33]:
+        - paragraph [ref=e34]:
+          - generic [ref=e35]: S
+          - text: "oftware by day at Cornerstone Companies — South Florida impact windows & doors. Product, code, & small adventures after hours. This journal catches the offcuts: the projects that ship, the repositories still warm from last night, and the ideas worth following to the next morning."
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - term [ref=e38]: Based in
+            - definition [ref=e39]: South Florida
+          - generic [ref=e40]:
+            - term [ref=e41]: Principally
+            - definition [ref=e42]: Builder, writer of code, occasional instigator
+          - generic [ref=e43]:
+            - term [ref=e44]: Correspondence
+            - definition [ref=e45]:
+              - link "github.com/pirut" [ref=e46] [cursor=pointer]:
+                - /url: https://github.com/pirut
+  - separator [ref=e47]
+  - navigation "In this issue" [ref=e48]:
+    - generic [ref=e49]: In this issue
+    - list [ref=e50]:
+      - listitem [ref=e51]:
+        - link "I Selected Works p. i" [ref=e52] [cursor=pointer]:
+          - /url: "#works"
+          - generic [ref=e53]: I
+          - generic [ref=e54]: Selected Works
+          - generic [ref=e56]: p. i
+      - listitem [ref=e57]:
+        - link "II On the Workbench p. ii" [ref=e58] [cursor=pointer]:
+          - /url: "#workbench"
+          - generic [ref=e59]: II
+          - generic [ref=e60]: On the Workbench
+          - generic [ref=e62]: p. ii
+      - listitem [ref=e63]:
+        - link "III From the Stacks p. iii" [ref=e64] [cursor=pointer]:
+          - /url: "#stacks"
+          - generic [ref=e65]: III
+          - generic [ref=e66]: From the Stacks
+          - generic [ref=e68]: p. iii
+      - listitem [ref=e69]:
+        - link "IV Pursuits p. iv" [ref=e70] [cursor=pointer]:
+          - /url: "#pursuits"
+          - generic [ref=e71]: IV
+          - generic [ref=e72]: Pursuits
+          - generic [ref=e74]: p. iv
+  - separator [ref=e75]
+  - region "Selected Works" [ref=e76]:
+    - generic [ref=e77]:
+      - generic [ref=e78]: I
+      - generic [ref=e79]:
+        - paragraph [ref=e80]: Article one
+        - heading "Selected Works" [level=2] [ref=e81]
+        - paragraph [ref=e82]: A short list of projects worth their own page, in the order they keep asking for attention.
+    - generic [ref=e83]:
+      - link "I The Day Job Cornerstone Companies South Florida impact windows and doors. Got curious about the website and kept pulling threads until it was mine to keep. cstonefl.com Read the entry" [ref=e84] [cursor=pointer]:
+        - /url: https://cstonefl.com
+        - generic [ref=e85]:
+          - generic [ref=e86]: I
+          - generic [ref=e87]: The Day Job
+        - heading "Cornerstone Companies" [level=3] [ref=e88]
+        - paragraph [ref=e89]: South Florida impact windows and doors. Got curious about the website and kept pulling threads until it was mine to keep.
+        - generic [ref=e90]:
+          - generic [ref=e91]: cstonefl.com
+          - generic [ref=e92]:
+            - text: Read the entry
+            - generic [ref=e93]: ↗
+      - link "II After Hours Meltdown Parents log the exact reason their kid lost it today. Built it because the stories are too good to lose to group texts. meltdown.jrbussard.com Read the entry" [ref=e94] [cursor=pointer]:
+        - /url: https://meltdown.jrbussard.com
+        - generic [ref=e95]:
+          - generic [ref=e96]: II
+          - generic [ref=e97]: After Hours
+        - heading "Meltdown" [level=3] [ref=e98]
+        - paragraph [ref=e99]: Parents log the exact reason their kid lost it today. Built it because the stories are too good to lose to group texts.
+        - generic [ref=e100]:
+          - generic [ref=e101]: meltdown.jrbussard.com
+          - generic [ref=e102]:
+            - text: Read the entry
+            - generic [ref=e103]: ↗
+      - link "III For Friends Make Waves Quiet software for friends who organize community events — keeps the momentum between campaigns without the spreadsheet grief. waves.jrbussard.com Read the entry" [ref=e104] [cursor=pointer]:
+        - /url: https://waves.jrbussard.com
+        - generic [ref=e105]:
+          - generic [ref=e106]: III
+          - generic [ref=e107]: For Friends
+        - heading "Make Waves" [level=3] [ref=e108]
+        - paragraph [ref=e109]: Quiet software for friends who organize community events — keeps the momentum between campaigns without the spreadsheet grief.
+        - generic [ref=e110]:
+          - generic [ref=e111]: waves.jrbussard.com
+          - generic [ref=e112]:
+            - text: Read the entry
+            - generic [ref=e113]: ↗
+  - separator [ref=e114]
+  - region "On the Workbench" [ref=e115]:
+    - generic [ref=e116]:
+      - generic [ref=e117]: II
+      - generic [ref=e118]:
+        - paragraph [ref=e119]: Article two · live
+        - heading "On the Workbench" [level=2] [ref=e120]
+        - paragraph [ref=e121]: Recent commits, straight from the repository. A running log of what’s being built right now — updated continuously.
+    - list [ref=e123]:
+      - listitem [ref=e124]:
+        - 'link "01 fix(desktop): restore draggable titlebar, brand the sidebar header, and repair the dock icon CornerstoneCode a377831 7m ago" [ref=e125] [cursor=pointer]':
+          - /url: https://github.com/pirut/CornerstoneCode/commit/a377831d6107f9ac754ea5e71ca0dc411faf5e48
+          - generic [ref=e126]: "01"
+          - generic [ref=e127]:
+            - generic [ref=e128]: "fix(desktop): restore draggable titlebar, brand the sidebar header, and repair the dock icon"
+            - generic [ref=e129]:
+              - generic [ref=e130]: CornerstoneCode
+              - generic [ref=e131]: ·
+              - generic [ref=e132]: a377831
+              - generic [ref=e133]: ·
+              - generic [ref=e134]: 7m ago
+          - generic [ref=e135]: ↗
+      - listitem [ref=e136]:
+        - 'link "02 chore(release): prepare v0.0.21 CornerstoneCode 85d4610 31m ago" [ref=e137] [cursor=pointer]':
+          - /url: https://github.com/pirut/CornerstoneCode/commit/85d4610e3498120a07cd95fb2003fbeba3e5f89b
+          - generic [ref=e138]: "02"
+          - generic [ref=e139]:
+            - generic [ref=e140]: "chore(release): prepare v0.0.21"
+            - generic [ref=e141]:
+              - generic [ref=e142]: CornerstoneCode
+              - generic [ref=e143]: ·
+              - generic [ref=e144]: 85d4610
+              - generic [ref=e145]: ·
+              - generic [ref=e146]: 31m ago
+          - generic [ref=e147]: ↗
+      - listitem [ref=e148]:
+        - 'link "03 Merge pull request #1 from pirut/fix/updater-and-launch-time CornerstoneCode e424726 33m ago" [ref=e149] [cursor=pointer]':
+          - /url: https://github.com/pirut/CornerstoneCode/commit/e424726b222d9d0b917dcc985ecb66d34c43c541
+          - generic [ref=e150]: "03"
+          - generic [ref=e151]:
+            - generic [ref=e152]: "Merge pull request #1 from pirut/fix/updater-and-launch-time"
+            - generic [ref=e153]:
+              - generic [ref=e154]: CornerstoneCode
+              - generic [ref=e155]: ·
+              - generic [ref=e156]: e424726
+              - generic [ref=e157]: ·
+              - generic [ref=e158]: 33m ago
+          - generic [ref=e159]: ↗
+      - listitem [ref=e160]:
+        - 'link "04 fix(desktop): speed up cold start and repair auto-update flow CornerstoneCode 2ab4aff 35m ago" [ref=e161] [cursor=pointer]':
+          - /url: https://github.com/pirut/CornerstoneCode/commit/2ab4aff7c69f53db3fd37726616912ff76747203
+          - generic [ref=e162]: "04"
+          - generic [ref=e163]:
+            - generic [ref=e164]: "fix(desktop): speed up cold start and repair auto-update flow"
+            - generic [ref=e165]:
+              - generic [ref=e166]: CornerstoneCode
+              - generic [ref=e167]: ·
+              - generic [ref=e168]: 2ab4aff
+              - generic [ref=e169]: ·
+              - generic [ref=e170]: 35m ago
+          - generic [ref=e171]: ↗
+      - listitem [ref=e172]:
+        - 'link "05 chore(release): prepare v0.0.20 CornerstoneCode 595200c 1h ago" [ref=e173] [cursor=pointer]':
+          - /url: https://github.com/pirut/CornerstoneCode/commit/595200c01983338ebb3608fd0653423c235821fe
+          - generic [ref=e174]: "05"
+          - generic [ref=e175]:
+            - generic [ref=e176]: "chore(release): prepare v0.0.20"
+            - generic [ref=e177]:
+              - generic [ref=e178]: CornerstoneCode
+              - generic [ref=e179]: ·
+              - generic [ref=e180]: 595200c
+              - generic [ref=e181]: ·
+              - generic [ref=e182]: 1h ago
+          - generic [ref=e183]: ↗
+      - listitem [ref=e184]:
+        - link "06 Add PDF rasterization metadata and OSD CORS options pdf-mapview 4dfc31a 2h ago" [ref=e185] [cursor=pointer]:
+          - /url: https://github.com/pirut/pdf-mapview/commit/4dfc31a233549bedce6d16941ac831e571137dbd
+          - generic [ref=e186]: "06"
+          - generic [ref=e187]:
+            - generic [ref=e188]: Add PDF rasterization metadata and OSD CORS options
+            - generic [ref=e189]:
+              - generic [ref=e190]: pdf-mapview
+              - generic [ref=e191]: ·
+              - generic [ref=e192]: 4dfc31a
+              - generic [ref=e193]: ·
+              - generic [ref=e194]: 2h ago
+          - generic [ref=e195]: ↗
+      - listitem [ref=e196]:
+        - link "07 0.1.4 pdf-mapview 9e40341 3h ago" [ref=e197] [cursor=pointer]:
+          - /url: https://github.com/pirut/pdf-mapview/commit/9e40341caf568bec3ed92db1055e3a90d0af7d45
+          - generic [ref=e198]: "07"
+          - generic [ref=e199]:
+            - generic [ref=e200]: 0.1.4
+            - generic [ref=e201]:
+              - generic [ref=e202]: pdf-mapview
+              - generic [ref=e203]: ·
+              - generic [ref=e204]: "9e40341"
+              - generic [ref=e205]: ·
+              - generic [ref=e206]: 3h ago
+          - generic [ref=e207]: ↗
+      - listitem [ref=e208]:
+        - link "08 Use Sharp tile pyramids for large image ingest pdf-mapview 3147c47 3h ago" [ref=e209] [cursor=pointer]:
+          - /url: https://github.com/pirut/pdf-mapview/commit/3147c47816fb0aa14c5ec85f3a3c5a2075884554
+          - generic [ref=e210]: "08"
+          - generic [ref=e211]:
+            - generic [ref=e212]: Use Sharp tile pyramids for large image ingest
+            - generic [ref=e213]:
+              - generic [ref=e214]: pdf-mapview
+              - generic [ref=e215]: ·
+              - generic [ref=e216]: 3147c47
+              - generic [ref=e217]: ·
+              - generic [ref=e218]: 3h ago
+          - generic [ref=e219]: ↗
+      - listitem [ref=e220]:
+        - link "09 0.1.3 pdf-mapview f76ea92 22h ago" [ref=e221] [cursor=pointer]:
+          - /url: https://github.com/pirut/pdf-mapview/commit/f76ea92a42cbcd0d20a85f77d410f505659898c0
+          - generic [ref=e222]: "09"
+          - generic [ref=e223]:
+            - generic [ref=e224]: 0.1.3
+            - generic [ref=e225]:
+              - generic [ref=e226]: pdf-mapview
+              - generic [ref=e227]: ·
+              - generic [ref=e228]: f76ea92
+              - generic [ref=e229]: ·
+              - generic [ref=e230]: 22h ago
+          - generic [ref=e231]: ↗
+      - listitem [ref=e232]:
+        - link "10 0.1.2 pdf-mapview c6120f6 22h ago" [ref=e233] [cursor=pointer]:
+          - /url: https://github.com/pirut/pdf-mapview/commit/c6120f6262836add16eebb82d26a2c40af3362c5
+          - generic [ref=e234]: "10"
+          - generic [ref=e235]:
+            - generic [ref=e236]: 0.1.2
+            - generic [ref=e237]:
+              - generic [ref=e238]: pdf-mapview
+              - generic [ref=e239]: ·
+              - generic [ref=e240]: c6120f6
+              - generic [ref=e241]: ·
+              - generic [ref=e242]: 22h ago
+          - generic [ref=e243]: ↗
+      - listitem [ref=e244]:
+        - link "11 Fix Meltdown description to match actual site jrbussard 7972eb3 8d ago" [ref=e245] [cursor=pointer]:
+          - /url: https://github.com/pirut/jrbussard/commit/7972eb3bc55ec3cdf949c5d061c440ab406079dd
+          - generic [ref=e246]: "11"
+          - generic [ref=e247]:
+            - generic [ref=e248]: Fix Meltdown description to match actual site
+            - generic [ref=e249]:
+              - generic [ref=e250]: jrbussard
+              - generic [ref=e251]: ·
+              - generic [ref=e252]: 7972eb3
+              - generic [ref=e253]: ·
+              - generic [ref=e254]: 8d ago
+          - generic [ref=e255]: ↗
+      - listitem [ref=e256]:
+        - link "12 Swap Land for Meltdown in projects jrbussard 7e051d0 8d ago" [ref=e257] [cursor=pointer]:
+          - /url: https://github.com/pirut/jrbussard/commit/7e051d0745ff28015624c94c04581a46270bf586
+          - generic [ref=e258]: "12"
+          - generic [ref=e259]:
+            - generic [ref=e260]: Swap Land for Meltdown in projects
+            - generic [ref=e261]:
+              - generic [ref=e262]: jrbussard
+              - generic [ref=e263]: ·
+              - generic [ref=e264]: 7e051d0
+              - generic [ref=e265]: ·
+              - generic [ref=e266]: 8d ago
+          - generic [ref=e267]: ↗
+      - listitem [ref=e268]:
+        - link "13 Rewrite copy to match who I actually am jrbussard d1916aa 8d ago" [ref=e269] [cursor=pointer]:
+          - /url: https://github.com/pirut/jrbussard/commit/d1916aa2b49c1d9df092377df46f56772bb5c528
+          - generic [ref=e270]: "13"
+          - generic [ref=e271]:
+            - generic [ref=e272]: Rewrite copy to match who I actually am
+            - generic [ref=e273]:
+              - generic [ref=e274]: jrbussard
+              - generic [ref=e275]: ·
+              - generic [ref=e276]: d1916aa
+              - generic [ref=e277]: ·
+              - generic [ref=e278]: 8d ago
+          - generic [ref=e279]: ↗
+      - listitem [ref=e280]:
+        - link "14 Fix Anonymous usernames — prompt new users to pick a name meltdown c000694 10d ago" [ref=e281] [cursor=pointer]:
+          - /url: https://github.com/pirut/meltdown/commit/c000694808f3d8ed0c3960e96b6b85d01acbd9c8
+          - generic [ref=e282]: "14"
+          - generic [ref=e283]:
+            - generic [ref=e284]: Fix Anonymous usernames — prompt new users to pick a name
+            - generic [ref=e285]:
+              - generic [ref=e286]: meltdown
+              - generic [ref=e287]: ·
+              - generic [ref=e288]: c000694
+              - generic [ref=e289]: ·
+              - generic [ref=e290]: 10d ago
+          - generic [ref=e291]: ↗
+      - listitem [ref=e292]:
+        - link "15 Center emoji vertically in app icons meltdown 44ff8ce 13d ago" [ref=e293] [cursor=pointer]:
+          - /url: https://github.com/pirut/meltdown/commit/44ff8ce10de6b40c63fd84319b54704520d5728e
+          - generic [ref=e294]: "15"
+          - generic [ref=e295]:
+            - generic [ref=e296]: Center emoji vertically in app icons
+            - generic [ref=e297]:
+              - generic [ref=e298]: meltdown
+              - generic [ref=e299]: ·
+              - generic [ref=e300]: 44ff8ce
+              - generic [ref=e301]: ·
+              - generic [ref=e302]: 13d ago
+          - generic [ref=e303]: ↗
+  - separator [ref=e304]
+  - region "From the Stacks" [ref=e305]:
+    - generic [ref=e306]:
+      - generic [ref=e307]: III
+      - generic [ref=e308]:
+        - paragraph [ref=e309]: Article three · index
+        - heading "From the Stacks" [level=2] [ref=e310]
+        - paragraph [ref=e311]: Repositories worth filing away. Small libraries, half-finished experiments, and a few things already in someone else’s browser.
+    - list [ref=e312]:
+      - listitem [ref=e313]:
+        - link "No. 01 CornerstoneCode TypeScript 7m ago" [ref=e314] [cursor=pointer]:
+          - /url: https://github.com/pirut/CornerstoneCode
+          - generic [ref=e315]: No. 01
+          - heading "CornerstoneCode" [level=3] [ref=e316]
+          - generic [ref=e317]:
+            - generic [ref=e318]: TypeScript
+            - generic [ref=e320]: 7m ago
+      - listitem [ref=e321]:
+        - link "No. 02 pdf-mapview React library that takes a PDF and turns it into a smooth map experience TypeScript 2h ago" [ref=e322] [cursor=pointer]:
+          - /url: https://github.com/pirut/pdf-mapview
+          - generic [ref=e323]: No. 02
+          - heading "pdf-mapview" [level=3] [ref=e324]
+          - paragraph [ref=e325]: React library that takes a PDF and turns it into a smooth map experience
+          - generic [ref=e326]:
+            - generic [ref=e327]: TypeScript
+            - generic [ref=e329]: 2h ago
+      - listitem [ref=e330]:
+        - link "No. 03 jrbussard My personal website CSS 8d ago" [ref=e331] [cursor=pointer]:
+          - /url: https://github.com/pirut/jrbussard
+          - generic [ref=e332]: No. 03
+          - heading "jrbussard" [level=3] [ref=e333]
+          - paragraph [ref=e334]: My personal website
+          - generic [ref=e335]:
+            - generic [ref=e336]: CSS
+            - generic [ref=e338]: 8d ago
+      - listitem [ref=e339]:
+        - link "No. 04 meltdown TypeScript 10d ago" [ref=e340] [cursor=pointer]:
+          - /url: https://github.com/pirut/meltdown
+          - generic [ref=e341]: No. 04
+          - heading "meltdown" [level=3] [ref=e342]
+          - generic [ref=e343]:
+            - generic [ref=e344]: TypeScript
+            - generic [ref=e346]: 10d ago
+      - listitem [ref=e347]:
+        - link "No. 05 kristyfitness Astro 15d ago" [ref=e348] [cursor=pointer]:
+          - /url: https://github.com/pirut/kristyfitness
+          - generic [ref=e349]: No. 05
+          - heading "kristyfitness" [level=3] [ref=e350]
+          - generic [ref=e351]:
+            - generic [ref=e352]: Astro
+            - generic [ref=e354]: 15d ago
+      - listitem [ref=e355]:
+        - link "No. 06 clicker TypeScript 16d ago" [ref=e356] [cursor=pointer]:
+          - /url: https://github.com/pirut/clicker
+          - generic [ref=e357]: No. 06
+          - heading "clicker" [level=3] [ref=e358]
+          - generic [ref=e359]:
+            - generic [ref=e360]: TypeScript
+            - generic [ref=e362]: 16d ago
+  - separator [ref=e363]
+  - region "Pursuits" [ref=e364]:
+    - generic [ref=e365]:
+      - generic [ref=e366]: IV
+      - generic [ref=e367]:
+        - paragraph [ref=e368]: Article four
+        - heading "Pursuits" [level=2] [ref=e369]
+        - paragraph [ref=e370]: What has the builder’s attention lately, filed without explanation.
+    - list [ref=e371]:
+      - listitem [ref=e372]:
+        - generic [ref=e373]: I.
+        - generic [ref=e374]:
+          - heading "Seeing how far AI tools can take an idea" [level=3] [ref=e375]
+          - paragraph [ref=e376]: From a shower thought to a deployed URL in an afternoon.
+      - listitem [ref=e377]:
+        - generic [ref=e378]: II.
+        - generic [ref=e379]:
+          - heading "Browser games I'd actually want to play" [level=3] [ref=e380]
+          - paragraph [ref=e381]: Short, strange, no signup, no store page.
+      - listitem [ref=e382]:
+        - generic [ref=e383]: III.
+        - generic [ref=e384]:
+          - heading "Making useful things for people I know" [level=3] [ref=e385]
+          - paragraph [ref=e386]: The best feedback loop is still a friend texting back.
+    - blockquote [ref=e387]:
+      - paragraph [ref=e388]: “The best feedback loop is still a friend texting back.”
+      - generic [ref=e389]: — from the margins
+  - separator [ref=e390]
+  - generic [ref=e391]:
+    - paragraph [ref=e392]: §
+    - paragraph [ref=e393]:
+      - text: This issue was set in
+      - emphasis [ref=e394]: Fraunces
+      - text: "&"
+      - emphasis [ref=e395]: Newsreader
+      - text: ", with"
+      - emphasis [ref=e396]: Fragment Mono
+      - text: for timestamps. Printed continuously at
+      - link "github.com/pirut" [ref=e397] [cursor=pointer]:
+        - /url: https://github.com/pirut
+      - text: ", hosted on Vercel. © JR Bussard, MMXXVI."
+    - paragraph [ref=e398]: — fin —

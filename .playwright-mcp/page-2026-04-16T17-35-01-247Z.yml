@@ -1,0 +1,79 @@
+- main [ref=e5]:
+  - img
+  - generic [ref=e6]:
+    - heading "JR Bussard" [level=1] [ref=e7]:
+      - generic [ref=e8]: JR
+      - generic [ref=e9]: Bussard
+    - generic [ref=e10]: Apr 2026
+  - separator [ref=e11]
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - heading "Builds things on nights & weekends." [level=2] [ref=e14]:
+        - generic [ref=e15]: Builds things
+        - generic [ref=e16]: on nights & weekends.
+      - paragraph [ref=e17]: Websites, games, tools — whatever sounds fun. I work at Cornerstone Companies by day and tinker with this stuff the rest of the time.
+    - figure [ref=e18]:
+      - img "JR Bussard" [ref=e19]
+  - separator [ref=e20]
+  - region "Projects" [ref=e21]:
+    - generic [ref=e22]:
+      - generic [ref=e23]: "01"
+      - heading "Projects" [level=2] [ref=e24]
+    - generic [ref=e25]:
+      - link "Day job Cornerstone Companies South Florida impact windows and doors. I got curious about the website and kept going. cstonefl.com" [ref=e26] [cursor=pointer]:
+        - /url: https://cstonefl.com
+        - generic [ref=e27]: Day job
+        - heading "Cornerstone Companies" [level=3] [ref=e28]
+        - paragraph [ref=e29]: South Florida impact windows and doors. I got curious about the website and kept going.
+        - generic [ref=e30]:
+          - text: cstonefl.com
+          - generic [ref=e31]: ↗
+      - link "Side project Meltdown Parents share why their kid had a meltdown today. Made it because the stories are too funny not to have a place for them. meltdown.jrbussard.com" [ref=e32] [cursor=pointer]:
+        - /url: https://meltdown.jrbussard.com
+        - generic [ref=e33]: Side project
+        - heading "Meltdown" [level=3] [ref=e34]
+        - paragraph [ref=e35]: Parents share why their kid had a meltdown today. Made it because the stories are too funny not to have a place for them.
+        - generic [ref=e36]:
+          - text: meltdown.jrbussard.com
+          - generic [ref=e37]: ↗
+      - link "Side project Make Waves Built this for friends who organize community events. Helps them keep things moving between campaigns. waves.jrbussard.com" [ref=e38] [cursor=pointer]:
+        - /url: https://waves.jrbussard.com
+        - generic [ref=e39]: Side project
+        - heading "Make Waves" [level=3] [ref=e40]
+        - paragraph [ref=e41]: Built this for friends who organize community events. Helps them keep things moving between campaigns.
+        - generic [ref=e42]:
+          - text: waves.jrbussard.com
+          - generic [ref=e43]: ↗
+  - separator [ref=e44]
+  - region "Recent activity" [ref=e45]:
+    - generic [ref=e46]:
+      - generic [ref=e47]: "02"
+      - heading "Recent activity" [level=2] [ref=e48]
+    - generic [ref=e50]: Loading…
+  - separator [ref=e51]
+  - region "Repositories" [ref=e52]:
+    - generic [ref=e53]:
+      - generic [ref=e54]: "03"
+      - heading "Repositories" [level=2] [ref=e55]
+    - paragraph [ref=e56]: Loading…
+  - separator [ref=e57]
+  - region "What I’m into" [ref=e58]:
+    - generic [ref=e59]:
+      - generic [ref=e60]: "04"
+      - heading "What I’m into" [level=2] [ref=e61]
+    - list [ref=e62]:
+      - listitem [ref=e63]:
+        - generic [ref=e64]: →
+        - text: Seeing how far AI tools can take an idea
+      - listitem [ref=e65]:
+        - generic [ref=e66]: →
+        - text: Browser games I'd actually want to play
+      - listitem [ref=e67]:
+        - generic [ref=e68]: →
+        - text: Making useful things for people I know
+  - separator [ref=e69]
+  - generic [ref=e70]:
+    - generic [ref=e71]: © JR Bussard 2026
+    - generic [ref=e72]: ·
+    - link "github.com/pirut" [ref=e73] [cursor=pointer]:
+      - /url: https://github.com/pirut

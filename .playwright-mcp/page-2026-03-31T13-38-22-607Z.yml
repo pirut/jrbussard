@@ -1,0 +1,217 @@
+- main [ref=e5]:
+  - img
+  - generic [ref=e6]:
+    - generic [ref=e7]: JR BUSSARD
+    - generic [ref=e8]: ONLINE
+    - generic [ref=e10]: 09:38:22
+  - region "I MAKE WEBSITES, GAMES, & TOOLS." [ref=e11]:
+    - generic [ref=e12]:
+      - heading "I MAKE WEBSITES, GAMES, & TOOLS." [level=1] [ref=e13]:
+        - generic [ref=e14]: I MAKE
+        - generic [ref=e15]: WEBSITES,
+        - generic [ref=e16]: GAMES, & TOOLS.
+      - paragraph [ref=e17]: Developer at Cornerstone Companies. Side projects on nights and weekends.
+    - figure [ref=e18]:
+      - img "JR Bussard" [ref=e19]
+  - region "PROJECTS" [ref=e22]:
+    - generic [ref=e23]:
+      - generic [ref=e24]: "01"
+      - heading "PROJECTS" [level=2] [ref=e25]
+    - generic [ref=e26]:
+      - link "Day job Cornerstone Companies South Florida impact windows and doors. I build and run the web platform. OPEN SITE →" [ref=e27] [cursor=pointer]:
+        - /url: https://cstonefl.com
+        - generic [ref=e28]: Day job
+        - heading "Cornerstone Companies" [level=3] [ref=e29]
+        - paragraph [ref=e30]: South Florida impact windows and doors. I build and run the web platform.
+        - generic [ref=e31]:
+          - text: OPEN SITE
+          - generic [ref=e32]: →
+      - link "Side project Land A browser game where things compound. Progression, economies, and systems that layer on each other. OPEN SITE →" [ref=e33] [cursor=pointer]:
+        - /url: https://land.jrbussard.com
+        - generic [ref=e34]: Side project
+        - heading "Land" [level=3] [ref=e35]
+        - paragraph [ref=e36]: A browser game where things compound. Progression, economies, and systems that layer on each other.
+        - generic [ref=e37]:
+          - text: OPEN SITE
+          - generic [ref=e38]: →
+      - link "Side project Make Waves Event coordination for community organizers. Keeps momentum going between campaigns. OPEN SITE →" [ref=e39] [cursor=pointer]:
+        - /url: https://waves.jrbussard.com
+        - generic [ref=e40]: Side project
+        - heading "Make Waves" [level=3] [ref=e41]
+        - paragraph [ref=e42]: Event coordination for community organizers. Keeps momentum going between campaigns.
+        - generic [ref=e43]:
+          - text: OPEN SITE
+          - generic [ref=e44]: →
+  - region "LIVE FEED" [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]: "02"
+      - heading "LIVE FEED" [level=2] [ref=e49]
+      - generic [ref=e50]: LIVE
+    - generic [ref=e52]:
+      - link "c68b75b jrbussard 17H AGO Add Charlie Paw Patrol play page" [ref=e53] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrbussard/commit/c68b75b1c5c337a00905c309c61386d17154fe55
+        - generic [ref=e54]:
+          - generic [ref=e55]: c68b75b
+          - generic [ref=e56]: jrbussard
+          - generic [ref=e57]: 17H AGO
+        - generic [ref=e58]: Add Charlie Paw Patrol play page
+      - link "490b36d clicker 17H AGO Push kraft paper aesthetic much further across entire UI" [ref=e59] [cursor=pointer]:
+        - /url: https://github.com/pirut/clicker/commit/490b36d1ced6b38752072e15457502e6f8eb44fe
+        - generic [ref=e60]:
+          - generic [ref=e61]: 490b36d
+          - generic [ref=e62]: clicker
+          - generic [ref=e63]: 17H AGO
+        - generic [ref=e64]: Push kraft paper aesthetic much further across entire UI
+      - link "a593598 clicker 18H AGO Redesign UI with kraft paper aesthetic" [ref=e65] [cursor=pointer]:
+        - /url: https://github.com/pirut/clicker/commit/a593598ba054e0d52c007de3b895430e721f6f76
+        - generic [ref=e66]:
+          - generic [ref=e67]: a593598
+          - generic [ref=e68]: clicker
+          - generic [ref=e69]: 18H AGO
+        - generic [ref=e70]: Redesign UI with kraft paper aesthetic
+      - link "dde4c22 clicker 18H AGO Add live chat and richer click interactions" [ref=e71] [cursor=pointer]:
+        - /url: https://github.com/pirut/clicker/commit/dde4c22fa2df60c2bf1ffbdc99bbf7a335e3a5fa
+        - generic [ref=e72]:
+          - generic [ref=e73]: dde4c22
+          - generic [ref=e74]: clicker
+          - generic [ref=e75]: 18H AGO
+        - generic [ref=e76]: Add live chat and richer click interactions
+      - link "d5ad80c ai-test 4D AGO Restore device auth refresh endpoint" [ref=e77] [cursor=pointer]:
+        - /url: https://github.com/pirut/ai-test/commit/d5ad80ca7c72262c9a1aad23d6b3ec96ebcbd9fc
+        - generic [ref=e78]:
+          - generic [ref=e79]: d5ad80c
+          - generic [ref=e80]: ai-test
+          - generic [ref=e81]: 4D AGO
+        - generic [ref=e82]: Restore device auth refresh endpoint
+      - link "16e418a ai-test 5D AGO Use SSH keys for Pi deploys by default" [ref=e83] [cursor=pointer]:
+        - /url: https://github.com/pirut/ai-test/commit/16e418ab6696175b58f7fabd300b59a27463318d
+        - generic [ref=e84]:
+          - generic [ref=e85]: 16e418a
+          - generic [ref=e86]: ai-test
+          - generic [ref=e87]: 5D AGO
+        - generic [ref=e88]: Use SSH keys for Pi deploys by default
+      - link "0a6d709 ai-test 5D AGO Disable caching for local manifest polling" [ref=e89] [cursor=pointer]:
+        - /url: https://github.com/pirut/ai-test/commit/0a6d709d4b1f6e3de5e15b841acc67e26a3a65b3
+        - generic [ref=e90]:
+          - generic [ref=e91]: 0a6d709
+          - generic [ref=e92]: ai-test
+          - generic [ref=e93]: 5D AGO
+        - generic [ref=e94]: Disable caching for local manifest polling
+      - link "25c8a01 ai-test 5D AGO Restore legacy device command compatibility" [ref=e95] [cursor=pointer]:
+        - /url: https://github.com/pirut/ai-test/commit/25c8a016fdeba32f6ccf55117ae8f1d4fd3dff0b
+        - generic [ref=e96]:
+          - generic [ref=e97]: 25c8a01
+          - generic [ref=e98]: ai-test
+          - generic [ref=e99]: 5D AGO
+        - generic [ref=e100]: Restore legacy device command compatibility
+      - link "7158e52 ai-test 5D AGO Revert \"Launch SaaS billing and marketing surface\"" [ref=e101] [cursor=pointer]:
+        - /url: https://github.com/pirut/ai-test/commit/7158e5262df39ee7336dcd34b2f15008ecf34b2d
+        - generic [ref=e102]:
+          - generic [ref=e103]: "7158e52"
+          - generic [ref=e104]: ai-test
+          - generic [ref=e105]: 5D AGO
+        - generic [ref=e106]: Revert "Launch SaaS billing and marketing surface"
+      - link "f8cf24b clicker 1MO AGO Make leaderboard stats fully realtime via InstantDB" [ref=e107] [cursor=pointer]:
+        - /url: https://github.com/pirut/clicker/commit/f8cf24b9e3d3dccec939461acf46632a632d1314
+        - generic [ref=e108]:
+          - generic [ref=e109]: f8cf24b
+          - generic [ref=e110]: clicker
+          - generic [ref=e111]: 1MO AGO
+        - generic [ref=e112]: Make leaderboard stats fully realtime via InstantDB
+      - link "5362549 clicker 1MO AGO Use InstantDB live query for realtime click counters" [ref=e113] [cursor=pointer]:
+        - /url: https://github.com/pirut/clicker/commit/53625496bb2c9f2cd188a34bff6baa5bbd689c97
+        - generic [ref=e114]:
+          - generic [ref=e115]: "5362549"
+          - generic [ref=e116]: clicker
+          - generic [ref=e117]: 1MO AGO
+        - generic [ref=e118]: Use InstantDB live query for realtime click counters
+      - link "6f78044 jrbussard 1MO AGO Update portfolio to feature Cornerstone as main job" [ref=e119] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrbussard/commit/6f780448c34a55476f27cd3f65acd9b8f5bb8f12
+        - generic [ref=e120]:
+          - generic [ref=e121]: 6f78044
+          - generic [ref=e122]: jrbussard
+          - generic [ref=e123]: 1MO AGO
+        - generic [ref=e124]: Update portfolio to feature Cornerstone as main job
+      - link "770d0ee jrbussard 1MO AGO Simplify site visuals and improve readability" [ref=e125] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrbussard/commit/770d0ee759eb8a86e3f827c19365c4e5bbfee112
+        - generic [ref=e126]:
+          - generic [ref=e127]: 770d0ee
+          - generic [ref=e128]: jrbussard
+          - generic [ref=e129]: 1MO AGO
+        - generic [ref=e130]: Simplify site visuals and improve readability
+      - link "3391faf jrbussard 1MO AGO Redesign website with new editorial-style interface" [ref=e131] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrbussard/commit/3391fafea000e57355e2cb38275320c794b91c22
+        - generic [ref=e132]:
+          - generic [ref=e133]: 3391faf
+          - generic [ref=e134]: jrbussard
+          - generic [ref=e135]: 1MO AGO
+        - generic [ref=e136]: Redesign website with new editorial-style interface
+      - link "11e0819 jrbussard 1MO AGO Fix Make Waves URL to waves.jrbussard.com" [ref=e137] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrbussard/commit/11e0819ae6209bc053a63235034dc433a726e548
+        - generic [ref=e138]:
+          - generic [ref=e139]: "11e0819"
+          - generic [ref=e140]: jrbussard
+          - generic [ref=e141]: 1MO AGO
+        - generic [ref=e142]: Fix Make Waves URL to waves.jrbussard.com
+      - generic [ref=e143]: "&block;"
+  - region "REPOSITORIES" [ref=e145]:
+    - generic [ref=e146]:
+      - generic [ref=e147]: "03"
+      - heading "REPOSITORIES" [level=2] [ref=e148]
+    - generic [ref=e149]:
+      - link "jrbussard My personal website CSS 17H AGO" [ref=e150] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrbussard
+        - heading "jrbussard" [level=3] [ref=e151]
+        - paragraph [ref=e152]: My personal website
+        - generic [ref=e153]:
+          - generic [ref=e154]: CSS
+          - generic [ref=e156]: 17H AGO
+      - link "clicker TypeScript 17H AGO" [ref=e157] [cursor=pointer]:
+        - /url: https://github.com/pirut/clicker
+        - heading "clicker" [level=3] [ref=e158]
+        - generic [ref=e159]:
+          - generic [ref=e160]: TypeScript
+          - generic [ref=e162]: 17H AGO
+      - link "chunks3 1D AGO" [ref=e163] [cursor=pointer]:
+        - /url: https://github.com/pirut/chunks3
+        - heading "chunks3" [level=3] [ref=e164]
+        - generic [ref=e166]: 1D AGO
+      - link "ai-test TypeScript 4D AGO" [ref=e167] [cursor=pointer]:
+        - /url: https://github.com/pirut/ai-test
+        - heading "ai-test" [level=3] [ref=e168]
+        - generic [ref=e169]:
+          - generic [ref=e170]: TypeScript
+          - generic [ref=e172]: 4D AGO
+      - link "jrland JavaScript 5D AGO" [ref=e173] [cursor=pointer]:
+        - /url: https://github.com/pirut/jrland
+        - heading "jrland" [level=3] [ref=e174]
+        - generic [ref=e175]:
+          - generic [ref=e176]: JavaScript
+          - generic [ref=e178]: 5D AGO
+      - link "kristyfitness Astro 14D AGO" [ref=e179] [cursor=pointer]:
+        - /url: https://github.com/pirut/kristyfitness
+        - heading "kristyfitness" [level=3] [ref=e180]
+        - generic [ref=e181]:
+          - generic [ref=e182]: Astro
+          - generic [ref=e184]: 14D AGO
+  - region "CURRENT FOCUS" [ref=e186]:
+    - generic [ref=e187]:
+      - generic [ref=e188]: "04"
+      - heading "CURRENT FOCUS" [level=2] [ref=e189]
+    - list [ref=e190]:
+      - listitem [ref=e191]:
+        - generic [ref=e192]: →
+        - text: Writing frontend code that ages well
+      - listitem [ref=e193]:
+        - generic [ref=e194]: →
+        - text: Making games that run in a browser tab
+      - listitem [ref=e195]:
+        - generic [ref=e196]: →
+        - text: Building tools for people who organize
+  - generic [ref=e198]:
+    - generic [ref=e199]: BUILT WITH REACT
+    - generic [ref=e200]: /
+    - generic [ref=e201]: HOSTED ON VERCEL
+    - generic [ref=e202]: /
+    - link "GITHUB/PIRUT" [ref=e204] [cursor=pointer]:
+      - /url: https://github.com/pirut

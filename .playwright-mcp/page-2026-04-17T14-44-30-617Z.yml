@@ -1,0 +1,228 @@
+- generic [ref=e3]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - generic [ref=e8]: JR BUSSARD
+      - generic [ref=e9]: ARCHIVE // 04
+    - generic [ref=e10]:
+      - generic [ref=e11]: Loading index
+      - generic [ref=e12]:
+        - generic [ref=e13]: 0-2
+        - generic [ref=e14]: "%"
+      - generic [ref=e16]:
+        - generic [ref=e17]: Negotiating uplink
+        - generic [ref=e18]: Mounting fonts
+    - generic [ref=e20]: — SIGNAL LOCK —
+  - generic:
+    - img
+  - main [ref=e22]:
+    - generic [ref=e23]:
+      - generic [ref=e24]:
+        - generic [ref=e25]: ◢
+        - generic [ref=e26]: JR.BUSSARD
+        - generic [ref=e27]: /
+        - generic [ref=e28]: ARCHIVE.04
+      - navigation "Primary" [ref=e30]:
+        - link "Works" [ref=e31]:
+          - /url: "#works"
+        - link "Transmissions" [ref=e32]:
+          - /url: "#transmissions"
+        - link "Repos" [ref=e33]:
+          - /url: "#repos"
+        - link "Signal" [ref=e34]:
+          - /url: "#signal"
+      - generic [ref=e37]: 14:44:30 UTC
+    - region "B U S S A R D & c o ." [ref=e38]:
+      - generic [ref=e39]:
+        - generic [ref=e42]: A one-man studio
+        - heading "B U S S A R D & c o ." [level=1] [ref=e43]:
+          - generic [ref=e44]:
+            - generic [ref=e45]: B
+            - generic [ref=e46]: U
+            - generic [ref=e47]: S
+            - generic [ref=e48]: S
+            - generic [ref=e49]: A
+            - generic [ref=e50]: R
+            - generic [ref=e51]: D
+          - generic [ref=e52]: "&"
+          - generic [ref=e53]:
+            - generic [ref=e54]: c
+            - generic [ref=e55]: o
+            - generic [ref=e56]: .
+        - generic [ref=e57]:
+          - paragraph [ref=e58]: Builds things on nights & weekends
+          - paragraph [ref=e60]:
+            - text: Websites, games, tools — whatever sounds fun. Day job at
+            - link "Cornerstone Companies" [ref=e61]:
+              - /url: https://cstonefl.com
+            - text: . Everything else lives here in the archive.
+        - generic [ref=e62]:
+          - generic [ref=e63]: Miami, FL
+          - generic [ref=e65]: 26.13°N / 80.13°W
+          - generic [ref=e67]: Signal nominal
+          - generic [ref=e69]: Index 04
+        - generic [ref=e72]: Scroll
+    - generic [ref=e75]:
+      - generic [ref=e76]:
+        - generic [ref=e77]: — Selected works 2026
+        - generic [ref=e78]: ◆
+        - generic [ref=e79]: Nights & weekends
+        - generic [ref=e80]: ◆
+        - generic [ref=e81]: Built from Miami
+        - generic [ref=e82]: ◆
+        - generic [ref=e83]: All systems nominal
+        - generic [ref=e84]: ◆
+        - generic [ref=e85]: Transmitting on all frequencies
+        - generic [ref=e86]: ◆
+      - generic [ref=e87]:
+        - generic [ref=e88]: — Selected works 2026
+        - generic [ref=e89]: ◆
+        - generic [ref=e90]: Nights & weekends
+        - generic [ref=e91]: ◆
+        - generic [ref=e92]: Built from Miami
+        - generic [ref=e93]: ◆
+        - generic [ref=e94]: All systems nominal
+        - generic [ref=e95]: ◆
+        - generic [ref=e96]: Transmitting on all frequencies
+        - generic [ref=e97]: ◆
+    - region "Things that exist because I made them." [ref=e98]:
+      - generic [ref=e99]:
+        - generic [ref=e100]:
+          - generic [ref=e101]: "001"
+          - generic [ref=e102]: Selected Works
+        - heading "Things that exist because I made them." [level=2] [ref=e103]:
+          - text: Things that exist
+          - emphasis [ref=e104]: because I made them.
+      - list [ref=e105]:
+        - listitem [ref=e106]:
+          - link "01 Day job · 2024 — Cornerstone Companies South Florida impact windows and doors. I got curious about the website and kept going. Next.js Sanity Motion cstonefl.com" [ref=e107]:
+            - /url: https://cstonefl.com
+            - generic [ref=e108]: "01"
+            - generic [ref=e109]:
+              - generic [ref=e110]:
+                - generic [ref=e111]: Day job · 2024 —
+                - heading "Cornerstone Companies" [level=3] [ref=e112]
+              - paragraph [ref=e113]: South Florida impact windows and doors. I got curious about the website and kept going.
+            - generic [ref=e114]:
+              - generic [ref=e115]:
+                - generic [ref=e116]: Next.js
+                - generic [ref=e117]: Sanity
+                - generic [ref=e118]: Motion
+              - generic [ref=e119]:
+                - text: cstonefl.com
+                - generic [ref=e120]: ↗
+        - listitem [ref=e122]:
+          - link "02 Side project · 2025 Meltdown Parents share why their kid had a meltdown today. Made it because the stories are too funny not to have a place for them. React Supabase Tailwind meltdown.jrbussard.com" [ref=e123]:
+            - /url: https://meltdown.jrbussard.com
+            - generic [ref=e124]: "02"
+            - generic [ref=e125]:
+              - generic [ref=e126]:
+                - generic [ref=e127]: Side project · 2025
+                - heading "Meltdown" [level=3] [ref=e128]
+              - paragraph [ref=e129]: Parents share why their kid had a meltdown today. Made it because the stories are too funny not to have a place for them.
+            - generic [ref=e130]:
+              - generic [ref=e131]:
+                - generic [ref=e132]: React
+                - generic [ref=e133]: Supabase
+                - generic [ref=e134]: Tailwind
+              - generic [ref=e135]:
+                - text: meltdown.jrbussard.com
+                - generic [ref=e136]: ↗
+        - listitem [ref=e138]:
+          - link "03 Side project · 2025 Make Waves Built this for friends who organize community events. Helps them keep things moving between campaigns. Next.js Postgres Edge waves.jrbussard.com" [ref=e139]:
+            - /url: https://waves.jrbussard.com
+            - generic [ref=e140]: "03"
+            - generic [ref=e141]:
+              - generic [ref=e142]:
+                - generic [ref=e143]: Side project · 2025
+                - heading "Make Waves" [level=3] [ref=e144]
+              - paragraph [ref=e145]: Built this for friends who organize community events. Helps them keep things moving between campaigns.
+            - generic [ref=e146]:
+              - generic [ref=e147]:
+                - generic [ref=e148]: Next.js
+                - generic [ref=e149]: Postgres
+                - generic [ref=e150]: Edge
+              - generic [ref=e151]:
+                - text: waves.jrbussard.com
+                - generic [ref=e152]: ↗
+    - region "Live commits from the workbench." [ref=e154]:
+      - generic [ref=e155]:
+        - generic [ref=e156]:
+          - generic [ref=e157]: "002"
+          - generic [ref=e158]: Transmissions
+        - heading "Live commits from the workbench." [level=2] [ref=e159]:
+          - text: Live commits from
+          - emphasis [ref=e160]: the workbench.
+        - generic [ref=e161]:
+          - generic [ref=e162]: —
+          - generic [ref=e163]: recent · syncing
+      - generic [ref=e165]: Receiving transmissions…
+    - region "Public shelves on GitHub." [ref=e167]:
+      - generic [ref=e168]:
+        - generic [ref=e169]:
+          - generic [ref=e170]: "003"
+          - generic [ref=e171]: Repositories
+        - heading "Public shelves on GitHub." [level=2] [ref=e172]:
+          - text: Public shelves
+          - emphasis [ref=e173]: on GitHub.
+        - generic [ref=e174]:
+          - generic [ref=e175]:
+            - generic [ref=e176]: —
+            - generic [ref=e177]: repos indexed
+          - generic [ref=e178]:
+            - generic [ref=e179]: —
+            - generic [ref=e180]: stars received
+      - paragraph [ref=e181]: Indexing repositories…
+    - region "Things I keep thinking about." [ref=e182]:
+      - generic [ref=e183]:
+        - generic [ref=e184]:
+          - generic [ref=e185]: "004"
+          - generic [ref=e186]: Obsessions
+        - heading "Things I keep thinking about." [level=2] [ref=e187]:
+          - text: Things I keep
+          - emphasis [ref=e188]: thinking about.
+      - list [ref=e189]:
+        - listitem [ref=e190] [cursor=pointer]:
+          - generic [ref=e191]: "01"
+          - generic [ref=e192]: Seeing how far AI tools can take an idea.
+        - listitem [ref=e193] [cursor=pointer]:
+          - generic [ref=e194]: "02"
+          - generic [ref=e195]: Browser games I'd actually want to play.
+        - listitem [ref=e196] [cursor=pointer]:
+          - generic [ref=e197]: "03"
+          - generic [ref=e198]: Making useful things for people I know.
+        - listitem [ref=e199] [cursor=pointer]:
+          - generic [ref=e200]: "04"
+          - generic [ref=e201]: Late-night builds, small weird domains.
+    - region "Got something worth building?" [ref=e202]:
+      - generic [ref=e204]:
+        - generic [ref=e205]: "005"
+        - generic [ref=e206]: Signal
+      - generic [ref=e207]:
+        - heading "Got something worth building?" [level=2] [ref=e208]:
+          - generic [ref=e209]: Got something
+          - generic [ref=e210]: worth building?
+        - generic [ref=e211]:
+          - link "Transmit →" [ref=e213]:
+            - /url: mailto:scottbussardjr@gmail.com
+            - generic [ref=e215]: Transmit →
+          - generic [ref=e216]:
+            - link "github ↗" [ref=e217]:
+              - /url: https://github.com/pirut
+              - generic [ref=e218]: github
+              - generic [ref=e219]: ↗
+            - link "linkedin ↗" [ref=e220]:
+              - /url: https://linkedin.com/in/jr-bussard
+              - generic [ref=e221]: linkedin
+              - generic [ref=e222]: ↗
+            - link "email ↗" [ref=e223]:
+              - /url: mailto:scottbussardjr@gmail.com
+              - generic [ref=e224]: email
+              - generic [ref=e225]: ↗
+    - generic [ref=e226]:
+      - generic [ref=e227]:
+        - generic [ref=e228]: © JR Bussard 2026
+        - generic [ref=e229]: ·
+        - generic [ref=e230]: Built in Miami
+        - generic [ref=e231]: ·
+        - generic [ref=e232]: Archive v4.0
+      - generic [ref=e234]: All systems nominal

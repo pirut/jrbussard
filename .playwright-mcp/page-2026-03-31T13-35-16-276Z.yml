@@ -1,0 +1,78 @@
+- main [ref=e5]:
+  - img
+  - generic [ref=e6]:
+    - generic [ref=e7]: JR BUSSARD
+    - generic [ref=e8]: ONLINE
+    - generic [ref=e10]: 09:35:16
+  - region "BUILDING CLEAR, USEFUL WEB PROJECTS." [ref=e11]:
+    - generic [ref=e12]:
+      - heading "BUILDING CLEAR, USEFUL WEB PROJECTS." [level=1] [ref=e13]:
+        - generic [ref=e14]: BUILDING
+        - generic [ref=e15]: CLEAR, USEFUL
+        - generic [ref=e16]: WEB PROJECTS.
+      - paragraph [ref=e17]: Web developer. Building Cornerstone Companies as my main gig, alongside side projects in games, social platforms, and practical tools.
+    - figure [ref=e18]:
+      - img "JR Bussard" [ref=e19]
+  - region "PROJECTS" [ref=e22]:
+    - generic [ref=e23]:
+      - generic [ref=e24]: "01"
+      - heading "PROJECTS" [level=2] [ref=e25]
+    - generic [ref=e26]:
+      - link "Main job Cornerstone Companies Building a South Florida luxury impact windows and doors company delivering design-forward, high-performance fenestration solutions. OPEN SITE →" [ref=e27] [cursor=pointer]:
+        - /url: https://cstonefl.com
+        - generic [ref=e28]: Main job
+        - heading "Cornerstone Companies" [level=3] [ref=e29]
+        - paragraph [ref=e30]: Building a South Florida luxury impact windows and doors company delivering design-forward, high-performance fenestration solutions.
+        - generic [ref=e31]:
+          - text: OPEN SITE
+          - generic [ref=e32]: →
+      - link "Side project Land A persistent browser world focused on progression systems, player economies, and long-term experimentation. OPEN SITE →" [ref=e33] [cursor=pointer]:
+        - /url: https://land.jrbussard.com
+        - generic [ref=e34]: Side project
+        - heading "Land" [level=3] [ref=e35]
+        - paragraph [ref=e36]: A persistent browser world focused on progression systems, player economies, and long-term experimentation.
+        - generic [ref=e37]:
+          - text: OPEN SITE
+          - generic [ref=e38]: →
+      - link "Side project Make Waves A platform for community organizers to host events, coordinate participants, and keep momentum between campaigns. OPEN SITE →" [ref=e39] [cursor=pointer]:
+        - /url: https://waves.jrbussard.com
+        - generic [ref=e40]: Side project
+        - heading "Make Waves" [level=3] [ref=e41]
+        - paragraph [ref=e42]: A platform for community organizers to host events, coordinate participants, and keep momentum between campaigns.
+        - generic [ref=e43]:
+          - text: OPEN SITE
+          - generic [ref=e44]: →
+  - region "LIVE FEED" [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]: "02"
+      - heading "LIVE FEED" [level=2] [ref=e49]
+      - generic [ref=e50]: LIVE
+    - generic [ref=e52]:
+      - generic [ref=e53]: FETCHING GITHUB DATA...
+      - generic [ref=e54]: "&block;"
+  - region "REPOSITORIES" [ref=e56]:
+    - generic [ref=e57]:
+      - generic [ref=e58]: "03"
+      - heading "REPOSITORIES" [level=2] [ref=e59]
+    - paragraph [ref=e60]: LOADING...
+  - region "CURRENT FOCUS" [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]: "04"
+      - heading "CURRENT FOCUS" [level=2] [ref=e65]
+    - list [ref=e66]:
+      - listitem [ref=e67]:
+        - generic [ref=e68]: →
+        - text: Readable, durable frontend systems
+      - listitem [ref=e69]:
+        - generic [ref=e70]: →
+        - text: Game mechanics and progression loops for the web
+      - listitem [ref=e71]:
+        - generic [ref=e72]: →
+        - text: Tools that help communities organize action
+  - generic [ref=e74]:
+    - generic [ref=e75]: BUILT WITH REACT
+    - generic [ref=e76]: /
+    - generic [ref=e77]: HOSTED ON VERCEL
+    - generic [ref=e78]: /
+    - link "GITHUB/PIRUT" [ref=e80] [cursor=pointer]:
+      - /url: https://github.com/pirut

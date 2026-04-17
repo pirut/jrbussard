@@ -1,0 +1,78 @@
+- main [ref=e5]:
+  - generic:
+    - generic:
+      - generic: 🐾
+      - generic: 🐾
+      - generic: 🐾
+      - generic: 🐾
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - link "Back to JR's site" [ref=e8] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e9]:
+        - button "Tap for sound" [ref=e10] [cursor=pointer]
+        - paragraph [ref=e11]: Charlie's Pup Patrol HQ
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - paragraph [ref=e14]: Rescue time with Charlie and the pups.
+        - heading "Charlie's Paw Patrol HQ!" [level=1] [ref=e15]
+        - paragraph [ref=e16]: Tap everything. Pop paws. Flash sirens. Help the pups save the day.
+      - generic "Charlie name badge" [ref=e17]:
+        - generic [ref=e18]: Top Pup
+        - strong [ref=e19]: Charlie
+        - generic [ref=e20]: Ready for rescue
+    - generic [ref=e21]:
+      - region "Mission Control" [ref=e22]:
+        - generic [ref=e23]:
+          - heading "Mission Control" [level=2] [ref=e24]
+          - paragraph [ref=e25]: "Missions completed: 0"
+        - paragraph [ref=e26]: Chase needs Charlie to find the blue paw badge!
+        - button "Start Rescue" [ref=e27] [cursor=pointer]
+      - region "Meet the Pups" [ref=e28]:
+        - generic [ref=e29]:
+          - heading "Meet the Pups" [level=2] [ref=e30]
+          - paragraph [ref=e31]: Pick a pup for Charlie.
+        - generic [ref=e32]:
+          - button "Chase Chase is on the case, Charlie!" [ref=e33] [cursor=pointer]:
+            - generic [ref=e34]: 🐾
+            - generic [ref=e35]: Chase
+            - generic [ref=e36]: Chase is on the case, Charlie!
+          - button "Marshall Marshall says Charlie is super brave!" [ref=e37] [cursor=pointer]:
+            - generic [ref=e38]: 🚒
+            - generic [ref=e39]: Marshall
+            - generic [ref=e40]: Marshall says Charlie is super brave!
+          - button "Skye Skye wants Charlie to soar to the sky!" [ref=e41] [cursor=pointer]:
+            - generic [ref=e42]: 🛩️
+            - generic [ref=e43]: Skye
+            - generic [ref=e44]: Skye wants Charlie to soar to the sky!
+          - button "Rubble Rubble says Charlie can dig it!" [ref=e45] [cursor=pointer]:
+            - generic [ref=e46]: 🚧
+            - generic [ref=e47]: Rubble
+            - generic [ref=e48]: Rubble says Charlie can dig it!
+      - region "Siren Pads" [ref=e49]:
+        - generic [ref=e50]:
+          - heading "Siren Pads" [level=2] [ref=e51]
+          - paragraph [ref=e52]: Tap the colors, Charlie.
+        - generic [ref=e53]:
+          - button "Red Siren" [ref=e54] [cursor=pointer]
+          - button "Blue Siren" [ref=e55] [cursor=pointer]
+          - button "Yellow Siren" [ref=e56] [cursor=pointer]
+      - region "Paw Pop" [ref=e57]:
+        - generic [ref=e58]:
+          - heading "Paw Pop" [level=2] [ref=e59]
+          - paragraph [ref=e60]: "Paws popped: 0"
+        - group "Floating paw bubbles for Charlie to pop" [ref=e61]:
+          - button "Pop a paw bubble" [ref=e62] [cursor=pointer]:
+            - generic [ref=e63]: 🐾
+          - button "Pop a paw bubble" [ref=e64] [cursor=pointer]:
+            - generic [ref=e65]: 🐾
+          - button "Pop a paw bubble" [ref=e66] [cursor=pointer]:
+            - generic [ref=e67]: 🐾
+          - button "Pop a paw bubble" [ref=e68] [cursor=pointer]:
+            - generic [ref=e69]: 🐾
+          - button "Pop a paw bubble" [ref=e70] [cursor=pointer]:
+            - generic [ref=e71]: 🐾
+          - button "Pop a paw bubble" [ref=e72] [cursor=pointer]:
+            - generic [ref=e73]: 🐾
+          - button "Pop a paw bubble" [ref=e74] [cursor=pointer]:
+            - generic [ref=e75]: 🐾

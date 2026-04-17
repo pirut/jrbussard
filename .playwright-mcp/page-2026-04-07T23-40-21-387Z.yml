@@ -1,0 +1,147 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - link "MELTD 😭 WN" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e6]:
+            - text: MELTD
+            - generic [ref=e7]: 😭
+            - text: WN
+        - generic [ref=e8]:
+          - button "Sign In" [ref=e9]
+          - button "Sign Up" [ref=e10]
+    - main [ref=e11]:
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - heading "Today my toddler had a meltdown because..." [level=1] [ref=e14]:
+            - generic [ref=e15]:
+              - generic [ref=e16]: Today my
+              - generic [ref=e18]: toddler
+            - generic [ref=e21]: had a meltdown because...
+          - paragraph [ref=e22]: The funniest parenting moments, shared.
+        - generic [ref=e23]:
+          - generic [ref=e25]:
+            - button "🔥 Freshest" [ref=e26]
+            - button "🏆 Top" [ref=e27]
+          - generic [ref=e29]:
+            - button "All" [ref=e30]
+            - button "🍌 Food" [ref=e32]:
+              - generic [ref=e33]: 🍌
+              - generic [ref=e34]: Food
+            - button "😴 Bedtime" [ref=e36]:
+              - generic [ref=e37]: 😴
+              - generic [ref=e38]: Bedtime
+            - button "👕 Getting Dressed" [ref=e40]:
+              - generic [ref=e41]: 👕
+              - generic [ref=e42]: Getting Dressed
+            - button "🥤 Wrong Cup" [ref=e44]:
+              - generic [ref=e45]: 🥤
+              - generic [ref=e46]: Wrong Cup
+            - button "🧩 Toys" [ref=e48]:
+              - generic [ref=e49]: 🧩
+              - generic [ref=e50]: Toys
+            - button "📺 Screen Time" [ref=e52]:
+              - generic [ref=e53]: 📺
+              - generic [ref=e54]: Screen Time
+            - button "🤷 Literally Nothing" [ref=e56]:
+              - generic [ref=e57]: 🤷
+              - generic [ref=e58]: Literally Nothing
+            - button "✨ Impossible Request" [ref=e60]:
+              - generic [ref=e61]: ✨
+              - generic [ref=e62]: Impossible Request
+          - generic [ref=e64]:
+            - generic [ref=e65] [cursor=pointer]:
+              - generic [ref=e66]:
+                - generic [ref=e67]:
+                  - generic [ref=e69]: A
+                  - generic [ref=e70]:
+                    - generic [ref=e71]: awradder
+                    - generic [ref=e72]: ·
+                    - generic [ref=e73]: 4d ago
+                - 'generic "Meltdown Score: 2" [ref=e74]':
+                  - generic [ref=e75]: 🌡️
+                  - generic [ref=e76]: "2"
+              - generic [ref=e77]:
+                - paragraph [ref=e78]:
+                  - text: Today my baby
+                  - generic [ref=e79]: had a meltdown because
+                  - generic [ref=e80]: she wanted to eat a steak and I told her she couldn’t because she doesn’t have any teeth yet 😭
+                - button "🍌 Food" [disabled] [ref=e82]:
+                  - generic [ref=e83]: 🍌
+                  - generic [ref=e84]: Food
+              - generic [ref=e85]:
+                - generic [ref=e86]:
+                  - button "😭 1" [ref=e87]:
+                    - generic [ref=e88]: 😭
+                    - generic [ref=e89]: "1"
+                  - button "🤣 1" [ref=e90]:
+                    - generic [ref=e91]: 🤣
+                    - generic [ref=e92]: "1"
+                - link "💬 0" [ref=e93]:
+                  - /url: /meltdown/j978y9g8be3a5189tpmmv1q6gs845z9b
+                  - generic [ref=e94]: 💬
+                  - generic [ref=e95]: "0"
+            - generic [ref=e96] [cursor=pointer]:
+              - generic [ref=e97]:
+                - generic [ref=e98]:
+                  - generic [ref=e100]: A
+                  - generic [ref=e101]:
+                    - generic [ref=e102]: Anonymous
+                    - generic [ref=e103]: ·
+                    - generic [ref=e104]: 5d ago
+                - 'generic "Meltdown Score: 1" [ref=e105]':
+                  - generic [ref=e106]: 🌡️
+                  - generic [ref=e107]: "1"
+              - generic [ref=e108]:
+                - paragraph [ref=e109]:
+                  - text: Today my kid
+                  - generic [ref=e110]: had a meltdown because
+                  - generic [ref=e111]: My 8 year old had a meltdown this morning because her school uniform is a skirt and she has leg hair 😩
+                - button "✨ Impossible Request" [disabled] [ref=e113]:
+                  - generic [ref=e114]: ✨
+                  - generic [ref=e115]: Impossible Request
+              - generic [ref=e116]:
+                - generic [ref=e117]:
+                  - button "😭 0" [ref=e118]:
+                    - generic [ref=e119]: 😭
+                    - generic [ref=e120]: "0"
+                  - button "🤣 1" [ref=e121]:
+                    - generic [ref=e122]: 🤣
+                    - generic [ref=e123]: "1"
+                - link "💬 0" [ref=e124]:
+                  - /url: /meltdown/j97ayev94h4jrnvczb02fpwv598438fq
+                  - generic [ref=e125]: 💬
+                  - generic [ref=e126]: "0"
+            - generic [ref=e127] [cursor=pointer]:
+              - generic [ref=e128]:
+                - generic [ref=e129]:
+                  - generic [ref=e131]: JB
+                  - generic [ref=e132]:
+                    - generic [ref=e133]: JR Bussard
+                    - generic [ref=e134]: ·
+                    - generic [ref=e135]: 5d ago
+                - 'generic "Meltdown Score: 2" [ref=e136]':
+                  - generic [ref=e137]: 🌡️
+                  - generic [ref=e138]: "2"
+              - generic [ref=e139]:
+                - paragraph [ref=e140]:
+                  - text: Today my toddler
+                  - generic [ref=e141]: had a meltdown because
+                  - generic [ref=e142]: He wanted to go on the Artemis 2 rocket and we told him he needed to practice first.
+                - button "✨ Impossible Request" [disabled] [ref=e144]:
+                  - generic [ref=e145]: ✨
+                  - generic [ref=e146]: Impossible Request
+              - generic [ref=e147]:
+                - generic [ref=e148]:
+                  - button "😭 1" [ref=e149]:
+                    - generic [ref=e150]: 😭
+                    - generic [ref=e151]: "1"
+                  - button "🤣 1" [ref=e152]:
+                    - generic [ref=e153]: 🤣
+                    - generic [ref=e154]: "1"
+                - link "💬 1" [ref=e155]:
+                  - /url: /meltdown/j975nbzhwjq9fbarh9h3kvgec984276d
+                  - generic [ref=e156]: 💬
+                  - generic [ref=e157]: "1"
+  - region "Notifications alt+T"
