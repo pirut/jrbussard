@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" shape-rendering="geometricPrecision">
+    <defs>
+        <linearGradient id="ember" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ff7a3f"/>
+            <stop offset="1" stop-color="#e0430d"/>
+        </linearGradient>
+        <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#15171c"/>
+            <stop offset="1" stop-color="#07080a"/>
+        </linearGradient>
+    </defs>
+    <!-- Obsidian card -->
+    <rect width="64" height="64" rx="12" fill="url(#ink)"/>
+    <!-- Faint bone border -->
+    <rect x="1.25" y="1.25" width="61.5" height="61.5" rx="10.75"
+          fill="none" stroke="#efe7d6" stroke-opacity="0.14" stroke-width="1"/>
+    <!-- Corner ticks — echoes the HUD brackets -->
+    <path d="M10 6 H6 V10" stroke="#efe7d6" stroke-opacity="0.35" stroke-width="1.25" fill="none" stroke-linecap="square"/>
+    <path d="M54 58 H58 V54" stroke="#efe7d6" stroke-opacity="0.35" stroke-width="1.25" fill="none" stroke-linecap="square"/>
+    <!-- Ember glyph — the site's signature ◢ mark -->
+    <path d="M16 14 L48 14 L48 46 Z" fill="url(#ember)"/>
+    <!-- Ember glow echo -->
+    <path d="M16 14 L48 14 L48 46 Z" fill="none" stroke="#ff7a3f" stroke-opacity="0.45" stroke-width="1.25"/>
+    <!-- Phosphor live-signal dot -->
+    <circle cx="16" cy="50" r="2.4" fill="#8affd4"/>
+    <circle cx="16" cy="50" r="4.5" fill="#8affd4" fill-opacity="0.22"/>
+</svg>
