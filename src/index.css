@@ -1,67 +1,23 @@
-/* =============================================================
-   JR BUSSARD // CINEMATIC ARCHIVE
-   Obsidian, bone, ember. Terminal-meets-editorial.
-   ============================================================= */
-
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap");
 
 :root {
-    /* Surfaces */
-    --void: #07080a;
-    --obsidian: #0a0b0e;
-    --graphite: #121317;
-    --slate: #1b1d22;
-    --steel: #2a2d34;
-
-    /* Ink */
-    --bone: #efe7d6;
-    --bone-soft: rgba(239, 231, 214, 0.72);
-    --bone-dim: rgba(239, 231, 214, 0.48);
-    --bone-faint: rgba(239, 231, 214, 0.26);
-    --bone-hair: rgba(239, 231, 214, 0.12);
-    --bone-ghost: rgba(239, 231, 214, 0.06);
-
-    /* Signals */
-    --ember: #ff5a1f;
-    --ember-deep: #c63e0f;
-    --phosphor: #8affd4;
-    --phosphor-dim: #4eb892;
-    --signal: #ffc268;
-
-    /* Typography */
-    --font-display: "Instrument Serif", "Cormorant Garamond", "Didot", "Bodoni 72", serif;
-    --font-sans: "Instrument Sans", "Söhne", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", "Berkeley Mono", "SF Mono", ui-monospace, monospace;
-
-    /* Layout */
-    --pad-x: clamp(1.25rem, 4vw, 3.5rem);
-    --pad-y: clamp(2rem, 5vw, 4rem);
-    --max-w: 1600px;
-
-    /* Motion */
-    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-    --ease-in-out: cubic-bezier(0.83, 0, 0.17, 1);
-
-    /* Legacy tokens so the Charlie page still works */
-    --paper: var(--obsidian);
-    --paper-deep: var(--graphite);
-    --paper-shade: var(--slate);
-    --ink: var(--bone);
-    --ink-soft: var(--bone-soft);
-    --ink-muted: var(--bone-dim);
-    --ink-faint: var(--bone-faint);
-    --ink-dim: var(--bone-dim);
-    --rule: var(--bone-hair);
-    --rule-soft: var(--bone-hair);
-    --rule-hair: var(--bone-ghost);
-    --oxblood: var(--ember);
-    --oxblood-deep: var(--ember-deep);
-    --sepia: var(--signal);
-    --indigo: var(--phosphor);
-    --line: var(--bone-hair);
-    --panel: var(--graphite);
-    --font-body: var(--font-sans);
-    --font-accent: var(--font-mono);
+    --bg: #0d0f0e;
+    --panel: #141715;
+    --panel-2: #191d1a;
+    --line: rgba(236, 238, 230, 0.12);
+    --line-strong: rgba(236, 238, 230, 0.22);
+    --text: #eceee6;
+    --muted: rgba(236, 238, 230, 0.58);
+    --faint: rgba(236, 238, 230, 0.34);
+    --green: #b9ff5c;
+    --blue: #76a9ff;
+    --orange: #ff9f5c;
+    --shadow: 0 24px 90px rgba(0, 0, 0, 0.32);
+    --pad: clamp(1rem, 3vw, 2.5rem);
+    --radius: 10px;
+    --font-body: "Manrope", "Avenir Next", sans-serif;
+    --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * {
@@ -71,9 +27,9 @@
 html,
 body,
 #root {
-    margin: 0;
     min-height: 100%;
-    background: var(--obsidian);
+    margin: 0;
+    background: var(--bg);
 }
 
 html {
@@ -82,22 +38,15 @@ html {
 
 body {
     margin: 0;
-    font-family: var(--font-sans);
-    font-weight: 400;
+    overflow-x: hidden;
+    color: var(--text);
+    background: var(--bg);
+    font-family: var(--font-body);
     font-size: 16px;
     line-height: 1.5;
-    letter-spacing: 0.005em;
-    color: var(--bone);
-    background: var(--obsidian);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    overflow-x: hidden;
-}
-
-img {
-    display: block;
-    max-width: 100%;
 }
 
 a {
@@ -106,50 +55,30 @@ a {
 }
 
 button {
-    font: inherit;
-    color: inherit;
-    background: none;
     border: 0;
     padding: 0;
-    cursor: pointer;
+    background: transparent;
+    color: inherit;
+    font: inherit;
 }
 
 ::selection {
-    background: var(--ember);
-    color: var(--obsidian);
+    color: var(--bg);
+    background: var(--green);
 }
 
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
 }
 
 ::-webkit-scrollbar-track {
-    background: var(--obsidian);
+    background: var(--bg);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--steel);
-    border-radius: 0;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: var(--ember);
-}
-
-/* Global hover hooks used by custom cursor */
-a,
-button,
-[data-hover] {
-    cursor: none;
-}
-
-@media (hover: none) {
-    a,
-    button,
-    [data-hover] {
-        cursor: pointer;
-    }
+    background: #343a35;
+    border: 3px solid var(--bg);
+    border-radius: 999px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -158,7 +87,7 @@ button,
     *::after {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;
-        transition-duration: 0.001ms !important;
         scroll-behavior: auto !important;
+        transition-duration: 0.001ms !important;
     }
 }

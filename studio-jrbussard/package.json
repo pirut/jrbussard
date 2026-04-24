@@ -1,0 +1,23 @@
+{
+    "name": "studio-jrbussard",
+    "private": true,
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "sanity dev --host 0.0.0.0 --port 3333",
+        "start": "sanity start",
+        "build": "sanity build",
+        "deploy": "sanity deploy",
+        "import": "sanity dataset import seed.ndjson production --replace"
+    },
+    "dependencies": {
+        "@sanity/vision": "^5.22.0",
+        "react": "^19.2.2",
+        "react-dom": "^19.2.2",
+        "sanity": "^5.22.0",
+        "styled-components": "^6.1.19"
+    },
+    "devDependencies": {
+        "typescript": "^5.9.3"
+    }
+}

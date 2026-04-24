@@ -1,0 +1,26 @@
+[
+    {
+        "slug": "why-small-tools-win",
+        "title": "Why small tools usually win",
+        "date": "2026-04-24",
+        "category": "Building",
+        "summary": "A short note on why I like tools that do one job clearly instead of trying to become a platform.",
+        "body": "The best internal tools I use are usually boring. They save a few clicks, remove a little confusion, or make a repeated task easier to finish."
+    },
+    {
+        "slug": "operations-and-software",
+        "title": "Operations and software overlap more than people think",
+        "date": "2026-04-18",
+        "category": "Operations",
+        "summary": "Running a business and building software both come down to clear handoffs, simple systems, and fewer loose ends.",
+        "body": "Most operational problems are system problems. The same thing is true in code. If the path is unclear, people invent their own paths."
+    },
+    {
+        "slug": "personal-sites",
+        "title": "Personal sites should be easy to update",
+        "date": "2026-04-10",
+        "category": "Web",
+        "summary": "A personal site is more useful when changing it feels lightweight enough that you actually do it.",
+        "body": "If updating a page feels like a project, it probably will not get updated. I want this site to stay simple enough to change quickly."
+    }
+]

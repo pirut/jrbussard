@@ -1,3 +1,7 @@
 node_modules
 build
+dist
+.sanity
 *.png
+.env.local
+.env.*.local
