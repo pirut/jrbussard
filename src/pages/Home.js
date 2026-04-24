@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useGitHub } from "../hooks/useGitHub";
 import { fetchNotes } from "../lib/sanity";
 import "../styles/Home.css";
@@ -271,7 +273,11 @@ const Home = () => {
                                     {note.body && (
                                         <details>
                                             <summary>Read note</summary>
-                                            <p>{note.body}</p>
+                                            <div className="blog-card__body">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {note.body}
+                                                </ReactMarkdown>
+                                            </div>
                                         </details>
                                     )}
                                 </article>

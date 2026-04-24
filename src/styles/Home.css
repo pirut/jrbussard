@@ -516,6 +516,113 @@
     content: " -";
 }
 
+.blog-card__body {
+    max-width: 68ch;
+    color: var(--muted);
+}
+
+.blog-card__body > *:first-child {
+    margin-top: 0;
+}
+
+.blog-card__body > *:last-child {
+    margin-bottom: 0;
+}
+
+.blog-card__body p,
+.blog-card__body ul,
+.blog-card__body ol,
+.blog-card__body blockquote,
+.blog-card__body pre {
+    margin: 0.8rem 0 0;
+}
+
+.blog-card__body h1,
+.blog-card__body h2,
+.blog-card__body h3,
+.blog-card__body h4 {
+    margin: 1.1rem 0 0;
+    color: var(--text);
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+}
+
+.blog-card__body h1 {
+    font-size: 1.7rem;
+}
+
+.blog-card__body h2 {
+    font-size: 1.45rem;
+}
+
+.blog-card__body h3 {
+    font-size: 1.22rem;
+}
+
+.blog-card__body ul,
+.blog-card__body ol {
+    padding-left: 1.15rem;
+}
+
+.blog-card__body li + li {
+    margin-top: 0.35rem;
+}
+
+.blog-card__body a {
+    color: var(--green);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.22em;
+}
+
+.blog-card__body blockquote {
+    padding-left: 0.9rem;
+    border-left: 2px solid var(--green);
+    color: var(--text);
+}
+
+.blog-card__body code {
+    padding: 0.12rem 0.28rem;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: rgba(13, 15, 14, 0.72);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+}
+
+.blog-card__body pre {
+    overflow-x: auto;
+    padding: 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(13, 15, 14, 0.86);
+}
+
+.blog-card__body pre code {
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.blog-card__body table {
+    width: 100%;
+    margin-top: 0.8rem;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.blog-card__body th,
+.blog-card__body td {
+    padding: 0.55rem;
+    border: 1px solid var(--line);
+    text-align: left;
+}
+
+.blog-card__body th {
+    color: var(--text);
+}
+
 .blog-card details p {
     max-width: 62ch;
 }

@@ -52,9 +52,10 @@ export const noteType = defineType({
         }),
         defineField({
             name: "body",
-            title: "Body",
+            title: "Body (Markdown)",
             type: "text",
             rows: 8,
+            description: "Supports Markdown: headings, links, lists, quotes, code, and tables.",
             validation: (rule) => rule.required(),
         }),
     ],
