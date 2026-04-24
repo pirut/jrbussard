@@ -31,7 +31,6 @@
 .work-preview div,
 .repo-board div,
 .blog__intro span,
-.blog__manage,
 .blog-card__meta,
 .blog-card summary {
     font-family: var(--font-mono);
@@ -443,26 +442,6 @@
 .blog__intro p {
     margin: 0;
     color: var(--muted);
-}
-
-.blog__manage {
-    display: inline-flex;
-    width: fit-content;
-    min-height: 36px;
-    align-items: center;
-    justify-content: center;
-    margin-top: 1rem;
-    padding: 0.55rem 0.75rem;
-    border: 1px solid var(--line-strong);
-    border-radius: 999px;
-    color: var(--text);
-    transition: border-color 0.25s var(--ease), color 0.25s var(--ease), transform 0.25s var(--ease);
-}
-
-.blog__manage:hover {
-    border-color: var(--green);
-    color: var(--green);
-    transform: translateY(-2px);
 }
 
 .blog__intro span {

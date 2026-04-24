@@ -5,12 +5,7 @@ const projectId = process.env.REACT_APP_SANITY_PROJECT_ID || "8qiu273i";
 const dataset = process.env.REACT_APP_SANITY_DATASET || "production";
 const apiVersion = process.env.REACT_APP_SANITY_API_VERSION || "2026-04-24";
 
-export const studioUrl =
-    process.env.REACT_APP_SANITY_STUDIO_URL || "http://localhost:3333";
-
-export const isSanityConfigured = Boolean(projectId);
-
-const client = isSanityConfigured
+const client = projectId
     ? createClient({
         projectId,
         dataset,

@@ -1,27 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" shape-rendering="geometricPrecision">
     <defs>
-        <linearGradient id="ember" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#ff7a3f"/>
-            <stop offset="1" stop-color="#e0430d"/>
+        <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#181c18"/>
+            <stop offset="1" stop-color="#080a09"/>
         </linearGradient>
-        <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#15171c"/>
-            <stop offset="1" stop-color="#07080a"/>
+        <linearGradient id="signal" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#d8ff84"/>
+            <stop offset="1" stop-color="#87ff52"/>
         </linearGradient>
+        <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="2.2" result="blur"/>
+            <feMerge>
+                <feMergeNode in="blur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
     </defs>
-    <!-- Obsidian card -->
-    <rect width="64" height="64" rx="12" fill="url(#ink)"/>
-    <!-- Faint bone border -->
-    <rect x="1.25" y="1.25" width="61.5" height="61.5" rx="10.75"
-          fill="none" stroke="#efe7d6" stroke-opacity="0.14" stroke-width="1"/>
-    <!-- Corner ticks — echoes the HUD brackets -->
-    <path d="M10 6 H6 V10" stroke="#efe7d6" stroke-opacity="0.35" stroke-width="1.25" fill="none" stroke-linecap="square"/>
-    <path d="M54 58 H58 V54" stroke="#efe7d6" stroke-opacity="0.35" stroke-width="1.25" fill="none" stroke-linecap="square"/>
-    <!-- Ember glyph — the site's signature ◢ mark -->
-    <path d="M16 14 L48 14 L48 46 Z" fill="url(#ember)"/>
-    <!-- Ember glow echo -->
-    <path d="M16 14 L48 14 L48 46 Z" fill="none" stroke="#ff7a3f" stroke-opacity="0.45" stroke-width="1.25"/>
-    <!-- Phosphor live-signal dot -->
-    <circle cx="16" cy="50" r="2.4" fill="#8affd4"/>
-    <circle cx="16" cy="50" r="4.5" fill="#8affd4" fill-opacity="0.22"/>
+    <rect width="64" height="64" rx="10" fill="url(#surface)"/>
+    <path d="M16 0V64M32 0V64M48 0V64M0 16H64M0 32H64M0 48H64" stroke="#eceee6" stroke-opacity="0.045"/>
+    <rect x="1.5" y="1.5" width="61" height="61" rx="8.5" fill="none" stroke="#eceee6" stroke-opacity="0.18"/>
+    <path d="M43 9L21 55" stroke="url(#signal)" stroke-width="3" stroke-linecap="square" opacity="0.72" filter="url(#glow)"/>
+    <path d="M17 18H31V36C31 42 27 46 20 46H15V38H20C22 38 23 37 23 35V26H17V18Z" fill="#eceee6"/>
+    <path d="M35 18H50V26H43V31H50V46H42L36 36H35V46H27V18H35ZM35 26V31H39V26H35Z" fill="#eceee6"/>
+    <circle cx="52" cy="12" r="3" fill="url(#signal)" filter="url(#glow)"/>
 </svg>

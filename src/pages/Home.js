@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useGitHub } from "../hooks/useGitHub";
-import { fetchNotes, isSanityConfigured, studioUrl } from "../lib/sanity";
+import { fetchNotes } from "../lib/sanity";
 import "../styles/Home.css";
 
 const work = [
@@ -250,22 +250,9 @@ const Home = () => {
                 <div className="blog">
                     <div className="blog__intro">
                         <p>
-                            Short posts, managed in Sanity so I can update this without
-                            editing the site.
+                            Short posts on code, work, operations, and whatever else is
+                            worth keeping around.
                         </p>
-                        <a
-                            href={studioUrl}
-                            className="blog__manage"
-                            target="_blank"
-                            rel="noreferrer"
-                        >
-                            Open CMS
-                        </a>
-                        <span>
-                            {isSanityConfigured
-                                ? "Connected to Sanity."
-                                : "Sanity ready. Add your project ID to connect live content."}
-                        </span>
                     </div>
                     <ol className="blog__list">
                         {notesLoading && <li className="empty">Loading notes...</li>}
