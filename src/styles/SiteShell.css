@@ -2,46 +2,21 @@
     position: relative;
     min-height: 100vh;
     isolation: isolate;
-    background:
-        linear-gradient(90deg, rgba(236, 238, 230, 0.045) 1px, transparent 1px),
-        linear-gradient(0deg, rgba(236, 238, 230, 0.035) 1px, transparent 1px),
-        var(--bg);
-    background-size: 44px 44px;
 }
 
-.shell::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -2;
-    pointer-events: none;
-    background:
-        radial-gradient(680px 420px at var(--mx, 50%) var(--my, 28%), rgba(185, 255, 92, 0.14), transparent 65%),
-        radial-gradient(520px 420px at 88% 12%, rgba(118, 169, 255, 0.12), transparent 68%),
-        radial-gradient(620px 520px at 18% 90%, rgba(255, 159, 92, 0.08), transparent 70%);
-}
-
-.shell::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background: linear-gradient(180deg, transparent 0%, rgba(13, 15, 14, 0.78) 100%);
-}
-
-.shell__atmosphere {
-    display: none;
+.shell--portfolio {
+    background: var(--limestone);
 }
 
 .shell__progress {
     position: fixed;
     top: 0;
     left: 0;
-    z-index: 100;
+    z-index: 200;
     width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, var(--green), var(--blue), var(--orange));
+    height: 3px;
+    background: var(--gold);
     transform: scaleX(var(--scroll, 0));
     transform-origin: left center;
+    will-change: transform;
 }

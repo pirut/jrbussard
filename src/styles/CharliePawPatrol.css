@@ -11,6 +11,7 @@
 }
 
 .charlie-patrol {
+    --font-display: "Work Sans", sans-serif;
     position: relative;
     min-height: 100vh;
     overflow: hidden;

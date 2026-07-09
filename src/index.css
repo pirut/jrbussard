@@ -1,6 +1,55 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap");
+@font-face {
+    font-family: "Calvino Grande";
+    src: url("./assets/fonts/CalvinoGrande-Light.otf") format("opentype");
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Calvino Grande";
+    src: url("./assets/fonts/CalvinoGrande-LightItalic.otf") format("opentype");
+    font-style: italic;
+    font-weight: 300;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Calvino Grande";
+    src: url("./assets/fonts/CalvinoGrande-Regular.otf") format("opentype");
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Work Sans";
+    src: url("./assets/fonts/WorkSans-Variable.ttf") format("truetype");
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Work Sans";
+    src: url("./assets/fonts/WorkSans-Italic-Variable.ttf") format("truetype");
+    font-style: italic;
+    font-weight: 100 900;
+    font-display: swap;
+}
 
 :root {
+    --gold: #d1a35a;
+    --limestone: #f8f4e4;
+    --gunmetal: #343d42;
+    --black: #000000;
+    --white: #ffffff;
+    --font-display: "Calvino Grande", Georgia, serif;
+    --font-body: "Work Sans", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "SFMono-Regular", Consolas, monospace;
+    --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* Compatibility tokens for the standalone Charlie route. */
     --bg: #0d0f0e;
     --panel: #141715;
     --panel-2: #191d1a;
@@ -15,9 +64,7 @@
     --shadow: 0 24px 90px rgba(0, 0, 0, 0.32);
     --pad: clamp(1rem, 3vw, 2.5rem);
     --radius: 10px;
-    --font-body: "Manrope", "Avenir Next", sans-serif;
-    --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
-    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease: var(--ease-snap);
 }
 
 * {
@@ -29,18 +76,18 @@ body,
 #root {
     min-height: 100%;
     margin: 0;
-    background: var(--bg);
 }
 
 html {
     scroll-behavior: smooth;
+    background: var(--limestone);
 }
 
 body {
     margin: 0;
     overflow-x: hidden;
-    color: var(--text);
-    background: var(--bg);
+    color: var(--black);
+    background: var(--limestone);
     font-family: var(--font-body);
     font-size: 16px;
     line-height: 1.5;
@@ -62,23 +109,27 @@ button {
     font: inherit;
 }
 
+:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 4px;
+}
+
 ::selection {
-    color: var(--bg);
-    background: var(--green);
+    color: var(--limestone);
+    background: var(--gunmetal);
 }
 
 ::-webkit-scrollbar {
-    width: 10px;
+    width: 9px;
 }
 
 ::-webkit-scrollbar-track {
-    background: var(--bg);
+    background: var(--gunmetal);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #343a35;
-    border: 3px solid var(--bg);
-    border-radius: 999px;
+    background: var(--gold);
+    border: 2px solid var(--gunmetal);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,29 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-    <defs>
-        <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#171a17"/>
-            <stop offset="1" stop-color="#080a09"/>
-        </linearGradient>
-        <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur stdDeviation="1.5" result="blur"/>
-            <feMerge>
-                <feMergeNode in="blur"/>
-                <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-        </filter>
-    </defs>
-    <rect width="64" height="64" rx="12" fill="url(#surface)"/>
-    <rect x="2" y="2" width="60" height="60" rx="10" fill="none" stroke="#eceee6" stroke-opacity="0.16" stroke-width="2"/>
-    <text
-        x="32"
-        y="40"
-        text-anchor="middle"
-        fill="#eceee6"
-        font-family="Manrope, Arial Black, Arial, sans-serif"
-        font-size="30"
-        font-weight="900"
-        letter-spacing="-2.8"
-    >JR</text>
-    <rect x="15" y="48" width="34" height="4" rx="2" fill="#b9ff5c" filter="url(#glow)"/>
-    <circle cx="51" cy="13" r="3" fill="#b9ff5c" filter="url(#glow)"/>
+  <rect width="64" height="64" rx="8" fill="#343D42"/>
+  <path d="M14 13h12v25c0 9-4 14-13 14H9V42h3c2 0 2-1 2-4V13Zm17 0h13c9 0 14 5 14 13 0 5-2 8-6 10 5 2 7 6 7 12v4H47v-5c0-4-2-6-6-6h-1v11H29V13h2Zm9 10v9h3c3 0 4-2 4-5s-1-4-4-4h-3Z" fill="#F8F4E4"/>
+  <rect x="8" y="8" width="8" height="8" fill="#D1A35A"/>
 </svg>
