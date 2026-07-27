@@ -12,6 +12,8 @@
 
 .charlie-patrol {
     --font-display: "Work Sans", sans-serif;
+    /* The rest of the site is a monospace terminal; this room is not. */
+    font-family: "Work Sans", ui-sans-serif, system-ui, sans-serif;
     position: relative;
     min-height: 100vh;
     overflow: hidden;
