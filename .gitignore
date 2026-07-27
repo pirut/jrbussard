@@ -5,3 +5,6 @@ dist
 *.png
 .env.local
 .env.*.local
+
+# Convex codegen
+convex/_generated

@@ -22,6 +22,9 @@ function mulberry32(seed) {
 
 const GRASS_CHARS = [",", ",", ",", "'", '"', "`", " "];
 
+/* Night outside; each room sets its own level in rooms.js. */
+const OUTDOOR_AMBIENT = 0.26;
+
 function rectsOverlap(x, y, rects, pad) {
     return rects.some(
         (r) =>
@@ -51,6 +54,8 @@ export function buildWorld() {
     const size = w * h;
     const kinds = new Uint8Array(size);
     const chars = new Array(size).fill(" ");
+    /* 0 means "outdoors"; anything else indexes into `rooms` + 1. */
+    const zones = new Uint8Array(size);
     const rng = mulberry32(20260727);
     const markers = [];
 
@@ -121,12 +126,13 @@ export function buildWorld() {
     });
 
     /* 5. Rooms: shell, then interior, then authored content. */
-    ROOMS.forEach((room) => {
+    ROOMS.forEach((room, roomIndex) => {
         for (let ry = 0; ry < room.h; ry += 1) {
             for (let rx = 0; rx < room.w; rx += 1) {
                 const border =
                     rx === 0 || ry === 0 || rx === room.w - 1 || ry === room.h - 1;
                 set(room.x + rx, room.y + ry, border ? KIND.WALL : KIND.FLOOR);
+                zones[at(room.x + rx, room.y + ry)] = roomIndex + 1;
             }
         }
 
@@ -201,11 +207,22 @@ export function buildWorld() {
         if (kinds[i] === KIND.TORCH) torches.push({ x: i % w, y: (i / w) | 0 });
     }
 
+    /* Per-zone look, indexed to match `zones`. Slot 0 is the outdoors. */
+    const zoneTints = [null].concat(ROOMS.map((room) => room.tint || null));
+    const zoneAmbient = [OUTDOOR_AMBIENT].concat(
+        ROOMS.map((room) =>
+            room.ambient === undefined ? OUTDOOR_AMBIENT : room.ambient
+        )
+    );
+
     return {
         w,
         h,
         kinds,
         chars,
+        zones,
+        zoneTints,
+        zoneAmbient,
         markers,
         markerLookup,
         torches,

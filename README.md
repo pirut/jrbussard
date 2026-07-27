@@ -18,6 +18,68 @@ anything with `ESC`. Touch devices get a thumb pad. The `index` button in the
 corner lists everything as plain links for anyone who would rather not walk,
 and the page carries a screen-reader-only copy of the same content.
 
+## The Arcade
+
+Six cabinets, five filled:
+
+| Cabinet | What it is |
+| --- | --- |
+| **THE COMMONS** | A real multiplayer ASCII sandbox — see below |
+| **THE NIGHT SHIFT** | Idle operations game; time away still counts, up to 8 hours |
+| **SNAKE** | The one you know. Pink apples are worth five |
+| **BREAKOUT** | The edge of the paddle cuts the angle |
+| **CHARLIE'S PAW PATROL** | Sirens and pups, built for my kid |
+
+Snake, Breakout and the idle game keep their best scores in `localStorage`.
+
+## The Commons (multiplayer)
+
+The only part of this site with a server. It runs on **Convex**, chosen because
+reactive queries push state to every connected client with no websocket
+plumbing — a mutation lands and everyone re-renders.
+
+- **Endless world.** No map is stored. Every tile is a pure function of its
+  coordinates in [`src/lib/terrain.js`](src/lib/terrain.js), imported by *both*
+  the browser and the Convex functions, so the two can never disagree and no
+  terrain crosses the wire. Roads run out from the origin along both axes
+  forever, so you can always walk home.
+- **Server-authoritative.** The client asks to move, build, or gather; the
+  server decides. Movement and building are rate-limited server-side.
+- **Sandbox.** Chop trees and mine rock for wood and stone, then build walls,
+  paths, doors, torches and signs. Buildings persist and everyone sees them.
+  You can only demolish your own. Torches actually keep monsters back.
+- **Dynamic.** A twelve-minute day/night cycle, weather that rolls through
+  (rain, fog, storm), and harvested terrain that grows back on a timer. Nights
+  are darker, hungrier, and spawn more.
+- **Chat.** Real chat with speech bubbles over the speaker, per-name colours,
+  and `/me`, `/who`, `/where`, `/home`, `/help`.
+
+Entities are looked up by chunk (`by_chunk`) so querying one corner of an
+endless world never scans the rest. Monsters spawn in a ring around each
+player and are forgotten once everyone walks away.
+
+**Cost control:** the tick loop reschedules itself only while somebody is on
+the field and parks itself when the last player goes idle, so an empty world
+costs nothing.
+
+### Running it
+
+```bash
+npx convex dev      # watches convex/ and pushes
+```
+
+`.env.local` holds `CONVEX_DEPLOYMENT` and `REACT_APP_CONVEX_URL` and is not
+committed. For production, run `npx convex deploy` and set `REACT_APP_CONVEX_URL`
+in the hosting environment. **Without that variable the site still builds and
+every other room works** — the Commons just explains what is missing.
+
+| File | What it holds |
+| --- | --- |
+| [`src/lib/terrain.js`](src/lib/terrain.js) | Terrain generation, shared by client and server |
+| [`convex/schema.ts`](convex/schema.ts) | Tables and indexes |
+| [`convex/world.ts`](convex/world.ts) | Queries and mutations — the rules |
+| [`convex/tick.ts`](convex/tick.ts) | The heartbeat: monsters, weather, regrowth |
+
 ## Adding a small project
 
 Everything about a hosted project lives in one place —

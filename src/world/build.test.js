@@ -1,5 +1,6 @@
 import { buildWorld } from "./build";
 import { KIND, INTERACTIVE } from "./tiles";
+import { arcade } from "../data/site";
 
 /* Flood fill the walkable floor starting from the spawn point. */
 function reachable(world) {
@@ -79,7 +80,20 @@ describe("the overworld", () => {
 
     it("stands up one machine per project and one cabinet per slot", () => {
         expect(world.markers.filter((m) => m.kind === KIND.PROJECT)).toHaveLength(3);
-        expect(world.markers.filter((m) => m.kind === KIND.ARCADE)).toHaveLength(4);
+        expect(world.markers.filter((m) => m.kind === KIND.ARCADE)).toHaveLength(6);
         expect(world.markers.filter((m) => m.kind === KIND.REPO)).toHaveLength(6);
+    });
+
+    it("gives every room that needs one a working terminal", () => {
+        const rooms = world.markers
+            .filter((m) => m.kind === KIND.CONSOLE)
+            .map((m) => m.room)
+            .sort();
+        expect(rooms).toEqual(["arcade", "atrium", "library", "observatory"]);
+    });
+
+    it("has at least as many arcade cabinets as registered projects", () => {
+        const cabinets = world.markers.filter((m) => m.kind === KIND.ARCADE).length;
+        expect(cabinets).toBeGreaterThanOrEqual(arcade.length);
     });
 });

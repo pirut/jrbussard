@@ -1,8 +1,30 @@
 import { useState, useEffect } from "react";
+import { featuredRepos } from "../data/site";
 
 const GITHUB_USER = "pirut";
-const CACHE_KEY = "gh_cache_v2";
+const CACHE_KEY = "gh_cache_v3";
 const CACHE_TTL = 5 * 60 * 1000;
+
+/*
+ * The Observatory has a fixed number of stars, so the order matters. Pinned
+ * repositories come first in the order they are listed, then everything else
+ * by most recent push. Forks and empty repositories never take a slot.
+ */
+function curate(repos) {
+    const rank = new Map(featuredRepos.map((name, i) => [name.toLowerCase(), i]));
+    return repos
+        .filter((repo) => !repo.fork && !repo.archived && repo.size > 0)
+        .sort((a, b) => {
+            const ra = rank.has(a.name.toLowerCase())
+                ? rank.get(a.name.toLowerCase())
+                : Infinity;
+            const rb = rank.has(b.name.toLowerCase())
+                ? rank.get(b.name.toLowerCase())
+                : Infinity;
+            if (ra !== rb) return ra - rb;
+            return new Date(b.pushed_at) - new Date(a.pushed_at);
+        });
+}
 
 function getCached() {
     try {
@@ -46,12 +68,12 @@ export function useGitHub() {
 
         async function fetchData() {
             try {
-                /* 1. Fetch repos sorted by most recent push */
+                /* 1. Fetch a wide window, then curate down to the good ones */
                 const reposRes = await fetch(
-                    `https://api.github.com/users/${GITHUB_USER}/repos?sort=pushed&per_page=8`
+                    `https://api.github.com/users/${GITHUB_USER}/repos?sort=pushed&per_page=100`
                 );
                 if (!reposRes.ok) throw new Error("GitHub API error");
-                const reposData = await reposRes.json();
+                const reposData = curate(await reposRes.json());
 
                 /* 2. Fetch recent commits from the top 4 active repos */
                 const topRepos = reposData.slice(0, 4);

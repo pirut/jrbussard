@@ -4,6 +4,7 @@
     "private": true,
     "dependencies": {
         "@sanity/client": "^7.22.0",
+        "convex": "^1.42.3",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
         "react-markdown": "^10.1.0",

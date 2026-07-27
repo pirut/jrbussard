@@ -525,6 +525,40 @@
     color: var(--dim);
 }
 
+.panel__index .panel__dim {
+    flex: 0 0 auto;
+    min-width: 0;
+    font-size: inherit;
+    color: var(--dim);
+}
+
+.panel__pager {
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    margin-top: 1.6rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--edge-soft);
+}
+
+.panel__pager button {
+    max-width: 46%;
+    overflow: hidden;
+    font-size: 0.85rem;
+    color: var(--dim);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.panel__pager button:last-child {
+    text-align: right;
+}
+
+.panel__pager button:hover {
+    color: var(--amber);
+}
+
 /* ── Minimap ───────────────────────────────────────────────── */
 
 .minimap {

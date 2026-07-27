@@ -7,7 +7,6 @@ import {
     INTERACTIVE,
 } from "./tiles";
 
-const AMBIENT = 0.24;
 const PLAYER_LIGHT = 0.7;
 const PLAYER_RADIUS = 14;
 const TORCH_RADIUS = 8;
@@ -63,8 +62,34 @@ function bakeTorchLight(world) {
     return light;
 }
 
+/* Floors and walls take on their room's colour; props keep their own so they
+   stay recognisable from room to room. */
+const TINTABLE = [KIND.FLOOR, KIND.WALL];
+const TINT_STRENGTH = { [KIND.FLOOR]: 0.34, [KIND.WALL]: 0.46 };
+
+function bakeZoneColors(world) {
+    return world.zoneTints.map((tint) => {
+        const byKind = {};
+        TINTABLE.forEach((kind) => {
+            const base = PALETTE[kind];
+            if (!tint) {
+                byKind[kind] = base;
+                return;
+            }
+            const t = TINT_STRENGTH[kind];
+            byKind[kind] = [
+                Math.round(base[0] + (tint[0] - base[0]) * t),
+                Math.round(base[1] + (tint[1] - base[1]) * t),
+                Math.round(base[2] + (tint[2] - base[2]) * t),
+            ];
+        });
+        return byKind;
+    });
+}
+
 export function createRenderer(container, world) {
     const torchLight = bakeTorchLight(world);
+    const zoneColors = bakeZoneColors(world);
     const colorOf = makeColorCache();
     let rows = [];
     let cache = [];
@@ -116,6 +141,7 @@ export function createRenderer(container, world) {
                 let ch;
                 let rgb;
                 let unlit = false;
+                let zone = 0;
 
                 if (wx < 0 || wy < 0 || wx >= world.w || wy >= world.h) {
                     kind = KIND.VOID;
@@ -124,11 +150,14 @@ export function createRenderer(container, world) {
                 } else {
                     const i = wy * world.w + wx;
                     kind = world.kinds[i];
+                    zone = world.zones[i];
                     ch = ANIMATED.has(kind)
                         ? ANIM_FRAMES[kind][(frame + wx * 3 + wy * 5) & 3]
                         : world.chars[i];
                     unlit = INTERACTIVE[kind] ? isUnlit(i, counts) : false;
-                    rgb = unlit ? UNLIT : PALETTE[kind];
+                    rgb = unlit
+                        ? UNLIT
+                        : zoneColors[zone][kind] || PALETTE[kind];
                 }
 
                 const isPlayer = wx === player.x && wy === player.y;
@@ -137,7 +166,7 @@ export function createRenderer(container, world) {
                     rgb = PLAYER_COLOR;
                 }
 
-                let light = AMBIENT;
+                let light = world.zoneAmbient[zone];
                 const d = Math.hypot(wx - player.x, wy - player.y);
                 if (d < PLAYER_RADIUS) {
                     light += PLAYER_LIGHT * (1 - d / PLAYER_RADIUS);
@@ -153,7 +182,7 @@ export function createRenderer(container, world) {
                     0,
                     Math.min(LEVELS - 1, Math.round(light * (LEVELS - 1)))
                 );
-                const salt = isPlayer ? "p" : unlit ? "u" : kind;
+                const salt = isPlayer ? "p" : unlit ? "u" : `${kind}:${zone}`;
                 const color = colorOf(rgb, level, salt);
 
                 if (color !== runColor) {

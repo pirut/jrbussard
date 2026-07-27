@@ -24,6 +24,7 @@ export const KIND = {
     SIGN: 14,
     BEACON: 15,
     STATUE: 16,
+    CONSOLE: 17,
 };
 
 export const PALETTE = {
@@ -45,6 +46,7 @@ export const PALETTE = {
     [KIND.SIGN]: [201, 212, 234],
     [KIND.BEACON]: [127, 215, 255],
     [KIND.STATUE]: [223, 230, 245],
+    [KIND.CONSOLE]: [140, 232, 180],
 };
 
 export const PLAYER_COLOR = [255, 246, 213];
@@ -66,6 +68,7 @@ export const SOLID = new Set([
     KIND.SIGN,
     KIND.BEACON,
     KIND.STATUE,
+    KIND.CONSOLE,
 ]);
 
 /* Props you can interact with, and the verb shown in the prompt. */
@@ -77,10 +80,11 @@ export const INTERACTIVE = {
     [KIND.SIGN]: "Read",
     [KIND.BEACON]: "Signal",
     [KIND.STATUE]: "Examine",
+    [KIND.CONSOLE]: "Query",
 };
 
 /* Kinds that shimmer on their own so the world never feels frozen. */
-export const ANIMATED = new Set([KIND.WATER, KIND.TORCH, KIND.STAR]);
+export const ANIMATED = new Set([KIND.WATER, KIND.TORCH, KIND.STAR, KIND.CONSOLE]);
 
 /* Authoring legend: the characters used inside room art in rooms.js. */
 export const AUTHOR_CHARS = {
@@ -97,6 +101,7 @@ export const AUTHOR_CHARS = {
     "¶": KIND.SIGN,
     "!": KIND.BEACON,
     "+": KIND.STATUE,
+    ">": KIND.CONSOLE,
 };
 
 /* Default display glyph per kind. Walls are re-derived by the auto-tiler. */
@@ -118,6 +123,7 @@ export const GLYPH = {
     [KIND.SIGN]: "¶",
     [KIND.BEACON]: "◉",
     [KIND.STATUE]: "☻",
+    [KIND.CONSOLE]: "¤",
 };
 
 /* Frames for the animated kinds, cycled by (time + position). */
@@ -125,6 +131,7 @@ export const ANIM_FRAMES = {
     [KIND.WATER]: ["≈", "~", "≈", "∼"],
     [KIND.TORCH]: ["‡", "†", "‡", "‡"],
     [KIND.STAR]: ["·", "·", "*", "·"],
+    [KIND.CONSOLE]: ["¤", "¤", "¤", "ø"],
 };
 
 /*

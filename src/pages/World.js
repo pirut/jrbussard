@@ -77,6 +77,8 @@ function describe(marker, data) {
             const app = arcade[marker.index];
             return { verb, label: app ? app.name : "an empty cabinet" };
         }
+        case KIND.CONSOLE:
+            return { verb, label: CONSOLES[marker.room] || "a terminal" };
         case KIND.SIGN:
             return { verb, label: "the signpost" };
         case KIND.BEACON:
@@ -87,6 +89,14 @@ function describe(marker, data) {
             return { verb, label: "something" };
     }
 }
+
+/* What the terminal in each room is called. */
+const CONSOLES = {
+    atrium: "the noticeboard",
+    library: "the card catalog",
+    observatory: "the commit log",
+    arcade: "the cabinet list",
+};
 
 /* Full panel content for a prop. */
 function resolve(world, marker, data) {
@@ -104,7 +114,15 @@ function resolve(world, marker, data) {
                     message: "This slot is waiting on the next note.",
                 };
             }
-            return { type: "note", note, location, title: note.title };
+            return {
+                type: "note",
+                note,
+                location,
+                title: note.title,
+                /* Lets the panel offer the next shelf along without walking. */
+                notes: data.notes,
+                index: marker.index,
+            };
         }
         case KIND.PROJECT: {
             const project = projects[marker.index];
@@ -160,6 +178,49 @@ function resolve(world, marker, data) {
             }
             return { type: "sign", location, kicker: "signpost", ...sign };
         }
+        case KIND.CONSOLE: {
+            const shared = { location, kicker: "terminal" };
+            if (marker.room === "observatory") {
+                return {
+                    ...shared,
+                    type: "commits",
+                    title: "COMMIT LOG",
+                    entries: data.activity,
+                };
+            }
+            if (marker.room === "library") {
+                return {
+                    ...shared,
+                    type: "catalog",
+                    title: "THE CARD CATALOG",
+                    notes: data.notes,
+                };
+            }
+            if (marker.room === "arcade") {
+                /* One row per cabinet actually standing in the room, so the
+                   list can never disagree with the floor. */
+                const cabinets = world.markers.filter(
+                    (m) => m.kind === KIND.ARCADE
+                ).length;
+                return {
+                    ...shared,
+                    type: "cabinets",
+                    title: "CABINET LIST",
+                    slots: Array.from(
+                        { length: cabinets },
+                        (unused, i) => arcade[i] || null
+                    ),
+                };
+            }
+            return {
+                ...shared,
+                type: "digest",
+                title: "WHAT IS NEW",
+                notes: data.notes,
+                repos: data.repos,
+                activity: data.activity,
+            };
+        }
         case KIND.BEACON:
             return { type: "contact", info: contact, location, title: contact.title };
         case KIND.STATUE:
@@ -197,7 +258,7 @@ const World = () => {
     const [notes, setNotes] = useState([]);
     const [touch, setTouch] = useState(false);
 
-    const { repos } = useGitHub();
+    const { repos, activity } = useGitHub();
 
     /* Show the thumb pad for anyone actually using a finger, not just for
        narrow windows — a touch laptop counts, a small desktop window does not. */
@@ -225,14 +286,14 @@ const World = () => {
     }, []);
 
     useEffect(() => {
-        dataRef.current = { notes, repos };
+        dataRef.current = { notes, repos, activity };
         countsRef.current = {
             [KIND.BOOK]: notes.length,
             [KIND.REPO]: repos.length,
             [KIND.PROJECT]: projects.length,
             [KIND.ARCADE]: arcade.length,
         };
-    }, [notes, repos]);
+    }, [notes, repos, activity]);
 
     useEffect(() => {
         flagsRef.current = { started, blocked: Boolean(panel) || mapOpen };

@@ -11,6 +11,7 @@ const PRIORITY = [
     { kind: KIND.ARCADE, ch: "▣" },
     { kind: KIND.BEACON, ch: "◉" },
     { kind: KIND.STATUE, ch: "☻" },
+    { kind: KIND.CONSOLE, ch: "¤" },
     { kind: KIND.SIGN, ch: "¶" },
     { kind: KIND.TORCH, ch: "‡" },
     { kind: KIND.WALL, ch: "▒" },
@@ -29,6 +30,7 @@ const KEY = [
     { glyph: "▣", label: "arcade" },
     { glyph: "◉", label: "contact" },
     { glyph: "☻", label: "about" },
+    { glyph: "¤", label: "terminals" },
     { glyph: "¶", label: "signposts" },
 ];
 

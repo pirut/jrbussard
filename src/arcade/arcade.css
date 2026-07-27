@@ -1,0 +1,698 @@
+/* ─────────────────────────────────────────────────────────────
+   Shared cabinet furniture for the arcade games.
+   ───────────────────────────────────────────────────────────── */
+
+.cab {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    align-items: center;
+    min-height: 100vh;
+    padding: 1rem clamp(0.75rem, 3vw, 2rem) 2.5rem;
+    background:
+        radial-gradient(120% 80% at 50% 0%, #0d1424 0%, #05070d 60%, #03040a 100%);
+    color: var(--ink);
+}
+
+.cab__bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem clamp(0.9rem, 3vw, 2rem);
+    align-items: baseline;
+    justify-content: center;
+    width: 100%;
+    padding-bottom: 0.6rem;
+    font-size: clamp(10px, 1.1vw, 13px);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--edge-soft);
+}
+
+.cab__back {
+    margin-right: auto;
+    color: var(--dim);
+    text-decoration: none;
+}
+
+.cab__back:hover {
+    color: var(--amber);
+}
+
+.cab__title {
+    color: var(--gold);
+    font-weight: 600;
+    letter-spacing: 0.3em;
+    text-shadow: 0 0 16px rgba(232, 195, 122, 0.4);
+}
+
+.cab__tagline {
+    margin-left: auto;
+    color: var(--dim);
+}
+
+.cab__stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem clamp(0.8rem, 2.5vw, 1.8rem);
+    justify-content: center;
+    font-size: clamp(10px, 1.05vw, 13px);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink);
+}
+
+.cab__stats b {
+    color: var(--dim);
+    font-weight: 400;
+}
+
+.cab__stage {
+    position: relative;
+    padding: clamp(0.5rem, 1.5vw, 1rem);
+    border: 3px double var(--edge);
+    box-shadow:
+        0 0 0 1px rgba(5, 7, 13, 0.9),
+        0 24px 70px rgba(0, 0, 0, 0.6),
+        0 0 60px rgba(127, 215, 255, 0.06);
+}
+
+.cab__screen {
+    font-family: var(--font-mono);
+    font-size: clamp(7px, 1.45vw, 17px);
+    line-height: 1;
+    letter-spacing: 0;
+    white-space: pre;
+    text-shadow: 0 0 7px currentColor;
+    user-select: none;
+}
+
+.cab__row {
+    height: 1em;
+    white-space: pre;
+}
+
+.cab__overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    text-align: center;
+    background: rgba(5, 7, 13, 0.88);
+    backdrop-filter: blur(2px);
+}
+
+.cab__status {
+    margin: 0;
+    font-size: clamp(1.4rem, 5vw, 2.6rem);
+    letter-spacing: 0.28em;
+    color: var(--gold);
+    text-shadow: 0 0 24px rgba(232, 195, 122, 0.45);
+}
+
+.cab__hint {
+    max-width: 46ch;
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--dim);
+}
+
+.cab__start {
+    padding: 0.6rem 1.8rem;
+    font-size: 0.85rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--void);
+    background: var(--gold);
+    box-shadow: 0 0 30px rgba(232, 195, 122, 0.35);
+}
+
+.cab__start:hover {
+    background: var(--amber);
+}
+
+.cab__controls {
+    margin: 0;
+    font-size: clamp(10px, 1.05vw, 13px);
+    letter-spacing: 0.08em;
+    text-align: center;
+    color: var(--dim);
+}
+
+.cab__controls b {
+    color: var(--ink);
+}
+
+/* ── Thumb pad ─────────────────────────────────────────────── */
+
+.cab__pad {
+    display: none;
+}
+
+@media (pointer: coarse) {
+    .cab__pad {
+        display: flex;
+        gap: 2rem;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+    }
+
+    .cab__dpad {
+        position: relative;
+        width: 132px;
+        height: 132px;
+    }
+
+    .cab__dpad--lr {
+        width: 132px;
+        height: 44px;
+    }
+
+    .cab__btn,
+    .cab__act {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        color: var(--ink);
+        background: rgba(6, 9, 17, 0.88);
+        border: 1px solid var(--edge);
+        touch-action: none;
+    }
+
+    .cab__btn {
+        position: absolute;
+    }
+
+    .cab__btn--up {
+        top: 0;
+        left: 44px;
+    }
+    .cab__btn--left {
+        top: 44px;
+        left: 0;
+    }
+    .cab__btn--right {
+        top: 44px;
+        left: 88px;
+    }
+    .cab__btn--down {
+        top: 88px;
+        left: 44px;
+    }
+
+    .cab__dpad--lr .cab__btn--left {
+        top: 0;
+        left: 0;
+    }
+    .cab__dpad--lr .cab__btn--right {
+        top: 0;
+        left: 88px;
+    }
+
+    .cab__act {
+        width: 66px;
+        height: 66px;
+        color: var(--amber);
+        border-color: rgba(255, 179, 71, 0.5);
+        border-radius: 50%;
+    }
+
+    .cab__btn:active,
+    .cab__act:active {
+        color: var(--void);
+        background: var(--gold);
+    }
+}
+
+/* ── The Night Shift (idle) ────────────────────────────────── */
+
+.cab--idle {
+    align-items: stretch;
+    max-width: 940px;
+    margin: 0 auto;
+}
+
+.idle__headline {
+    text-align: center;
+}
+
+.idle__count {
+    margin: 0;
+    font-size: clamp(2.4rem, 9vw, 4.5rem);
+    line-height: 1;
+    color: var(--gold);
+    text-shadow: 0 0 30px rgba(232, 195, 122, 0.35);
+}
+
+.idle__rate {
+    margin: 0.3rem 0 0;
+    font-size: 0.9rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+}
+
+.idle__away {
+    margin: 0.6rem 0 0;
+    font-size: 0.85rem;
+    color: var(--mint);
+}
+
+.idle__dispatch {
+    align-self: center;
+    padding: 0.9rem 2.4rem;
+    font-size: 0.95rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--void);
+    background: var(--gold);
+    transition: transform 0.08s ease;
+}
+
+.idle__dispatch:active {
+    transform: scale(0.97);
+}
+
+.idle__dispatch b {
+    color: rgba(5, 7, 13, 0.65);
+}
+
+.idle__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.idle__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    align-items: center;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--edge-soft);
+    background: rgba(127, 215, 255, 0.03);
+}
+
+.idle__row--locked {
+    color: var(--dim);
+    border-style: dashed;
+}
+
+.idle__glyph {
+    color: var(--mint);
+    font-size: 1.1rem;
+}
+
+.idle__name {
+    min-width: 16ch;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-size: 0.82rem;
+}
+
+.idle__name b {
+    margin-left: 0.5rem;
+    color: var(--gold);
+}
+
+.idle__detail {
+    min-width: 12ch;
+    font-size: 0.8rem;
+    color: var(--dim);
+}
+
+.idle__meter {
+    color: var(--mint);
+    letter-spacing: -0.05em;
+}
+
+.idle__buttons {
+    display: flex;
+    gap: 0.4rem;
+    margin-left: auto;
+}
+
+.idle__buttons button {
+    padding: 0.35rem 0.9rem;
+    font-size: 0.8rem;
+    color: var(--ink);
+    border: 1px solid var(--edge);
+}
+
+.idle__buttons button:hover:not(:disabled) {
+    color: var(--void);
+    background: var(--gold);
+}
+
+.idle__buttons button:disabled {
+    color: rgba(108, 123, 153, 0.5);
+    cursor: not-allowed;
+}
+
+.idle__footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    align-items: center;
+    padding-top: 1rem;
+    font-size: 0.82rem;
+    text-align: center;
+    color: var(--dim);
+    border-top: 1px solid var(--edge-soft);
+}
+
+.idle__footer p {
+    margin: 0;
+}
+
+.idle__prestige {
+    padding: 0.55rem 1.6rem;
+    font-size: 0.82rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--rose);
+    border: 1px solid rgba(255, 122, 217, 0.4);
+}
+
+.idle__prestige:disabled {
+    color: var(--dim);
+    border-color: var(--edge-soft);
+    cursor: not-allowed;
+}
+
+.idle__note {
+    max-width: 52ch;
+}
+
+/* ── The Commons (multiplayer) ─────────────────────────────── */
+
+.cab--commons {
+    align-items: stretch;
+}
+
+.commons__layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.commons__field {
+    position: relative;
+}
+
+.commons__side {
+    display: flex;
+    flex: 1 1 260px;
+    flex-direction: column;
+    gap: 0.8rem;
+    min-width: 260px;
+    max-width: 380px;
+}
+
+.commons__build h2,
+.commons__feed h2 {
+    margin: 0 0 0.5rem;
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    color: var(--sky);
+}
+
+.commons__build ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.commons__build button {
+    display: flex;
+    gap: 0.4rem;
+    align-items: baseline;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.78rem;
+    color: var(--ink);
+    border: 1px solid var(--edge-soft);
+}
+
+.commons__build button b {
+    color: var(--amber);
+}
+
+.commons__build button span {
+    color: var(--dim);
+    font-size: 0.7rem;
+}
+
+.commons__build button.is-active {
+    color: var(--void);
+    background: var(--gold);
+}
+
+.commons__build button.is-active b,
+.commons__build button.is-active span {
+    color: rgba(5, 7, 13, 0.7);
+}
+
+.commons__feed {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 240px;
+    padding: 0.7rem;
+    border: 1px solid var(--edge-soft);
+    background: rgba(5, 7, 13, 0.6);
+}
+
+.commons__feed ul {
+    display: flex;
+    flex: 1;
+    flex-direction: column-reverse;
+    gap: 0.2rem;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    max-height: 46vh;
+    list-style: none;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.commons__line {
+    color: var(--dim);
+}
+
+.commons__line--kill {
+    color: var(--mint);
+}
+.commons__line--level {
+    color: var(--gold);
+}
+.commons__line--death {
+    color: #ff8a8a;
+}
+.commons__line--weather {
+    color: var(--sky);
+    font-style: italic;
+}
+.commons__line--emote {
+    color: #c3b0ff;
+    font-style: italic;
+}
+.commons__line--system {
+    color: var(--dim);
+}
+
+.commons__say {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+}
+
+.commons__say input,
+.commons__identity input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.45rem 0.6rem;
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--ink);
+    background: rgba(5, 7, 13, 0.9);
+    border: 1px solid var(--edge);
+}
+
+.commons__say button,
+.commons__identity button {
+    padding: 0.45rem 0.9rem;
+    font-size: 0.78rem;
+    color: var(--ink);
+    border: 1px solid var(--edge);
+}
+
+.commons__say button:hover {
+    color: var(--void);
+    background: var(--gold);
+}
+
+.commons__bubbles {
+    position: absolute;
+    inset: clamp(0.5rem, 1.5vw, 1rem);
+    pointer-events: none;
+}
+
+.commons__bubble {
+    position: absolute;
+    max-width: 22ch;
+    padding: 0.1rem 0.4rem;
+    font-size: clamp(9px, 1vw, 12px);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    background: rgba(5, 7, 13, 0.92);
+    border: 1px solid currentColor;
+    transform: translate(-40%, -1.6em);
+    animation: bubble-in 0.18s ease both;
+}
+
+@keyframes bubble-in {
+    from {
+        opacity: 0;
+        transform: translate(-40%, -1.2em);
+    }
+}
+
+.commons__notice {
+    position: absolute;
+    bottom: 0.6rem;
+    left: 50%;
+    margin: 0;
+    padding: 0.25rem 0.8rem;
+    font-size: 0.78rem;
+    color: var(--gold);
+    background: rgba(5, 7, 13, 0.92);
+    border: 1px solid var(--edge);
+    transform: translateX(-50%);
+}
+
+.commons__rain,
+.commons__fog {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.commons__rain {
+    background: repeating-linear-gradient(
+        105deg,
+        rgba(127, 215, 255, 0) 0 6px,
+        rgba(127, 215, 255, 0.16) 6px 7px
+    );
+    animation: rain-fall 0.5s linear infinite;
+}
+
+@keyframes rain-fall {
+    to {
+        background-position: -40px 40px;
+    }
+}
+
+.commons__fog {
+    background: radial-gradient(
+        120% 90% at 50% 50%,
+        rgba(160, 180, 210, 0.02) 30%,
+        rgba(160, 180, 210, 0.16) 100%
+    );
+}
+
+.commons__identity {
+    display: flex;
+    justify-content: center;
+    font-size: 0.8rem;
+    color: var(--dim);
+}
+
+.commons__identity form {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.commons__identity > button:hover {
+    color: var(--amber);
+}
+
+.commons__connecting,
+.commons__offline {
+    margin: 3rem auto;
+    max-width: 56ch;
+    text-align: center;
+    color: var(--dim);
+}
+
+.commons__offline h2 {
+    color: var(--gold);
+    font-size: 1.2rem;
+}
+
+.commons__offline code {
+    padding: 0.1em 0.4em;
+    color: var(--mint);
+    background: rgba(126, 224, 192, 0.08);
+    border: 1px solid var(--edge-soft);
+}
+
+.commons__pad {
+    display: none;
+}
+
+@media (pointer: coarse) {
+    .commons__pad {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(3, 46px);
+        grid-template-rows: repeat(3, 46px);
+        gap: 0.3rem;
+        justify-content: center;
+        margin-top: 0.5rem;
+    }
+
+    .commons__pad button {
+        display: grid;
+        place-items: center;
+        color: var(--ink);
+        background: rgba(6, 9, 17, 0.88);
+        border: 1px solid var(--edge);
+        touch-action: none;
+    }
+
+    .commons__pad button:nth-child(1) {
+        grid-area: 1 / 2;
+    }
+    .commons__pad button:nth-child(2) {
+        grid-area: 2 / 1;
+    }
+    .commons__pad button:nth-child(3) {
+        grid-area: 2 / 3;
+    }
+    .commons__pad button:nth-child(4) {
+        grid-area: 3 / 2;
+    }
+    .commons__gather {
+        grid-area: 1 / 3;
+        color: var(--mint) !important;
+    }
+    .commons__place {
+        grid-area: 3 / 3;
+        color: var(--amber) !important;
+    }
+}

@@ -5,33 +5,61 @@ export const projects = [
         id: "cornerstone",
         name: "CORNERSTONE COMPANIES",
         role: "COO",
+        since: "2021",
+        status: "running",
         tagline: "Make the real world run.",
         description:
-            "Operating the people, systems, and day-to-day work behind a South Florida impact window and door company. Scheduling, installs, service, and the software that holds it together.",
+            "Operating the people, systems, and day-to-day work behind a South Florida impact window and door company. Scheduling, installs, service, warranty, and the software that holds it together.",
+        highlights: [
+            "Own operations end to end: crews, scheduling, permits, service.",
+            "Built the internal tooling that replaced the spreadsheet sprawl.",
+            "The work is mostly removing friction nobody had time to name.",
+        ],
         tags: ["Operations", "People", "Systems"],
-        href: "https://cstonefl.com",
+        links: [{ label: "cstonefl.com", href: "https://cstonefl.com" }],
     },
     {
         id: "meltdown",
         name: "MELTDOWN",
         role: "Side project",
+        since: "2025",
+        status: "running",
         tagline: "Turn chaos into a story.",
         description:
             "A small social app for the funny, inexplicable reasons kids have a meltdown. Post one, read the rest, feel less alone at 6pm on a Tuesday.",
+        highlights: [
+            "One-thumb posting: the whole flow is a title and a shrug.",
+            "Built in a weekend, kept alive because my family uses it.",
+        ],
         tags: ["React", "Supabase", "Social"],
-        href: "https://meltdown.jrbussard.com",
+        links: [
+            { label: "meltdown.jrbussard.com", href: "https://meltdown.jrbussard.com" },
+        ],
     },
     {
         id: "waves",
         name: "MAKE WAVES",
         role: "Side project",
+        since: "2025",
+        status: "in progress",
         tagline: "Turn energy into action.",
         description:
             "A lightweight platform for turning community energy into organized action — events, sign-ups, and the follow-through that usually gets lost.",
+        highlights: [
+            "Events, RSVPs, and reminders without a committee.",
+            "The hard part is follow-through, so that is what it optimises for.",
+        ],
         tags: ["Next.js", "Postgres", "Events"],
-        href: "https://waves.jrbussard.com",
+        links: [{ label: "waves.jrbussard.com", href: "https://waves.jrbussard.com" }],
     },
 ];
+
+/*
+ * Repositories to pin to the front of the Observatory, in this order. Anything
+ * not named here fills the remaining stars by most recent push. Keeps the sky
+ * from being whatever GitHub happened to return first.
+ */
+export const featuredRepos = ["jrbussard", "meltdown", "makewaves"];
 
 /* Arcade cabinets are the hosted small projects, registered once in
    microfrontends/registry.js so a route and a cabinet never drift apart. */
@@ -79,25 +107,37 @@ export const signs = {
             lines: [
                 "  W A S D  or arrow keys      walk",
                 "  E / ENTER / SPACE           interact with what you are beside",
-                "  M                           open the map",
+                "  M                           open the world map",
                 "  ESC                         close whatever is open",
                 "",
                 "On a phone: use the pad in the corner. The round button acts.",
                 "",
-                "Props glow when they are worth touching. Stand next to one and",
-                "the bar at the bottom will tell you what it is.",
+                "Props glow when they are worth touching, and go cold when there",
+                "is nothing behind them. Stand next to one and the bar at the",
+                "bottom will tell you what it is.",
+                "",
+                "Four roads leave this crossing:",
+                "",
+                "  north   THE OBSERVATORY    what I have been pushing",
+                "  west    THE LIBRARY        what I have been thinking",
+                "  east    THE FOUNDRY        what I build and run",
+                "  south   THE ARCADE        then THE BEACON, at the water",
             ],
         },
     ],
     library: [
         {
-            title: "THE CARD CATALOG",
+            title: "ABOUT THIS ROOM",
             lines: [
-                "Every book on these shelves is a note I have written.",
-                "The newest sits top-left; they run down and to the right.",
+                "Every book on these shelves is a note I have written. The",
+                "newest sits top-left; they run down and to the right, and the",
+                "empty slots are shelf space I have not filled yet.",
                 "",
-                "Books are published from a CMS, so the shelves restock",
-                "themselves whenever I write something.",
+                "Notes are published from a CMS, so the shelves restock",
+                "themselves whenever I write something — no deploy needed.",
+                "",
+                "The card catalog by the hearth lists everything at once if you",
+                "would rather not walk the stacks.",
             ],
         },
     ],
@@ -105,10 +145,14 @@ export const signs = {
         {
             title: "THE ARCADE RULES",
             lines: [
-                "Cabinets are small projects that live inside this site.",
-                "Step up to a lit one and press the action key to play it.",
+                "Cabinets are small projects that live inside this site — not",
+                "links out, actual pages hosted here.",
                 "",
-                "Dark cabinets are empty slots waiting on the next idea.",
+                "Step up to a lit one and press the action key to play it. Dark",
+                "cabinets are open slots waiting on the next idea.",
+                "",
+                "Every cabinet is one entry in the code. Adding a project lights",
+                "the next slot on its own.",
             ],
         },
     ],

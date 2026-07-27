@@ -42,7 +42,166 @@ function Lines({ items }) {
     );
 }
 
+function noteContent(note, notes, index) {
+    return {
+        type: "note",
+        note,
+        location: "THE LIBRARY",
+        title: note.title,
+        notes,
+        index,
+    };
+}
+
+/* Shared row shape for the terminal read-outs. */
+function Rows({ items, empty }) {
+    if (!items.length) return <p className="panel__prose">{empty}</p>;
+    return <ul className="panel__index">{items}</ul>;
+}
+
 function Body({ content, onSelect }) {
+    if (content.type === "commits") {
+        const entries = content.entries || [];
+        return (
+            <>
+                <p className="panel__meta">{content.kicker} · newest first</p>
+                <h2 className="panel__title">{content.title}</h2>
+                <Rows
+                    empty="No signal from GitHub right now. Try the stars instead."
+                    items={entries.map((commit) => (
+                        <li key={commit.sha}>
+                            <a href={commit.url} target="_blank" rel="noreferrer">
+                                &gt; {commit.repo}
+                            </a>
+                            <span>
+                                {commit.message} · {timeAgo(commit.date)}
+                            </span>
+                        </li>
+                    ))}
+                />
+            </>
+        );
+    }
+
+    if (content.type === "catalog") {
+        const notes = content.notes || [];
+        return (
+            <>
+                <p className="panel__meta">
+                    {content.kicker} · {notes.length}{" "}
+                    {notes.length === 1 ? "entry" : "entries"}
+                </p>
+                <h2 className="panel__title">{content.title}</h2>
+                <Rows
+                    empty="The shelves are empty. Nothing has been published yet."
+                    items={notes.map((note, i) => (
+                        <li key={note.slug}>
+                            <button
+                                type="button"
+                                onClick={() => onSelect(noteContent(note, notes, i))}
+                            >
+                                &gt; {note.title}
+                            </button>
+                            <span>
+                                {note.category} · {formatDate(note.date)}
+                            </span>
+                        </li>
+                    ))}
+                />
+            </>
+        );
+    }
+
+    if (content.type === "cabinets") {
+        return (
+            <>
+                <p className="panel__meta">{content.kicker} · arcade floor</p>
+                <h2 className="panel__title">{content.title}</h2>
+                <ul className="panel__index">
+                    {content.slots.map((app, i) => (
+                        <li key={app ? app.id : `open-${i}`}>
+                            {app ? (
+                                <Link to={app.route}>
+                                    &gt; slot {i + 1} — {app.name}
+                                </Link>
+                            ) : (
+                                <span className="panel__dim">
+                                    &gt; slot {i + 1} — unplugged
+                                </span>
+                            )}
+                            <span>{app ? app.blurb : "Waiting on the next idea."}</span>
+                        </li>
+                    ))}
+                </ul>
+            </>
+        );
+    }
+
+    if (content.type === "digest") {
+        const latestNote = (content.notes || [])[0];
+        const latestCommit = (content.activity || [])[0];
+        const repos = content.repos || [];
+        return (
+            <>
+                <p className="panel__meta">{content.kicker} · the atrium</p>
+                <h2 className="panel__title">{content.title}</h2>
+
+                <h3 className="panel__section">▤ latest note</h3>
+                {latestNote ? (
+                    <ul className="panel__index">
+                        <li>
+                            <button
+                                type="button"
+                                onClick={() => onSelect(noteContent(latestNote, content.notes, 0))}
+                            >
+                                &gt; {latestNote.title}
+                            </button>
+                            <span>{formatDate(latestNote.date)}</span>
+                        </li>
+                    </ul>
+                ) : (
+                    <p className="panel__prose">Nothing published yet.</p>
+                )}
+
+                <h3 className="panel__section">★ latest push</h3>
+                {latestCommit ? (
+                    <ul className="panel__index">
+                        <li>
+                            <a href={latestCommit.url} target="_blank" rel="noreferrer">
+                                &gt; {latestCommit.repo}
+                            </a>
+                            <span>
+                                {latestCommit.message} · {timeAgo(latestCommit.date)}
+                            </span>
+                        </li>
+                    </ul>
+                ) : (
+                    <p className="panel__prose">Waiting on GitHub.</p>
+                )}
+
+                <h3 className="panel__section">◈ standing count</h3>
+                <ul className="panel__index">
+                    <li>
+                        <span className="panel__dim">&gt; {content.notes.length} notes</span>
+                        <span>west, in the library</span>
+                    </li>
+                    <li>
+                        <span className="panel__dim">&gt; {projects.length} projects</span>
+                        <span>east, in the foundry</span>
+                    </li>
+                    <li>
+                        <span className="panel__dim">&gt; {repos.length} repositories</span>
+                        <span>north, in the observatory</span>
+                    </li>
+                    <li>
+                        <span className="panel__dim">&gt; {arcade.length} playable</span>
+                        <span>south, in the arcade</span>
+                    </li>
+                </ul>
+            </>
+        );
+    }
+
     if (content.type === "index") {
         return (
             <>
@@ -52,18 +211,11 @@ function Body({ content, onSelect }) {
                 <h3 className="panel__section">▤ notes — the library</h3>
                 <ul className="panel__index">
                     {content.notes.length === 0 && <li>Loading the shelves…</li>}
-                    {content.notes.map((note) => (
+                    {content.notes.map((note, i) => (
                         <li key={note.slug}>
                             <button
                                 type="button"
-                                onClick={() =>
-                                    onSelect({
-                                        type: "note",
-                                        note,
-                                        location: "THE LIBRARY",
-                                        title: note.title,
-                                    })
-                                }
+                                onClick={() => onSelect(noteContent(note, content.notes, i))}
                             >
                                 &gt; {note.title}
                             </button>
@@ -125,11 +277,15 @@ function Body({ content, onSelect }) {
     }
 
     if (content.type === "note") {
-        const { note } = content;
+        const { note, notes, index } = content;
+        const previous = notes && index > 0 ? notes[index - 1] : null;
+        const next = notes && index < notes.length - 1 ? notes[index + 1] : null;
+
         return (
             <>
                 <p className="panel__meta">
                     {note.category} · {formatDate(note.date)}
+                    {notes ? ` · ${index + 1} of ${notes.length}` : ""}
                 </p>
                 <h2 className="panel__title">{note.title}</h2>
                 {note.summary && <p className="panel__lede">{note.summary}</p>}
@@ -137,6 +293,28 @@ function Body({ content, onSelect }) {
                     <div className="panel__prose">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.body}</ReactMarkdown>
                     </div>
+                )}
+                {(previous || next) && (
+                    <nav className="panel__pager">
+                        {previous ? (
+                            <button
+                                type="button"
+                                onClick={() => onSelect(noteContent(previous, notes, index - 1))}
+                            >
+                                ◄ {previous.title}
+                            </button>
+                        ) : (
+                            <span />
+                        )}
+                        {next && (
+                            <button
+                                type="button"
+                                onClick={() => onSelect(noteContent(next, notes, index + 1))}
+                            >
+                                {next.title} ►
+                            </button>
+                        )}
+                    </nav>
                 )}
             </>
         );

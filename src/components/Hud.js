@@ -14,6 +14,7 @@ const LEGEND = [
     { glyph: "◈", label: "projects" },
     { glyph: "★", label: "repos" },
     { glyph: "▣", label: "arcade" },
+    { glyph: "¤", label: "terminals" },
     { glyph: "◉", label: "contact" },
 ];
 
