@@ -7,6 +7,7 @@ import {
     wallGlyph,
 } from "./tiles";
 import { ROOMS, ROADS, LAKES, SPAWN, WORLD_W, WORLD_H } from "./rooms";
+import { fbm } from "../lib/noise";
 
 /* Deterministic noise so the forest looks the same on every visit. */
 function mulberry32(seed) {
@@ -21,6 +22,8 @@ function mulberry32(seed) {
 }
 
 const GRASS_CHARS = [",", ",", ",", "'", '"', "`", " "];
+/* Worn ground: mostly nothing, so clearings breathe. */
+const BARE_CHARS = [" ", " ", " ", " ", ".", ",", "`"];
 
 /* Night outside; each room sets its own level in rooms.js. */
 const OUTDOOR_AMBIENT = 0.26;
@@ -78,7 +81,12 @@ export function buildWorld() {
             } else if (edge < 5 && rng() < 0.86 - (edge - 2) * 0.22) {
                 set(x, y, KIND.MOUNTAIN);
             } else {
-                set(x, y, KIND.GRASS, GRASS_CHARS[(rng() * GRASS_CHARS.length) | 0]);
+                /* Ground cover thins where the land is bare, so a clearing
+                   looks like open ground rather than more of the same. */
+                const lush = fbm(x, y, 0.055, 7);
+                const sparse = lush < 0.42;
+                const chars = sparse ? BARE_CHARS : GRASS_CHARS;
+                set(x, y, KIND.GRASS, chars[(rng() * chars.length) | 0]);
             }
         }
     }
@@ -102,12 +110,28 @@ export function buildWorld() {
         }
     });
 
-    /* 3. Forest. Denser away from the roads so paths stay legible. */
+    /*
+     * 3. Woods. Grown from a noise field rather than sprinkled: a flat
+     * per-cell chance gives the same density everywhere, which reads as an
+     * even carpet. Sampling a smooth field instead gives thickets, thinning
+     * edges and clearings — the shapes that make ground look like landscape.
+     */
     for (let y = 5; y < h - 5; y += 1) {
         for (let x = 5; x < w - 5; x += 1) {
             if (kinds[at(x, y)] !== KIND.GRASS) continue;
             if (rectsOverlap(x, y, blocked, 3)) continue;
-            if (rng() < 0.14) set(x, y, KIND.TREE, rng() < 0.5 ? "♣" : "♠");
+
+            const density = fbm(x, y, 0.045);
+            if (density > 0.60) {
+                /* Deep in a thicket. */
+                set(x, y, KIND.TREE, rng() < 0.5 ? "♣" : "♠");
+            } else if (density > 0.50 && rng() < (density - 0.5) * 9) {
+                /* The ragged edge where wood gives way to open ground. */
+                set(x, y, KIND.TREE, rng() < 0.5 ? "♣" : "♠");
+            } else if (density < 0.30 && rng() < 0.03) {
+                /* The odd boulder out in the open. */
+                set(x, y, KIND.MOUNTAIN);
+            }
         }
     }
 

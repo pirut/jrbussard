@@ -1,4 +1,5 @@
 import { cellMarkup } from "../lib/glyph";
+import { shadeAt, GRAIN_SPREAD } from "../lib/shade";
 import {
     KIND,
     PALETTE,
@@ -8,11 +9,34 @@ import {
     INTERACTIVE,
 } from "./tiles";
 
-const PLAYER_LIGHT = 0.7;
-const PLAYER_RADIUS = 14;
+const PLAYER_LIGHT = 0.78;
+const PLAYER_RADIUS = 16;
 const TORCH_RADIUS = 8;
 const LEVELS = 12;
 const UNLIT = [72, 84, 108];
+/*
+ * How dark a cell can actually get. Previously the floor was 0.16, which kept
+ * the far field plainly legible everywhere and flattened the picture — every
+ * part of the screen sat at much the same brightness. Letting distance carry
+ * cells most of the way to the background is what gives the world depth.
+ */
+const FLOOR_LIGHT = 0.05;
+const CEIL_LIGHT = 0.95;
+
+/*
+ * Terrain and structure get per-cell grain. Interactive props deliberately do
+ * not — a book or a torch should read at its own colour so the eye can pick
+ * it out of the texture.
+ */
+const GRAINED = new Set([
+    KIND.GRASS,
+    KIND.TREE,
+    KIND.MOUNTAIN,
+    KIND.WATER,
+    KIND.FLOOR,
+    KIND.WALL,
+    KIND.STAR,
+]);
 
 function hex(rgb, t) {
     const bg = PALETTE.bg;
@@ -30,7 +54,10 @@ function makeColorCache() {
         const key = `${salt}:${level}`;
         let value = cache.get(key);
         if (value === undefined) {
-            value = hex(rgb, 0.16 + (level / (LEVELS - 1)) * 0.84);
+            value = hex(
+                rgb,
+                FLOOR_LIGHT + (level / (LEVELS - 1)) * (CEIL_LIGHT - FLOOR_LIGHT)
+            );
             cache.set(key, value);
         }
         return value;
@@ -163,7 +190,10 @@ export function createRenderer(container, world) {
                 let light = world.zoneAmbient[zone];
                 const d = Math.hypot(wx - player.x, wy - player.y);
                 if (d < PLAYER_RADIUS) {
-                    light += PLAYER_LIGHT * (1 - d / PLAYER_RADIUS);
+                    /* Squared falloff rather than linear: a bright pool around
+                       you that drops away fast, instead of an even wash. */
+                    const t = 1 - d / PLAYER_RADIUS;
+                    light += PLAYER_LIGHT * t * t;
                 }
                 if (wx >= 0 && wy >= 0 && wx < world.w && wy < world.h) {
                     light += torchLight[wy * world.w + wx] * flicker;
@@ -171,6 +201,21 @@ export function createRenderer(container, world) {
                 if (kind === KIND.TORCH) light += 0.3 * flicker;
                 if (INTERACTIVE[kind] && !unlit) light += 0.12 + 0.2 * pulse;
                 if (isPlayer) light = 1;
+
+                /*
+                 * Grain. Neighbouring cells of one kind sit a notch apart in
+                 * brightness, so a field reads as texture instead of a
+                 * repeated glyph.
+                 *
+                 * It is applied to the light level rather than by mixing a
+                 * new colour per cell: levels are already quantised, so
+                 * neighbours often land on the same one and long runs still
+                 * collapse into a single span. Doing it in colour space
+                 * tripled the number of spans per row for the same look.
+                 */
+                if (!isPlayer && !unlit && GRAINED.has(kind)) {
+                    light += GRAIN_SPREAD[shadeAt(wx, wy)];
+                }
 
                 const level = Math.max(
                     0,

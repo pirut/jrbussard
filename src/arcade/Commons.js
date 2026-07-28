@@ -20,6 +20,7 @@ import {
     SAND,
 } from "../lib/terrain";
 import { cellMarkup } from "../lib/glyph";
+import { shadeAt, GRAIN_SPREAD } from "../lib/shade";
 import "./arcade.css";
 
 /*
@@ -141,6 +142,10 @@ function dim(hex, amount) {
     return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
+/* Terrain takes per-cell grain; anything a player put down or has to spot
+   keeps its own colour so it reads out of the texture. */
+const GRAINED = new Set([GRASS, TREE, WATER, ROCK, ROAD, SAND]);
+
 function Offline() {
     return (
         <main className="cab cab--commons">
@@ -180,8 +185,13 @@ function Field({ state, session, phaseLight, aim, me, fieldRef }) {
         const cells = new Array(COLS * ROWS);
         for (let y = 0; y < ROWS; y += 1) {
             for (let x = 0; x < COLS; x += 1) {
-                cells[y * COLS + x] =
-                    TILE_LOOK[tileAt(originX + x, originY + y)] || TILE_LOOK[GRASS];
+                const wx = originX + x;
+                const wy = originY + y;
+                const tile = tileAt(wx, wy);
+                const look = TILE_LOOK[tile] || TILE_LOOK[GRASS];
+                cells[y * COLS + x] = GRAINED.has(tile)
+                    ? { ch: look.ch, color: look.color, grain: shadeAt(wx, wy) }
+                    : look;
             }
         }
 
@@ -260,9 +270,25 @@ function Field({ state, session, phaseLight, aim, me, fieldRef }) {
                     cell.ch === "@" ||
                     cell.ch === "‡" ||
                     cell.ch === "☺";
+                /* Distance from the player carries the picture back into the
+                   dark, so the field has somewhere to recede to. */
+                const dx = originX + x - (me ? me.x : originX + COLS / 2);
+                const dy = originY + y - (me ? me.y : originY + ROWS / 2);
+                const far = Math.min(1, Math.hypot(dx, dy) / 22);
+                const depth = 1 - far * far * 0.55;
                 const light = bright
                     ? 1
-                    : Math.min(1, phaseLight + (cell.inReach ? 0.22 : 0));
+                    : Math.max(
+                          0.06,
+                          Math.min(
+                              1,
+                              phaseLight * depth +
+                                  (cell.inReach ? 0.18 : 0) +
+                                  (cell.grain === undefined
+                                      ? 0
+                                      : GRAIN_SPREAD[cell.grain])
+                          )
+                      );
                 const color = light >= 1 ? cell.color : dim(cell.color, light);
                 if (color !== runColor) {
                     if (runColor !== null) {
