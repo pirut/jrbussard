@@ -317,11 +317,20 @@ export const build = mutation({
         }
         if (inSafeZone(args.x, args.y)) return "not at the crossroads";
 
-        const tile = tileAt(args.x, args.y);
-        if (tile === ROCK || tile === TREE) return "clear it first";
-
         const existing = await cellAt(ctx, args.x, args.y);
         if (existing && existing.regrowAt === 0) return "something is there";
+
+        /*
+         * tileAt() describes the generated landscape, which never changes —
+         * a chopped tree still reads as TREE forever. What you actually did
+         * to it lives in the overlay, so a stump or rubble here means the
+         * ground is clear and yours to build on. Without this, harvesting a
+         * tile made it permanently unbuildable, which is backwards.
+         */
+        const cleared =
+            existing && (existing.kind === "stump" || existing.kind === "rubble");
+        const tile = tileAt(args.x, args.y);
+        if ((tile === ROCK || tile === TREE) && !cleared) return "clear it first";
 
         const monsters = await ctx.db.query("monsters").collect();
         if (monsters.some((m) => m.x === args.x && m.y === args.y)) return "occupied";

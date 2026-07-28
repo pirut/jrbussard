@@ -34,14 +34,45 @@ const TILE_LOOK = {
 };
 
 const BLOCK_LOOK = {
-    wall: { ch: "▓", color: "#c9a97a" },
-    floor: { ch: "·", color: "#8b93a8" },
-    door: { ch: "+", color: "#e0a75e" },
-    torch: { ch: "‡", color: "#ffb347" },
-    sign: { ch: "¶", color: "#e8c37a" },
-    stump: { ch: "ₒ", color: "#6b5a3f" },
-    rubble: { ch: "░", color: "#4a5468" },
+    wall: { ch: "▓", color: "#c9a97a", label: "wall" },
+    floor: { ch: "·", color: "#8b93a8", label: "path" },
+    door: { ch: "+", color: "#e0a75e", label: "door" },
+    torch: { ch: "‡", color: "#ffb347", label: "torch" },
+    sign: { ch: "¶", color: "#e8c37a", label: "sign" },
+    stump: { ch: "ₒ", color: "#6b5a3f", label: "cleared ground" },
+    rubble: { ch: "░", color: "#4a5468", label: "cleared ground" },
 };
+
+/* A path laid over water reads as a bridge. */
+const BRIDGE = { ch: "═", color: "#c9a97a", label: "bridge" };
+const CURSOR = "#fff6d5";
+
+/*
+ * What you are standing in front of, and therefore what g / b / x will do.
+ * Terrain comes from the shared generator, so this needs nothing from the
+ * server beyond the blocks other people have placed.
+ */
+function describeTarget(x, y, cells, myName) {
+    const built = cells.find((c) => c.x === x && c.y === y);
+    if (built) {
+        const look = BLOCK_LOOK[built.kind];
+        const cleared = built.kind === "stump" || built.kind === "rubble";
+        if (cleared) return { label: "cleared ground", verb: "b builds here" };
+        const mine = built.ownerName === myName;
+        return {
+            label: `${look ? look.label : built.kind}${
+                built.ownerName ? ` · ${built.ownerName}` : ""
+            }`,
+            verb: mine ? "x removes it" : "not yours to remove",
+        };
+    }
+
+    const tile = tileAt(x, y);
+    if (tile === TREE) return { label: "tree", verb: "g chops it for wood" };
+    if (tile === ROCK) return { label: "rock", verb: "g mines it for stone" };
+    if (tile === WATER) return { label: "water", verb: "b bridges it" };
+    return { label: "open ground", verb: "b builds here" };
+}
 
 const MONSTER_LOOK = {
     rat: { ch: "r", color: "#c9a227" },
@@ -111,7 +142,7 @@ function Offline() {
     );
 }
 
-function Field({ state, session, phaseLight }) {
+function Field({ state, session, phaseLight, aim }) {
     const rows = useMemo(() => {
         if (!state || !state.view) return [];
 
@@ -137,7 +168,11 @@ function Field({ state, session, phaseLight }) {
         };
 
         state.cells.forEach((cell) => {
-            const look = BLOCK_LOOK[cell.kind];
+            let look = BLOCK_LOOK[cell.kind];
+            /* A path laid across water is a bridge, and should read as one. */
+            if (cell.kind === "floor" && tileAt(cell.x, cell.y) === WATER) {
+                look = BRIDGE;
+            }
             if (look) put(cell.x, cell.y, look);
         });
 
@@ -153,6 +188,20 @@ function Field({ state, session, phaseLight }) {
             });
         });
 
+        /* The cell you are facing, so building and gathering can be aimed. */
+        if (aim) {
+            const ax = aim.x - originX;
+            const ay = aim.y - originY;
+            if (ax >= 0 && ay >= 0 && ax < COLS && ay < ROWS) {
+                const under = cells[ay * COLS + ax];
+                cells[ay * COLS + ax] = {
+                    ch: under.ch === "," || under.ch === "·" ? "+" : under.ch,
+                    color: CURSOR,
+                    cursor: true,
+                };
+            }
+        }
+
         const painted = [];
         for (let y = 0; y < ROWS; y += 1) {
             let html = "";
@@ -161,7 +210,11 @@ function Field({ state, session, phaseLight }) {
             for (let x = 0; x < COLS; x += 1) {
                 const cell = cells[y * COLS + x];
                 /* Torches and players keep their brightness after dark. */
-                const bright = cell.ch === "@" || cell.ch === "‡" || cell.ch === "☺";
+                const bright =
+                    cell.cursor ||
+                    cell.ch === "@" ||
+                    cell.ch === "‡" ||
+                    cell.ch === "☺";
                 const color = bright ? cell.color : dim(cell.color, phaseLight);
                 if (color !== runColor) {
                     if (runColor !== null) {
@@ -176,7 +229,7 @@ function Field({ state, session, phaseLight }) {
             painted.push(html);
         }
         return painted;
-    }, [state, session, phaseLight]);
+    }, [state, session, phaseLight, aim]);
 
     return (
         <div className="cab__screen commons__field" aria-hidden="true">
@@ -225,7 +278,9 @@ export default function Commons() {
     const [notice, setNotice] = useState("");
     const [renaming, setRenaming] = useState(false);
     const inputRef = useRef(null);
-    const facing = useRef({ dx: 0, dy: -1 });
+    const [facing, setFacing] = useState({ dx: 0, dy: 1 });
+    const facingRef = useRef(facing);
+    facingRef.current = facing;
 
     const state = useQuery(
         api.state,
@@ -264,7 +319,9 @@ export default function Commons() {
 
     const step = useCallback(
         (dx, dy) => {
-            facing.current = { dx, dy };
+            /* Walking into something you cannot pass still turns you to face
+               it, which is how you aim at a tree or a wall. */
+            setFacing({ dx, dy });
             move({ session, dx, dy });
         },
         [move, session]
@@ -272,7 +329,7 @@ export default function Commons() {
 
     const target = useCallback(() => {
         if (!me) return null;
-        return { x: me.x + facing.current.dx, y: me.y + facing.current.dy };
+        return { x: me.x + facingRef.current.dx, y: me.y + facingRef.current.dy };
     }, [me]);
 
     const doGather = useCallback(async () => {
@@ -393,6 +450,11 @@ export default function Commons() {
     }
 
     const phaseLight = PHASE_LIGHT[state.phase] || 1;
+    /* Where g / b / x will act, and what is there. */
+    const aim = me ? { x: me.x + facing.dx, y: me.y + facing.dy } : null;
+    const aimInfo = aim
+        ? describeTarget(aim.x, aim.y, state.cells, me.name)
+        : null;
 
     return (
         <main className={`cab cab--commons cab--${state.phase}`}>
@@ -444,7 +506,7 @@ export default function Commons() {
 
             <div className="commons__layout">
                 <div className="cab__stage">
-                    <Field state={state} session={session} phaseLight={phaseLight} />
+                    <Field state={state} session={session} phaseLight={phaseLight} aim={aim} />
                     <Bubbles state={state} session={session} />
                     {state.weather === "rain" && (
                         <div className="commons__rain" aria-hidden="true" />
@@ -527,6 +589,12 @@ export default function Commons() {
                     </div>
                 </aside>
             </div>
+
+            {aimInfo && (
+                <p className="commons__aim">
+                    facing <b>{aimInfo.label}</b> — {aimInfo.verb}
+                </p>
+            )}
 
             <p className="cab__controls">
                 wasd moves and attacks · <b>g</b> gathers · <b>b</b> builds {selected} ·{" "}

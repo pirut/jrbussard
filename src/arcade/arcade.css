@@ -626,6 +626,18 @@
     );
 }
 
+.commons__aim {
+    margin: 0;
+    font-size: clamp(10px, 1.05vw, 13px);
+    letter-spacing: 0.08em;
+    text-align: center;
+    color: var(--dim);
+}
+
+.commons__aim b {
+    color: var(--gold);
+}
+
 .commons__identity {
     display: flex;
     justify-content: center;
