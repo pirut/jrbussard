@@ -1,8 +1,17 @@
 {
     /*
      * Checked in rather than left to Convex to generate, so every machine
-     * typechecks the same way. It needs TypeScript 5+ ("Bundler" resolution
-     * and the ES2023 lib), which the root package.json pins as a devDependency.
+     * typechecks the same way.
+     *
+     * This needs TypeScript 5, pinned in the root package.json. That is not a
+     * preference: convex's own shipped .d.ts files use TS5-only syntax (const
+     * type parameters), which TypeScript 4.9 cannot parse at all — and
+     * skipLibCheck does not help, because those are syntax errors rather than
+     * type errors. Loosening moduleResolution to "node" does not avoid it
+     * either; that was tried.
+     *
+     * If `npx convex dev` fails with a wall of TS2792 / TS7006 errors, the
+     * installed TypeScript is too old. Run `npm install`.
      *
      * allowJs is on because convex/field.ts pulls in src/lib/terrain.js — the
      * one generator shared by the server and the browser.

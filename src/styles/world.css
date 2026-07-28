@@ -460,6 +460,28 @@
     color: var(--dim);
 }
 
+.panel__bullets {
+    margin: 0 0 1.1rem;
+    padding-left: 1.1rem;
+    font-size: 0.9rem;
+    line-height: 1.7;
+    color: #a9b8d4;
+}
+
+.panel__bullets li {
+    margin-bottom: 0.25rem;
+}
+
+.panel__bullets li::marker {
+    color: var(--mint);
+    content: "› ";
+}
+
+/* Several links per project, so they need to sit side by side. */
+.panel__action + .panel__action {
+    margin-left: 0.5rem;
+}
+
 .panel__tags {
     display: flex;
     flex-wrap: wrap;

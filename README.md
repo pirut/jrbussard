@@ -66,7 +66,7 @@ costs nothing.
 
 ```bash
 npm install
-npx convex dev      # watches convex/ and pushes to the dev deployment
+npm run commons     # watches convex/ and pushes to the dev deployment
 ```
 
 `.env.local` holds `CONVEX_DEPLOYMENT` and `REACT_APP_CONVEX_URL` and is not
@@ -81,10 +81,12 @@ the first time:
 npx convex dev --configure existing --team scottbussardjr --project ascii-commons
 ```
 
-`npm install` matters too: the Convex typecheck needs TypeScript 5 (the
-`convex/tsconfig.json` here uses `moduleResolution: "Bundler"` and the ES2023
-lib). It is pinned as a devDependency, so running convex without installing
-first fails with a wall of `TS2792` / `TS7006` errors.
+`npm install` matters too. Convex typechecks with whatever TypeScript the
+project resolves, and its shipped type definitions use TS5-only syntax, so an
+older compiler fails with ~60 `TS2792` / `TS7006` errors that say nothing
+about the real cause — usually just a `node_modules` older than the last
+`package.json` change. `npm run commons` runs a preflight that catches this
+and tells you to run `npm install` instead.
 
 ### Deploying
 
@@ -95,12 +97,12 @@ project (Production + Preview) to the Convex production deployment.
 **⚠️ A `git push` deploys the site but NOT the backend.** The two are separate:
 
 ```bash
-git push origin main    # frontend only
-npx convex deploy       # backend only — run this after changing convex/
+git push origin main       # frontend only
+npm run commons:deploy     # backend only — after changing convex/
 ```
 
 So after editing anything under `convex/` or `src/lib/terrain.js`, run
-`npx convex deploy` or the live world keeps running the old rules. Terrain is
+`npm run commons:deploy` or the live world keeps running the old rules. Terrain is
 especially important: it is shared by both sides, so changing it without
 deploying makes the browser and server disagree about what is solid.
 

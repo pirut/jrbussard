@@ -228,7 +228,11 @@ function Body({ content, onSelect }) {
                 <ul className="panel__index">
                     {projects.map((project) => (
                         <li key={project.id}>
-                            <a href={project.href} target="_blank" rel="noreferrer">
+                            <a
+                                href={(project.links[0] || {}).href}
+                                target="_blank"
+                                rel="noreferrer"
+                            >
                                 &gt; {project.name}
                             </a>
                             <span>{project.tagline}</span>
@@ -322,16 +326,36 @@ function Body({ content, onSelect }) {
 
     if (content.type === "project") {
         const { project } = content;
+        const links = project.links || [];
         return (
             <>
-                <p className="panel__meta">{project.role}</p>
+                <p className="panel__meta">
+                    {[project.role, project.since, project.status]
+                        .filter(Boolean)
+                        .join(" · ")}
+                </p>
                 <h2 className="panel__title">{project.name}</h2>
                 <p className="panel__lede">{project.tagline}</p>
                 <p className="panel__prose">{project.description}</p>
+                {project.highlights && project.highlights.length > 0 && (
+                    <ul className="panel__bullets">
+                        {project.highlights.map((line) => (
+                            <li key={line}>{line}</li>
+                        ))}
+                    </ul>
+                )}
                 <Tags items={project.tags} />
-                <a className="panel__action" href={project.href} target="_blank" rel="noreferrer">
-                    &gt; open {project.href.replace(/^https?:\/\//, "")}
-                </a>
+                {links.map((link) => (
+                    <a
+                        key={link.href}
+                        className="panel__action"
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer"
+                    >
+                        &gt; {link.label}
+                    </a>
+                ))}
             </>
         );
     }

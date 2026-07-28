@@ -19,7 +19,9 @@
         "cms:import": "npm run import --prefix studio-jrbussard",
         "build": "react-scripts build",
         "test": "react-scripts test",
-        "eject": "react-scripts eject"
+        "eject": "react-scripts eject",
+        "commons": "node scripts/check-toolchain.js && convex dev",
+        "commons:deploy": "node scripts/check-toolchain.js && convex deploy"
     },
     "eslintConfig": {
         "extends": [

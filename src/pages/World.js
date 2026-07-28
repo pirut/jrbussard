@@ -550,7 +550,8 @@ const World = () => {
                 <ul>
                     {projects.map((project) => (
                         <li key={project.id}>
-                            <a href={project.href}>{project.name}</a> — {project.description}
+                            <a href={(project.links[0] || {}).href}>{project.name}</a> —{" "}
+                            {project.description}
                         </li>
                     ))}
                 </ul>
