@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { KIND, PALETTE } from "../world/tiles";
+import { cellMarkup } from "../lib/glyph";
 
 const STEP = 3;
 
@@ -78,7 +79,7 @@ function buildMap(world, player) {
                 runColor = color;
                 runText = "";
             }
-            runText += ch;
+            runText += cellMarkup(ch);
         }
 
         if (runColor !== null) html += `<span style="color:${runColor}">${runText}</span>`;

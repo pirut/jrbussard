@@ -1,0 +1,26 @@
+{
+    /*
+     * Checked in rather than left to Convex to generate, so every machine
+     * typechecks the same way. It needs TypeScript 5+ ("Bundler" resolution
+     * and the ES2023 lib), which the root package.json pins as a devDependency.
+     *
+     * allowJs is on because convex/field.ts pulls in src/lib/terrain.js — the
+     * one generator shared by the server and the browser.
+     */
+    "compilerOptions": {
+        "allowJs": true,
+        "strict": true,
+        "moduleResolution": "Bundler",
+        "module": "ESNext",
+        "target": "ESNext",
+        "lib": ["ES2023", "dom"],
+        "jsx": "react-jsx",
+        "skipLibCheck": true,
+        "allowSyntheticDefaultImports": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "noEmit": true
+    },
+    "include": ["./**/*"],
+    "exclude": ["./_generated"]
+}

@@ -9,6 +9,7 @@ import {
     setName,
 } from "../lib/convex";
 import { tileAt, GRASS, TREE, WATER, ROCK, ROAD, SAND } from "../lib/terrain";
+import { cellMarkup } from "../lib/glyph";
 import "./arcade.css";
 
 /*
@@ -169,7 +170,7 @@ function Field({ state, session, phaseLight }) {
                     runColor = color;
                     runText = "";
                 }
-                runText += cell.ch;
+                runText += cellMarkup(cell.ch);
             }
             html += `<span style="color:${runColor}">${runText}</span>`;
             painted.push(html);

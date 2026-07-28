@@ -65,12 +65,26 @@ costs nothing.
 ### Running it
 
 ```bash
+npm install
 npx convex dev      # watches convex/ and pushes to the dev deployment
 ```
 
 `.env.local` holds `CONVEX_DEPLOYMENT` and `REACT_APP_CONVEX_URL` and is not
 committed. Without `REACT_APP_CONVEX_URL` the site still builds and every other
 room works — the Commons just explains what is missing.
+
+**On a fresh clone `.env.local` does not exist, and plain `npx convex dev` will
+create a brand new Convex project instead of using this one.** Link explicitly
+the first time:
+
+```bash
+npx convex dev --configure existing --team scottbussardjr --project ascii-commons
+```
+
+`npm install` matters too: the Convex typecheck needs TypeScript 5 (the
+`convex/tsconfig.json` here uses `moduleResolution: "Bundler"` and the ES2023
+lib). It is pinned as a devDependency, so running convex without installing
+first fails with a wall of `TS2792` / `TS7006` errors.
 
 ### Deploying
 

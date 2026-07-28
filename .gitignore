@@ -8,3 +8,5 @@ dist
 
 # Convex codegen
 convex/_generated
+.vercel
+.env*

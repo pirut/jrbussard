@@ -126,9 +126,12 @@ export const GLYPH = {
     [KIND.CONSOLE]: "¤",
 };
 
-/* Frames for the animated kinds, cycled by (time + position). */
+/* Frames for the animated kinds, cycled by (time + position).
+   U+223C was here for water and is missing from several common monospace
+   fonts, so it fell back to a proportional face and pushed the row sideways.
+   Everything here stays inside characters monospace fonts reliably carry. */
 export const ANIM_FRAMES = {
-    [KIND.WATER]: ["≈", "~", "≈", "∼"],
+    [KIND.WATER]: ["≈", "~", "≈", "~"],
     [KIND.TORCH]: ["‡", "†", "‡", "‡"],
     [KIND.STAR]: ["·", "·", "*", "·"],
     [KIND.CONSOLE]: ["¤", "¤", "¤", "ø"],

@@ -44,6 +44,23 @@
     white-space: pre;
 }
 
+/*
+ * Every non-ASCII glyph is emitted inside an <i> (see lib/glyph.js). Pinning
+ * it to exactly one character wide means the grid survives font substitution:
+ * if a machine lacks ♣ or ≈ and the browser borrows another face, the cell
+ * still occupies one column instead of shunting the rest of the row across.
+ */
+.world__row i,
+.minimap i {
+    display: inline-block;
+    width: 1ch;
+    overflow: hidden;
+    font-style: normal;
+    text-align: center;
+    /* Stop ★ ☺ ▲ being promoted to double-width colour emoji. */
+    font-variant-emoji: text;
+}
+
 /* Scanlines, bloom, and a slow phosphor drift. */
 .world-crt {
     position: absolute;

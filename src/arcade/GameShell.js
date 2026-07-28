@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import { cellMarkup } from "../lib/glyph";
 import "./arcade.css";
 
 /*
@@ -22,7 +23,7 @@ function paintRow(row, colorFor, y) {
             runColor = color;
             runText = "";
         }
-        runText += ch === "<" ? "&lt;" : ch === "&" ? "&amp;" : ch;
+        runText += cellMarkup(ch);
     }
     if (runColor !== null) html += `<span style="color:${runColor}">${runText}</span>`;
     return html;

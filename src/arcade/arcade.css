@@ -91,6 +91,17 @@
     white-space: pre;
 }
 
+/* See lib/glyph.js: non-ASCII cells are pinned to one column wide so the
+   grid holds together on machines whose fonts lack these glyphs. */
+.cab__row i {
+    display: inline-block;
+    width: 1ch;
+    overflow: hidden;
+    font-style: normal;
+    text-align: center;
+    font-variant-emoji: text;
+}
+
 .cab__overlay {
     position: absolute;
     inset: 0;

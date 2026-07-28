@@ -1,3 +1,4 @@
+import { cellMarkup } from "../lib/glyph";
 import {
     KIND,
     PALETTE,
@@ -12,13 +13,6 @@ const PLAYER_RADIUS = 14;
 const TORCH_RADIUS = 8;
 const LEVELS = 12;
 const UNLIT = [72, 84, 108];
-
-function escape(ch) {
-    if (ch === "&") return "&amp;";
-    if (ch === "<") return "&lt;";
-    if (ch === ">") return "&gt;";
-    return ch;
-}
 
 function hex(rgb, t) {
     const bg = PALETTE.bg;
@@ -192,7 +186,7 @@ export function createRenderer(container, world) {
                     runColor = color;
                     runText = "";
                 }
-                runText += escape(ch);
+                runText += cellMarkup(ch);
             }
 
             if (runColor !== null) {
