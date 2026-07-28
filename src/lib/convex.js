@@ -15,6 +15,7 @@ export const api = {
     harvest: makeFunctionReference("world:harvest"),
     build: makeFunctionReference("world:build"),
     demolish: makeFunctionReference("world:demolish"),
+    use: makeFunctionReference("world:use"),
     say: makeFunctionReference("world:say"),
     drink: makeFunctionReference("world:drink"),
     respawn: makeFunctionReference("world:respawn"),
