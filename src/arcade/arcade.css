@@ -419,6 +419,28 @@
 
 .commons__field {
     position: relative;
+    z-index: 1;
+}
+
+/*
+ * Parallax planes over and under the field. The near one sits above the
+ * players, so foliage passes in front of your character.
+ */
+.commons__plane {
+    position: absolute;
+    top: clamp(0.5rem, 1.5vw, 1rem);
+    left: clamp(0.5rem, 1.5vw, 1rem);
+    pointer-events: none;
+}
+
+.commons__plane--far {
+    z-index: 0;
+    opacity: 0.85;
+}
+
+.commons__plane--near {
+    z-index: 2;
+    filter: blur(0.7px);
 }
 
 .commons__side {

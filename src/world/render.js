@@ -1,5 +1,6 @@
 import { cellMarkup } from "../lib/glyph";
 import { shadeAt, GRAIN_SPREAD } from "../lib/shade";
+import { buildPlane, NEAR, FAR } from "./parallax";
 import {
     KIND,
     PALETTE,
@@ -108,13 +109,28 @@ function bakeZoneColors(world) {
     });
 }
 
-export function createRenderer(container, world) {
+/* Silhouettes for the near plane, haze for the far one. */
+const NEAR_COLORS = ["#080b12", "#0b0f18", "#060910"];
+const FAR_COLORS = ["#141b28", "#111826", "#172032"];
+
+export function createRenderer(container, world, planes = {}) {
     const torchLight = bakeTorchLight(world);
     const zoneColors = bakeZoneColors(world);
     const colorOf = makeColorCache();
     let rows = [];
     let cache = [];
     let lastCols = 0;
+    /* Each parallax plane keeps its own rows and its own diff cache. */
+    const layers = ["near", "far"]
+        .filter((name) => planes[name])
+        .map((name) => ({
+            name,
+            node: planes[name],
+            plane: name === "near" ? NEAR : FAR,
+            colors: name === "near" ? NEAR_COLORS : FAR_COLORS,
+            rows: [],
+            cache: [],
+        }));
 
     function setSize(cols, rowCount) {
         /* ResizeObserver fires for sub-pixel changes too; rebuilding the rows
@@ -126,6 +142,18 @@ export function createRenderer(container, world) {
         container.textContent = "";
         rows = [];
         cache = [];
+        layers.forEach((layer) => {
+            layer.node.textContent = "";
+            layer.rows = [];
+            layer.cache = [];
+            for (let i = 0; i < rowCount; i += 1) {
+                const row = document.createElement("div");
+                row.className = "world__row";
+                layer.node.appendChild(row);
+                layer.rows.push(row);
+                layer.cache.push(null);
+            }
+        });
         for (let i = 0; i < rowCount; i += 1) {
             const row = document.createElement("div");
             row.className = "world__row";
@@ -145,7 +173,26 @@ export function createRenderer(container, world) {
         return limit !== undefined && marker.index >= limit;
     }
 
+    function drawPlanes(cols, camX, camY) {
+        layers.forEach((layer) => {
+            const built = buildPlane({
+                cols,
+                rows: layer.rows.length,
+                camX,
+                camY,
+                plane: layer.plane,
+                colors: layer.colors,
+            });
+            for (let i = 0; i < built.length; i += 1) {
+                if (layer.cache[i] === built[i]) continue;
+                layer.rows[i].innerHTML = built[i];
+                layer.cache[i] = built[i];
+            }
+        });
+    }
+
     function draw({ cols, camX, camY, player, time, counts }) {
+        drawPlanes(cols, camX, camY);
         const flicker = 0.82 + 0.18 * Math.sin(time * 0.009);
         const pulse = 0.5 + 0.5 * Math.sin(time * 0.004);
         const frame = Math.floor(time / 190);

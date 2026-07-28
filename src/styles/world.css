@@ -26,9 +26,45 @@
     pointer-events: none;
 }
 
+/*
+ * The parallax planes share the stage's cell metrics exactly, so their grids
+ * line up with the world's. The near one sits above the stage — including
+ * above the player — which is what lets foliage pass in front of you.
+ */
+.world-plane {
+    position: absolute;
+    inset: 0;
+    font-family: var(--font-mono);
+    font-size: var(--cell-font);
+    line-height: 1;
+    letter-spacing: 0;
+    white-space: pre;
+    pointer-events: none;
+    contain: strict;
+    user-select: none;
+}
+
+.world-plane--far {
+    z-index: 0;
+    opacity: 0.85;
+}
+
+.world-plane--near {
+    z-index: 2;
+    /* Out of focus, the way something close to the lens would be. */
+    filter: blur(0.7px);
+    text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+}
+
+.world-plane .world__row {
+    height: 1em;
+    white-space: pre;
+}
+
 .world-stage {
     position: absolute;
     inset: 0;
+    z-index: 1;
     font-family: var(--font-mono);
     font-size: var(--cell-font);
     line-height: 1;
@@ -65,6 +101,7 @@
 .world-crt {
     position: absolute;
     inset: 0;
+    z-index: 3;
     pointer-events: none;
     background: repeating-linear-gradient(
         to bottom,
@@ -81,6 +118,7 @@
 .world-vignette {
     position: absolute;
     inset: 0;
+    z-index: 3;
     pointer-events: none;
     background:
         radial-gradient(

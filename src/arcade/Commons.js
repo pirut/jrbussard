@@ -21,6 +21,7 @@ import {
 } from "../lib/terrain";
 import { cellMarkup } from "../lib/glyph";
 import { shadeAt, GRAIN_SPREAD } from "../lib/shade";
+import { buildPlane, NEAR, FAR } from "../world/parallax";
 import "./arcade.css";
 
 /*
@@ -145,6 +146,43 @@ function dim(hex, amount) {
 /* Terrain takes per-cell grain; anything a player put down or has to spot
    keeps its own colour so it reads out of the texture. */
 const GRAINED = new Set([GRASS, TREE, WATER, ROCK, ROAD, SAND]);
+
+/* Silhouettes near the lens, haze far behind. */
+const NEAR_COLORS = ["#080b12", "#0b0f18", "#060910"];
+const FAR_COLORS = ["#141b28", "#111826", "#172032"];
+
+/*
+ * A parallax plane over or under the field. Slides at its own rate as the
+ * camera follows you, which is what makes the field feel like a space you are
+ * standing in rather than a chart you are reading.
+ */
+function Plane({ view, plane, colors, className }) {
+    const rows = useMemo(
+        () =>
+            buildPlane({
+                cols: COLS,
+                rows: ROWS,
+                camX: view.x,
+                camY: view.y,
+                plane,
+                colors,
+            }),
+        [view.x, view.y, plane, colors]
+    );
+
+    return (
+        <div className={`cab__screen commons__plane ${className}`} aria-hidden="true">
+            {rows.map((row, y) => (
+                <div
+                    className="cab__row"
+                    // eslint-disable-next-line react/no-array-index-key
+                    key={y}
+                    dangerouslySetInnerHTML={{ __html: row }}
+                />
+            ))}
+        </div>
+    );
+}
 
 function Offline() {
     return (
@@ -657,6 +695,12 @@ export default function Commons() {
                         else if (event.button === 0) doGather(spot);
                     }}
                 >
+                    <Plane
+                        view={state.view}
+                        plane={FAR}
+                        colors={FAR_COLORS}
+                        className="commons__plane--far"
+                    />
                     <Field
                         state={state}
                         session={session}
@@ -664,6 +708,12 @@ export default function Commons() {
                         aim={aim}
                         me={me}
                         fieldRef={fieldRef}
+                    />
+                    <Plane
+                        view={state.view}
+                        plane={NEAR}
+                        colors={NEAR_COLORS}
+                        className="commons__plane--near"
                     />
                     {hover && cellSize && me && (
                         <span

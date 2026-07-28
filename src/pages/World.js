@@ -240,6 +240,8 @@ function resolve(world, marker, data) {
 const World = () => {
     const world = useMemo(() => buildWorld(), []);
     const stageRef = useRef(null);
+    const nearRef = useRef(null);
+    const farRef = useRef(null);
     const probeRef = useRef(null);
     const rendererRef = useRef(null);
     const viewportRef = useRef({ cols: 0, rows: 0 });
@@ -328,7 +330,10 @@ const World = () => {
         const probe = probeRef.current;
         if (!stage || !probe) return undefined;
 
-        const renderer = createRenderer(stage, world);
+        const renderer = createRenderer(stage, world, {
+            near: nearRef.current,
+            far: farRef.current,
+        });
         rendererRef.current = renderer;
 
         const apply = () => {
@@ -500,7 +505,12 @@ const World = () => {
                 MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
             </span>
 
+            {/* Three planes: haze behind, the world, then foliage that
+                passes in front of you. They slide at different rates, which
+                is what makes the space read as deep rather than flat. */}
+            <div className="world-plane world-plane--far" ref={farRef} aria-hidden="true" />
             <div className="world-stage" ref={stageRef} aria-hidden="true" />
+            <div className="world-plane world-plane--near" ref={nearRef} aria-hidden="true" />
             <div className="world-crt" aria-hidden="true" />
             <div className="world-vignette" aria-hidden="true" />
 
