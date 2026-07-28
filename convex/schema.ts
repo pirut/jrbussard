@@ -65,6 +65,8 @@ export default defineSchema({
         ownerName: v.string(),
         text: v.string(),
         regrowAt: v.number(),
+        /* Doors only. Absent means open, so existing doors stay passable. */
+        open: v.optional(v.boolean()),
     })
         .index("by_pos", ["x", "y"])
         .index("by_chunk", ["chunk"])

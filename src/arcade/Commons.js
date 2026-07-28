@@ -46,7 +46,8 @@ const TILE_LOOK = {
 const BLOCK_LOOK = {
     wall: { ch: "▓", color: "#c9a97a", label: "wall" },
     floor: { ch: "·", color: "#8b93a8", label: "path" },
-    door: { ch: "+", color: "#e0a75e", label: "door" },
+    door: { ch: "'", color: "#e0a75e", label: "open door" },
+    doorShut: { ch: "+", color: "#e0a75e", label: "shut door" },
     torch: { ch: "‡", color: "#ffb347", label: "torch" },
     sign: { ch: "¶", color: "#e8c37a", label: "sign" },
     stump: { ch: "ₒ", color: "#6b5a3f", label: "cleared ground" },
@@ -65,23 +66,37 @@ const CURSOR = "#fff6d5";
 function describeTarget(x, y, cells, myName) {
     const built = cells.find((c) => c.x === x && c.y === y);
     if (built) {
-        const look = BLOCK_LOOK[built.kind];
         const cleared = built.kind === "stump" || built.kind === "rubble";
-        if (cleared) return { label: "cleared ground", verb: "b builds here" };
+        if (cleared) return { label: "cleared ground", verb: "right-click builds" };
+
         const mine = built.ownerName === myName;
+        const owner = built.ownerName ? ` · ${built.ownerName}` : "";
+
+        if (built.kind === "door") {
+            return {
+                label: `${built.open ? "open" : "shut"} door${owner}`,
+                verb: `left-click ${built.open ? "shuts" : "opens"} it`,
+            };
+        }
+        if (built.kind === "sign") {
+            return {
+                label: built.text ? `sign: "${built.text}"${owner}` : `blank sign${owner}`,
+                verb: mine ? "left-click reads · x removes" : "left-click reads it",
+            };
+        }
+
+        const look = BLOCK_LOOK[built.kind];
         return {
-            label: `${look ? look.label : built.kind}${
-                built.ownerName ? ` · ${built.ownerName}` : ""
-            }`,
+            label: `${look ? look.label : built.kind}${owner}`,
             verb: mine ? "x removes it" : "not yours to remove",
         };
     }
 
     const tile = tileAt(x, y);
-    if (tile === TREE) return { label: "tree", verb: "g chops it for wood" };
-    if (tile === ROCK) return { label: "rock", verb: "g mines it for stone" };
-    if (tile === WATER) return { label: "water", verb: "b bridges it" };
-    return { label: "open ground", verb: "b builds here" };
+    if (tile === TREE) return { label: "tree", verb: "left-click chops it for wood" };
+    if (tile === ROCK) return { label: "rock", verb: "left-click mines it for stone" };
+    if (tile === WATER) return { label: "water", verb: "right-click bridges it" };
+    return { label: "open ground", verb: "right-click builds here" };
 }
 
 const MONSTER_LOOK = {
@@ -178,7 +193,10 @@ function Field({ state, session, phaseLight, aim, me, fieldRef }) {
         };
 
         state.cells.forEach((cell) => {
-            let look = BLOCK_LOOK[cell.kind];
+            let look =
+                cell.kind === "door" && !cell.open
+                    ? BLOCK_LOOK.doorShut
+                    : BLOCK_LOOK[cell.kind];
             /* A path laid across water is a bridge, and should read as one. */
             if (cell.kind === "floor" && tileAt(cell.x, cell.y) === WATER) {
                 look = BRIDGE;
@@ -327,6 +345,7 @@ export default function Commons() {
     const harvest = useMutation(api.harvest);
     const build = useMutation(api.build);
     const demolish = useMutation(api.demolish);
+    const use = useMutation(api.use);
     const say = useMutation(api.say);
     const drink = useMutation(api.drink);
     const respawn = useMutation(api.respawn);
@@ -373,47 +392,31 @@ export default function Commons() {
         return { x: me.x + facingRef.current.dx, y: me.y + facingRef.current.dy };
     }, [me]);
 
-    const doGather = useCallback(async () => {
-        const spot = target();
-        if (!spot) return;
-        flash(await harvest({ session, ...spot }));
-    }, [target, harvest, session, flash]);
-
-    const doBuild = useCallback(async () => {
-        const spot = target();
-        if (!spot) return;
-        let text = "";
-        if (selected === "sign") {
-            text = window.prompt("What should the sign say?") || "";
-            if (!text) return;
-        }
-        flash(await build({ session, ...spot, kind: selected, text }));
-    }, [target, build, session, selected, flash]);
-
-    const doDemolish = useCallback(async () => {
-        const spot = target();
-        if (!spot) return;
-        flash(await demolish({ session, ...spot }));
-    }, [target, demolish, session, flash]);
-
-    /*
-     * One click does the obvious thing for whatever is under it: chop a tree,
-     * mine a rock, take back something you built, otherwise place the
-     * selected block. The readout above the controls says which it will be.
-     */
-    const doClick = useCallback(
-        async (spot) => {
-            if (!me || me.hp <= 0 || !spot) return;
+    const reachable = useCallback(
+        (spot) => {
+            if (!me || me.hp <= 0 || !spot) return false;
             if (!withinReach(me, spot.x, spot.y)) {
                 flash("out of reach");
-                return;
+                return false;
             }
+            return true;
+        },
+        [me, flash]
+    );
+
+    /*
+     * Left hand: work the world as it is — chop a tree, mine a rock, swing a
+     * door, read a sign.
+     */
+    const doGather = useCallback(
+        async (spot) => {
+            if (!reachable(spot)) return;
             const built = state.cells.find((c) => c.x === spot.x && c.y === spot.y);
             const cleared =
                 built && (built.kind === "stump" || built.kind === "rubble");
 
             if (built && !cleared) {
-                flash(await demolish({ session, ...spot }));
+                flash(await use({ session, ...spot }));
                 return;
             }
             const tile = tileAt(spot.x, spot.y);
@@ -421,6 +424,15 @@ export default function Commons() {
                 flash(await harvest({ session, ...spot }));
                 return;
             }
+            flash("nothing to gather there");
+        },
+        [reachable, state, session, use, harvest, flash]
+    );
+
+    /* Right hand: put down whatever is selected. */
+    const doBuild = useCallback(
+        async (spot) => {
+            if (!reachable(spot)) return;
             let text = "";
             if (selected === "sign") {
                 text = window.prompt("What should the sign say?") || "";
@@ -428,7 +440,15 @@ export default function Commons() {
             }
             flash(await build({ session, ...spot, kind: selected, text }));
         },
-        [me, state, session, selected, harvest, build, demolish, flash]
+        [reachable, session, selected, build, flash]
+    );
+
+    const doDemolishAt = useCallback(
+        async (spot) => {
+            if (!reachable(spot)) return;
+            flash(await demolish({ session, ...spot }));
+        },
+        [reachable, session, demolish, flash]
     );
 
     /* Translate a pointer position into a world cell. */
@@ -485,9 +505,9 @@ export default function Commons() {
             }
 
             const key = event.key.toLowerCase();
-            if (key === "g") doGather();
-            else if (key === "b") doBuild();
-            else if (key === "x") doDemolish();
+            if (key === "g") doGather(target());
+            else if (key === "b") doBuild(target());
+            else if (key === "x") doDemolishAt(target());
             else if (key === "q") drink({ session });
             else {
                 const pick = BUILD_MENU.find((entry) => entry.key === event.key);
@@ -497,7 +517,7 @@ export default function Commons() {
 
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [step, doGather, doBuild, doDemolish, drink, session]);
+    }, [step, doGather, doBuild, doDemolishAt, target, drink, session]);
 
     const submitChat = useCallback(
         async (event) => {
@@ -603,10 +623,12 @@ export default function Commons() {
                     className="cab__stage commons__stage"
                     onPointerMove={(event) => setHover(cellFromEvent(event))}
                     onPointerLeave={() => setHover(null)}
+                    onContextMenu={(event) => event.preventDefault()}
                     onPointerDown={(event) => {
                         const spot = cellFromEvent(event);
                         setHover(spot);
-                        doClick(spot);
+                        if (event.button === 2) doBuild(spot);
+                        else if (event.button === 0) doGather(spot);
                     }}
                 >
                     <Field
@@ -723,9 +745,9 @@ export default function Commons() {
             )}
 
             <p className="cab__controls">
-                wasd moves · <b>click</b> to gather or build within {REACH} tiles ·{" "}
-                <b>g</b> gathers · <b>b</b> builds {selected} · <b>x</b> removes yours ·{" "}
-                <b>q</b> potion · <b>enter</b> to chat ·{" "}
+                wasd moves · <b>left-click</b> gathers, opens doors, reads signs ·{" "}
+                <b>right-click</b> builds {selected} · within {REACH} tiles ·{" "}
+                <b>x</b> removes yours · <b>q</b> potion · <b>enter</b> to chat ·{" "}
                 {state.online - 1} other{state.online === 2 ? "" : "s"} online
             </p>
 
@@ -760,10 +782,18 @@ export default function Commons() {
                 <button type="button" onClick={() => step(0, 1)} aria-label="down">
                     ▼
                 </button>
-                <button type="button" className="commons__gather" onClick={doGather}>
+                <button
+                    type="button"
+                    className="commons__gather"
+                    onClick={() => doGather(target())}
+                >
                     G
                 </button>
-                <button type="button" className="commons__place" onClick={doBuild}>
+                <button
+                    type="button"
+                    className="commons__place"
+                    onClick={() => doBuild(target())}
+                >
                     B
                 </button>
             </div>

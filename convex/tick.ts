@@ -131,9 +131,14 @@ export const run = internalMutation({
         const lit = built.filter((c) => BLOCKS[c.kind] && BLOCKS[c.kind].light > 0);
         const nearLight = (x: number, y: number) =>
             lit.some((t) => Math.hypot(t.x - x, t.y - y) <= BLOCKS[t.kind].light * 0.5);
+        /* A shut door keeps things out, which is the point of building one. */
         const solidBuilt = new Set(
             built
-                .filter((c) => BLOCKS[c.kind] && BLOCKS[c.kind].solid)
+                .filter((c) =>
+                    c.kind === "door"
+                        ? c.open === false
+                        : BLOCKS[c.kind] && BLOCKS[c.kind].solid
+                )
                 .map((c) => `${c.x},${c.y}`)
         );
 

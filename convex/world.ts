@@ -89,7 +89,11 @@ async function post(ctx: MutationCtx, name: string, text: string, kind: string) 
 /* Solid means generated terrain, or a block someone put there. */
 async function blocked(ctx: MutationCtx, x: number, y: number): Promise<boolean> {
     const cell = await cellAt(ctx, x, y);
-    if (cell) return BLOCKS[cell.kind] ? BLOCKS[cell.kind].solid : false;
+    if (cell) {
+        /* A door is only in the way while it is shut. */
+        if (cell.kind === "door") return cell.open === false;
+        return BLOCKS[cell.kind] ? BLOCKS[cell.kind].solid : false;
+    }
     return isSolid(x, y);
 }
 
@@ -351,6 +355,7 @@ export const build = mutation({
             ownerName: player.name,
             text: (args.text || "").slice(0, 60),
             regrowAt: 0,
+            open: args.kind === "door" ? true : undefined,
         });
 
         await ctx.db.patch("players", player._id, {
@@ -392,6 +397,50 @@ export const demolish = mutation({
             lastSeen: now,
         });
         return "taken down";
+    },
+});
+
+/*
+ * The left-hand verb. Doors swing either way for anybody — they are for
+ * getting through, not for owning — while taking one down still needs to be
+ * yours. Signs read out whatever was written on them.
+ */
+export const use = mutation({
+    args: { session: v.string(), x: v.number(), y: v.number() },
+    returns: v.string(),
+    handler: async (ctx, args) => {
+        const player = await getPlayer(ctx, args.session);
+        if (!player || player.hp <= 0) return "no";
+        if (!withinReach(player, args.x, args.y)) return "too far";
+
+        const cell = await cellAt(ctx, args.x, args.y);
+        if (!cell) return "";
+
+        if (cell.kind === "door") {
+            const shut = cell.open === false;
+            /* Do not shut a door on somebody standing in the doorway. */
+            if (!shut) {
+                const standing = await ctx.db.query("players").collect();
+                if (
+                    standing.some((p) => p.hp > 0 && p.x === args.x && p.y === args.y)
+                ) {
+                    return "someone is in the doorway";
+                }
+                const monsters = await ctx.db.query("monsters").collect();
+                if (monsters.some((m) => m.x === args.x && m.y === args.y)) {
+                    return "something is in the doorway";
+                }
+            }
+            await ctx.db.patch("cells", cell._id, { open: shut });
+            await ctx.db.patch("players", player._id, { lastSeen: Date.now() });
+            return shut ? "opened the door" : "shut the door";
+        }
+
+        if (cell.kind === "sign") {
+            return cell.text ? `"${cell.text}" — ${cell.ownerName}` : "a blank sign";
+        }
+
+        return "";
     },
 });
 
@@ -577,6 +626,7 @@ export const state = query({
                 kind: v.string(),
                 ownerName: v.string(),
                 text: v.string(),
+                open: v.boolean(),
             })
         ),
         chat: v.array(
@@ -675,6 +725,7 @@ export const state = query({
                 kind: c.kind,
                 ownerName: c.ownerName,
                 text: c.text,
+                open: c.open !== false,
             })),
             chat: chat.map((c) => ({ name: c.name, text: c.text, kind: c.kind })),
         };

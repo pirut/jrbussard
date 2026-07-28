@@ -46,7 +46,9 @@ export const BLOCKS: Record<
 > = {
     wall: { ch: "▓", solid: true, light: 0, wood: 2, stone: 0, label: "wall" },
     floor: { ch: "·", solid: false, light: 0, wood: 0, stone: 1, label: "path" },
-    door: { ch: "+", solid: false, light: 0, wood: 3, stone: 0, label: "door" },
+    /* Roguelike convention: ' is open, + is shut. Both ASCII, so neither can
+       fall back to a font with a different advance width. */
+    door: { ch: "'", solid: false, light: 0, wood: 3, stone: 0, label: "door" },
     torch: { ch: "‡", solid: true, light: 6, wood: 1, stone: 1, label: "torch" },
     sign: { ch: "¶", solid: true, light: 0, wood: 2, stone: 0, label: "sign" },
     /* Left behind by harvesting; grows back on its own. */
