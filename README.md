@@ -65,13 +65,43 @@ costs nothing.
 ### Running it
 
 ```bash
-npx convex dev      # watches convex/ and pushes
+npx convex dev      # watches convex/ and pushes to the dev deployment
 ```
 
 `.env.local` holds `CONVEX_DEPLOYMENT` and `REACT_APP_CONVEX_URL` and is not
-committed. For production, run `npx convex deploy` and set `REACT_APP_CONVEX_URL`
-in the hosting environment. **Without that variable the site still builds and
-every other room works** — the Commons just explains what is missing.
+committed. Without `REACT_APP_CONVEX_URL` the site still builds and every other
+room works — the Commons just explains what is missing.
+
+### Deploying
+
+The site is live at [www.jrbussard.com](https://www.jrbussard.com). Vercel
+builds from `main` on push, and `REACT_APP_CONVEX_URL` is set in the Vercel
+project (Production + Preview) to the Convex production deployment.
+
+**⚠️ A `git push` deploys the site but NOT the backend.** The two are separate:
+
+```bash
+git push origin main    # frontend only
+npx convex deploy       # backend only — run this after changing convex/
+```
+
+So after editing anything under `convex/` or `src/lib/terrain.js`, run
+`npx convex deploy` or the live world keeps running the old rules. Terrain is
+especially important: it is shared by both sides, so changing it without
+deploying makes the browser and server disagree about what is solid.
+
+To make one push do both, set `CONVEX_DEPLOY_KEY` in Vercel (generate it from
+the Convex dashboard) and change the project's build command to:
+
+```bash
+npx convex deploy --cmd 'npm run build'
+```
+
+| Deployment | URL |
+| --- | --- |
+| Convex production | `industrious-dachshund-727.convex.cloud` |
+| Convex dev | `agile-sardine-811.convex.cloud` |
+| Dashboard | [ascii-commons](https://dashboard.convex.dev/t/scottbussardjr/ascii-commons) |
 
 | File | What it holds |
 | --- | --- |
