@@ -15,6 +15,7 @@ import {
     tileAt,
     isSolid,
     inSafeZone,
+    withinReach,
     chunkKey,
     chunksInBox,
     arrivalSpot,
@@ -261,9 +262,7 @@ export const harvest = mutation({
 
         const now = Date.now();
         if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
-        if (Math.abs(args.x - player.x) + Math.abs(args.y - player.y) !== 1) {
-            return "too far";
-        }
+        if (!withinReach(player, args.x, args.y)) return "too far";
 
         const existing = await cellAt(ctx, args.x, args.y);
         if (existing) return "nothing to gather";
@@ -312,9 +311,7 @@ export const build = mutation({
 
         const now = Date.now();
         if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
-        if (Math.abs(args.x - player.x) + Math.abs(args.y - player.y) !== 1) {
-            return "too far";
-        }
+        if (!withinReach(player, args.x, args.y)) return "too far";
         if (inSafeZone(args.x, args.y)) return "not at the crossroads";
 
         const existing = await cellAt(ctx, args.x, args.y);
@@ -334,6 +331,10 @@ export const build = mutation({
 
         const monsters = await ctx.db.query("monsters").collect();
         if (monsters.some((m) => m.x === args.x && m.y === args.y)) return "occupied";
+        const standing = await ctx.db.query("players").collect();
+        if (standing.some((p) => p.hp > 0 && p.x === args.x && p.y === args.y)) {
+            return "someone is standing there";
+        }
 
         const spec = BLOCKS[args.kind];
         if (player.wood < spec.wood || player.stone < spec.stone) {
@@ -375,9 +376,7 @@ export const demolish = mutation({
 
         const now = Date.now();
         if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
-        if (Math.abs(args.x - player.x) + Math.abs(args.y - player.y) !== 1) {
-            return "too far";
-        }
+        if (!withinReach(player, args.x, args.y)) return "too far";
 
         const cell = await cellAt(ctx, args.x, args.y);
         if (!cell || cell.regrowAt !== 0) return "nothing built here";

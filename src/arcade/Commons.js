@@ -8,7 +8,17 @@ import {
     getName,
     setName,
 } from "../lib/convex";
-import { tileAt, GRASS, TREE, WATER, ROCK, ROAD, SAND } from "../lib/terrain";
+import {
+    tileAt,
+    withinReach,
+    REACH,
+    GRASS,
+    TREE,
+    WATER,
+    ROCK,
+    ROAD,
+    SAND,
+} from "../lib/terrain";
 import { cellMarkup } from "../lib/glyph";
 import "./arcade.css";
 
@@ -142,7 +152,7 @@ function Offline() {
     );
 }
 
-function Field({ state, session, phaseLight, aim }) {
+function Field({ state, session, phaseLight, aim, me, fieldRef }) {
     const rows = useMemo(() => {
         if (!state || !state.view) return [];
 
@@ -188,7 +198,24 @@ function Field({ state, session, phaseLight, aim }) {
             });
         });
 
-        /* The cell you are facing, so building and gathering can be aimed. */
+        /* Everything you can reach gets a lift, so the working area reads at
+           a glance instead of having to be discovered by trial and error. */
+        if (me) {
+            for (let dy = -REACH; dy <= REACH; dy += 1) {
+                for (let dx = -REACH; dx <= REACH; dx += 1) {
+                    const wx = me.x + dx;
+                    const wy = me.y + dy;
+                    if (!withinReach(me, wx, wy)) continue;
+                    const cx = wx - originX;
+                    const cy = wy - originY;
+                    if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) continue;
+                    const cell = cells[cy * COLS + cx];
+                    cells[cy * COLS + cx] = { ...cell, inReach: true };
+                }
+            }
+        }
+
+        /* The cell you are aiming at, by mouse or by facing. */
         if (aim) {
             const ax = aim.x - originX;
             const ay = aim.y - originY;
@@ -215,7 +242,10 @@ function Field({ state, session, phaseLight, aim }) {
                     cell.ch === "@" ||
                     cell.ch === "‡" ||
                     cell.ch === "☺";
-                const color = bright ? cell.color : dim(cell.color, phaseLight);
+                const light = bright
+                    ? 1
+                    : Math.min(1, phaseLight + (cell.inReach ? 0.22 : 0));
+                const color = light >= 1 ? cell.color : dim(cell.color, light);
                 if (color !== runColor) {
                     if (runColor !== null) {
                         html += `<span style="color:${runColor}">${runText}</span>`;
@@ -229,10 +259,10 @@ function Field({ state, session, phaseLight, aim }) {
             painted.push(html);
         }
         return painted;
-    }, [state, session, phaseLight, aim]);
+    }, [state, session, phaseLight, aim, me]);
 
     return (
-        <div className="cab__screen commons__field" aria-hidden="true">
+        <div className="cab__screen commons__field" aria-hidden="true" ref={fieldRef}>
             {rows.map((row, y) => (
                 <div
                     className="cab__row"
@@ -281,6 +311,11 @@ export default function Commons() {
     const [facing, setFacing] = useState({ dx: 0, dy: 1 });
     const facingRef = useRef(facing);
     facingRef.current = facing;
+    /* Cell under the mouse, in world coordinates, and the pixel size of one
+       cell so the selection box can be laid over the right character. */
+    const [hover, setHover] = useState(null);
+    const [cellSize, setCellSize] = useState(null);
+    const fieldRef = useRef(null);
 
     const state = useQuery(
         api.state,
@@ -327,8 +362,14 @@ export default function Commons() {
         [move, session]
     );
 
+    /* The mouse wins while it is over the field; otherwise you aim with the
+       direction you last walked. Both feed the same actions. */
+    const hoverRef = useRef(hover);
+    hoverRef.current = hover;
+
     const target = useCallback(() => {
         if (!me) return null;
+        if (hoverRef.current) return hoverRef.current;
         return { x: me.x + facingRef.current.dx, y: me.y + facingRef.current.dy };
     }, [me]);
 
@@ -354,6 +395,58 @@ export default function Commons() {
         if (!spot) return;
         flash(await demolish({ session, ...spot }));
     }, [target, demolish, session, flash]);
+
+    /*
+     * One click does the obvious thing for whatever is under it: chop a tree,
+     * mine a rock, take back something you built, otherwise place the
+     * selected block. The readout above the controls says which it will be.
+     */
+    const doClick = useCallback(
+        async (spot) => {
+            if (!me || me.hp <= 0 || !spot) return;
+            if (!withinReach(me, spot.x, spot.y)) {
+                flash("out of reach");
+                return;
+            }
+            const built = state.cells.find((c) => c.x === spot.x && c.y === spot.y);
+            const cleared =
+                built && (built.kind === "stump" || built.kind === "rubble");
+
+            if (built && !cleared) {
+                flash(await demolish({ session, ...spot }));
+                return;
+            }
+            const tile = tileAt(spot.x, spot.y);
+            if (!cleared && (tile === TREE || tile === ROCK)) {
+                flash(await harvest({ session, ...spot }));
+                return;
+            }
+            let text = "";
+            if (selected === "sign") {
+                text = window.prompt("What should the sign say?") || "";
+                if (!text) return;
+            }
+            flash(await build({ session, ...spot, kind: selected, text }));
+        },
+        [me, state, session, selected, harvest, build, demolish, flash]
+    );
+
+    /* Translate a pointer position into a world cell. */
+    const cellFromEvent = useCallback(
+        (event) => {
+            const node = fieldRef.current;
+            if (!node || !state.view) return null;
+            const box = node.getBoundingClientRect();
+            const w = box.width / COLS;
+            const h = box.height / ROWS;
+            if (!cellSize || Math.abs(cellSize.w - w) > 0.01) setCellSize({ w, h });
+            const col = Math.floor((event.clientX - box.left) / w);
+            const row = Math.floor((event.clientY - box.top) / h);
+            if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return null;
+            return { x: state.view.x + col, y: state.view.y + row };
+        },
+        [state, cellSize]
+    );
 
     /* Keyboard. Typing in the chat box takes precedence over everything. */
     useEffect(() => {
@@ -450,11 +543,12 @@ export default function Commons() {
     }
 
     const phaseLight = PHASE_LIGHT[state.phase] || 1;
-    /* Where g / b / x will act, and what is there. */
-    const aim = me ? { x: me.x + facing.dx, y: me.y + facing.dy } : null;
-    const aimInfo = aim
-        ? describeTarget(aim.x, aim.y, state.cells, me.name)
-        : null;
+    /* Where a click or g / b / x will act. The mouse wins while it is over
+       the field, so the box, the readout and the action all agree. */
+    const aim =
+        hover || (me ? { x: me.x + facing.dx, y: me.y + facing.dy } : null);
+    const aimInfo = aim ? describeTarget(aim.x, aim.y, state.cells, me.name) : null;
+    const aimReachable = aim && me ? withinReach(me, aim.x, aim.y) : false;
 
     return (
         <main className={`cab cab--commons cab--${state.phase}`}>
@@ -505,8 +599,39 @@ export default function Commons() {
             )}
 
             <div className="commons__layout">
-                <div className="cab__stage">
-                    <Field state={state} session={session} phaseLight={phaseLight} aim={aim} />
+                <div
+                    className="cab__stage commons__stage"
+                    onPointerMove={(event) => setHover(cellFromEvent(event))}
+                    onPointerLeave={() => setHover(null)}
+                    onPointerDown={(event) => {
+                        const spot = cellFromEvent(event);
+                        setHover(spot);
+                        doClick(spot);
+                    }}
+                >
+                    <Field
+                        state={state}
+                        session={session}
+                        phaseLight={phaseLight}
+                        aim={aim}
+                        me={me}
+                        fieldRef={fieldRef}
+                    />
+                    {hover && cellSize && me && (
+                        <span
+                            className={`commons__select ${
+                                withinReach(me, hover.x, hover.y) ? "" : "is-far"
+                            }`}
+                            aria-hidden="true"
+                            style={{
+                                width: cellSize.w,
+                                height: cellSize.h,
+                                transform: `translate(${
+                                    (hover.x - state.view.x) * cellSize.w
+                                }px, ${(hover.y - state.view.y) * cellSize.h}px)`,
+                            }}
+                        />
+                    )}
                     <Bubbles state={state} session={session} />
                     {state.weather === "rain" && (
                         <div className="commons__rain" aria-hidden="true" />
@@ -592,13 +717,15 @@ export default function Commons() {
 
             {aimInfo && (
                 <p className="commons__aim">
-                    facing <b>{aimInfo.label}</b> — {aimInfo.verb}
+                    {hover ? "selected" : "facing"} <b>{aimInfo.label}</b> —{" "}
+                    {aimReachable ? aimInfo.verb : "out of reach"}
                 </p>
             )}
 
             <p className="cab__controls">
-                wasd moves and attacks · <b>g</b> gathers · <b>b</b> builds {selected} ·{" "}
-                <b>x</b> removes yours · <b>q</b> potion · <b>enter</b> to chat ·{" "}
+                wasd moves · <b>click</b> to gather or build within {REACH} tiles ·{" "}
+                <b>g</b> gathers · <b>b</b> builds {selected} · <b>x</b> removes yours ·{" "}
+                <b>q</b> potion · <b>enter</b> to chat ·{" "}
                 {state.online - 1} other{state.online === 2 ? "" : "s"} online
             </p>
 

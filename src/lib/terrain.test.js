@@ -7,6 +7,8 @@ import {
     arrivalSpot,
     openSpotNear,
     regionName,
+    withinReach,
+    REACH,
     SPAWN,
     SAFE_RADIUS,
     ROAD,
@@ -106,6 +108,19 @@ describe("the endless field", () => {
             expect(isSolid(spot.x, spot.y)).toBe(false);
             expect(inSafeZone(spot.x, spot.y)).toBe(false);
         }
+    });
+
+    it("agrees with itself about what is in reach", () => {
+        const me = { x: 10, y: -4 };
+        /* The browser draws this area and the server enforces it. If they
+           ever disagree, the game offers actions it then refuses. */
+        expect(withinReach(me, me.x, me.y)).toBe(false);
+        expect(withinReach(me, me.x + REACH, me.y)).toBe(true);
+        expect(withinReach(me, me.x, me.y - REACH)).toBe(true);
+        expect(withinReach(me, me.x + REACH + 1, me.y)).toBe(false);
+        /* Diagonals are a circle, not a square. */
+        expect(withinReach(me, me.x + 3, me.y + 3)).toBe(false);
+        expect(withinReach(me, me.x + 2, me.y + 2)).toBe(true);
     });
 
     it("names where you are", () => {

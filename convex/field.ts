@@ -16,6 +16,8 @@ export {
     SEED,
     SPAWN,
     SAFE_RADIUS,
+    REACH,
+    withinReach,
     CHUNK,
     tileAt,
     isSolid,

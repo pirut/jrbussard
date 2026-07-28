@@ -626,6 +626,31 @@
     );
 }
 
+/* The field is clickable, so the cursor should say so. */
+.commons__stage {
+    cursor: crosshair;
+    touch-action: manipulation;
+}
+
+/* Selection box over the hovered character cell. Positioned by transform so
+   moving it does not force layout on every pointer event. */
+.commons__select {
+    position: absolute;
+    top: clamp(0.5rem, 1.5vw, 1rem);
+    left: clamp(0.5rem, 1.5vw, 1rem);
+    pointer-events: none;
+    border: 1px solid var(--gold);
+    box-shadow:
+        0 0 10px rgba(232, 195, 122, 0.5),
+        inset 0 0 8px rgba(232, 195, 122, 0.22);
+    transition: transform 0.045s linear;
+}
+
+.commons__select.is-far {
+    border-color: rgba(255, 138, 138, 0.65);
+    box-shadow: none;
+}
+
 .commons__aim {
     margin: 0;
     font-size: clamp(10px, 1.05vw, 13px);

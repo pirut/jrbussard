@@ -86,6 +86,18 @@ export function isSolid(x, y) {
     return SOLID.has(tileAt(x, y));
 }
 
+/*
+ * How far you can reach to gather, build or demolish. Shared so the browser
+ * draws exactly the area the server will accept — the client only decides
+ * what to *offer*, the server still decides what is allowed.
+ */
+export const REACH = 4;
+
+export function withinReach(from, x, y) {
+    if (from.x === x && from.y === y) return false;
+    return Math.hypot(x - from.x, y - from.y) <= REACH;
+}
+
 /* Blocks and monsters are looked up by chunk so a query never scans the
    whole world. 16 is a compromise: small enough to stay cheap, big enough
    that a viewport touches only a handful. */
