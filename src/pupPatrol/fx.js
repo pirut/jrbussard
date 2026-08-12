@@ -59,6 +59,12 @@ export class Effects {
             uniforms: {
                 uTexture: { value: makePuffTexture() },
                 uScale: { value: 700 },
+                /* Particles have to fade into the distance on the same curve
+                   as everything else, or a dust cloud two hundred metres away
+                   stays crisp against a hazed hillside and reads as a bug. */
+                uFogColour: { value: new THREE.Color(0xcfe9ff) },
+                uFogNear: { value: 260 },
+                uFogFar: { value: 900 },
             },
             vertexShader: /* glsl */ `
                 attribute vec3 colour;
@@ -66,23 +72,32 @@ export class Effects {
                 attribute float alpha;
                 varying vec3 vColour;
                 varying float vAlpha;
+                varying float vDepth;
                 uniform float uScale;
                 void main() {
                     vColour = colour;
                     vAlpha = alpha;
                     vec4 view = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = size * uScale / max(-view.z, 1.0);
+                    vDepth = -view.z;
+                    /* Clamped, or a particle spawned inside the camera fills
+                       the screen with one white square for a frame. */
+                    gl_PointSize = clamp(size * uScale / max(-view.z, 1.0), 1.0, 220.0);
                     gl_Position = projectionMatrix * view;
                 }
             `,
             fragmentShader: /* glsl */ `
                 uniform sampler2D uTexture;
+                uniform vec3 uFogColour;
+                uniform float uFogNear, uFogFar;
                 varying vec3 vColour;
                 varying float vAlpha;
+                varying float vDepth;
                 void main() {
                     vec4 texel = texture2D(uTexture, gl_PointCoord);
-                    if (texel.a * vAlpha < 0.01) discard;
-                    gl_FragColor = vec4(vColour, texel.a * vAlpha);
+                    float a = texel.a * vAlpha;
+                    if (a < 0.01) discard;
+                    float fog = smoothstep(uFogNear, uFogFar, vDepth);
+                    gl_FragColor = vec4(mix(vColour, uFogColour, fog), a * (1.0 - fog * 0.85));
                 }
             `,
         });
@@ -272,6 +287,55 @@ export class Effects {
                     alpha: 0.9,
                     gravity: -9,
                     drag: 0.7,
+                }
+            );
+        }
+    }
+
+    /* What comes off a collision: a few bright sparks that die fast, and a
+       slower shower of dirt. The sparks are what the eye reads as "that hurt";
+       the dirt is what makes the hit feel like it happened to the ground
+       rather than to a pair of colliding maths objects. */
+    debris(x, y, z, amount, random = Math.random) {
+        const sparks = Math.min(10, Math.round(amount * 0.6));
+        for (let i = 0; i < sparks; i += 1) {
+            const a = random() * Math.PI * 2;
+            const e = random() * 0.9;
+            const power = 6 + random() * 9;
+            this.spawn(
+                x + (random() - 0.5) * 0.8,
+                y + random() * 0.6,
+                z + (random() - 0.5) * 0.8,
+                Math.cos(a) * Math.cos(e) * power,
+                Math.sin(e) * power + 2,
+                Math.sin(a) * Math.cos(e) * power,
+                {
+                    colour: random() < 0.5 ? 0xffd88a : 0xfff3c8,
+                    size: 0.22 + random() * 0.2,
+                    life: 0.22 + random() * 0.24,
+                    alpha: 1,
+                    gravity: -14,
+                    drag: 0.5,
+                }
+            );
+        }
+        for (let i = 0; i < amount; i += 1) {
+            const a = random() * Math.PI * 2;
+            const power = 2 + random() * 5;
+            this.spawn(
+                x + (random() - 0.5) * 1.2,
+                y + random() * 0.5,
+                z + (random() - 0.5) * 1.2,
+                Math.cos(a) * power,
+                1.5 + random() * 3.5,
+                Math.sin(a) * power,
+                {
+                    colour: 0xa89a86,
+                    size: 0.5 + random() * 0.9,
+                    life: 0.6 + random() * 0.6,
+                    alpha: 0.5,
+                    gravity: -8,
+                    drag: 1.4,
                 }
             );
         }

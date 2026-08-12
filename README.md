@@ -51,9 +51,31 @@ generated in the browser at load.
   suspension ([`physics.js`](src/pupPatrol/physics.js)). It squats under power,
   leans into corners, unloads the inside wheels, lands nose-first off a jump
   and can be spun by braking mid-corner — all of it falling out of forces
-  applied at the contact patches, none of it scripted. Skye's helicopter is a
-  separate flight model where the collective lifts and the cyclic tilts the
-  rotor disc.
+  applied at the contact patches, none of it scripted. Every wheel carries its
+  own angular velocity, so it can spin faster than the car or lock under
+  braking, and the grip comes from a combined slip curve that *falls away* past
+  its peak: that decay is the whole difference between a car that understeers
+  into a hedge and one that steps its tail out and comes back when you lift.
+  There is an engine torque curve, an automatic gearbox that cuts torque
+  through the change, Ackermann steering geometry and load-sensitive tyres.
+  Skye's helicopter is a separate flight model where the collective lifts and
+  the cyclic tilts the rotor disc.
+- **A camera that tells you things.** It follows the direction of travel rather
+  than the nose, trails on a critically damped spring, never lets terrain or a
+  building get between itself and the car, widens as speed builds, leans into
+  corners and shakes on impact ([`camera.js`](src/pupPatrol/camera.js)). Four
+  modes including a bonnet cam; right-drag to look around, scroll to zoom.
+- **The picture.** An environment map baked from the same sky the player sees,
+  so paint and chrome have something to reflect; a post chain that does bloom,
+  speed blur, chromatic aberration, tone mapping, grading, vignette and grain
+  ([`render.js`](src/pupPatrol/render.js)); and a shadow rig that keeps the
+  sun's frustum wrapped tightly around wherever you are, snapped to whole
+  texels so the shadows do not crawl.
+- **Grass that is actually there.** Ground cover dense enough to look right is
+  most of a million tufts across an island this size, so the field moves with
+  you instead ([`groundcover.js`](src/pupPatrol/groundcover.js)): a ring buffer
+  of cells around the camera, where driving out of one side wraps a single
+  column round to the other and re-samples it against the terrain there.
 - **Seven pups, seven feels.** Chase is quickest on tarmac, Marshall is heavy
   and the only one with water, Rubble cannot be hurried and shoves boulders,
   Zuma treats the bay as a shortcut, Everest owns the mountain, Skye ignores
@@ -68,8 +90,12 @@ generated in the browser at load.
 
 Drive with `WASD`, `Space` for the handbrake (or climb, in the helicopter),
 `F` for whatever that pup does, `E` in and out of the truck, `R` to flip back
-over, `C` for the camera, `M` for the mission board. Touchscreens get a
-steering pad and pedals.
+over, `C` for the camera, `B` to look behind, `H` for the horn, `1`–`7` to
+switch pup, `M` for the mission board, `Esc` to pause. Right-drag looks around
+and the wheel zooms. Gamepads work, including the triggers and the rumble.
+Touchscreens get a steering pad and pedals. Graphics quality is picked from
+what the machine says about itself and can be overridden in the pause menu or
+with `?q=low|medium|high` on the URL.
 
 ## The Commons (multiplayer)
 

@@ -5,13 +5,19 @@
  */
 
 import * as THREE from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { heightAt, PLACES, SEA_LEVEL } from "./world";
-import { buildGround, buildSea, buildRoadRibbons, buildSky, buildLighting, SUN_DIRECTION } from "./scenery";
+import { heightAt, nearestRoadPoint, placeById, PLACES, SEA_LEVEL } from "./world";
+import {
+    buildGround,
+    buildSea,
+    buildRoadRibbons,
+    buildSky,
+    buildLighting,
+    buildDistantLands,
+    SUN_DIRECTION,
+    HORIZON_COLOUR,
+} from "./scenery";
 import { buildProps, tickWind } from "./props";
+import { GroundCover } from "./groundcover";
 import { buildLandmarks } from "./landmarks";
 import { obstacles } from "./obstacles";
 import { Effects } from "./fx";
@@ -21,34 +27,32 @@ import { buildPupMesh, PupOnFoot } from "./pups";
 import { Vehicle, Helicopter, FIXED_DT, clamp } from "./physics";
 import { PUPS, pupById, buildVehicleMesh } from "./vehicles";
 import { Input } from "./input";
+import { CameraRig, CAMERA_MODES } from "./camera";
+import { PostFX, ShadowRig, buildEnvironment, qualityFor, detectQuality } from "./render";
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _forward = new THREE.Vector3();
 const _euler = new THREE.Euler();
-
-const FOG_COLOR = 0xbfe4ff;
 
 /* Handed to a vehicle nobody is driving. */
 const PARKED = { steer: 0, throttle: 0, brake: 0.35, handbrake: true, pitch: 0, lift: 0 };
+
+const GEAR_LABELS = ["R", "N", "1", "2", "3", "4", "5", "6", "7"];
 
 function yawOf(quaternion) {
     _euler.setFromQuaternion(quaternion, "YXZ");
     return _euler.y;
 }
 
-function shortestAngle(from, to) {
-    let d = (to - from) % (Math.PI * 2);
-    if (d > Math.PI) d -= Math.PI * 2;
-    if (d < -Math.PI) d += Math.PI * 2;
-    return d;
-}
-
 export class Game {
     constructor(canvas, options = {}) {
         this.canvas = canvas;
         this.onState = options.onState || (() => {});
-        this.quality = options.quality || "high";
+        this.qualityName = options.quality || detectQuality();
+        this.quality = qualityFor(this.qualityName);
         this.running = false;
+        this.paused = false;
         this.disposed = false;
         this.time = 0;
         this.accumulator = 0;
@@ -57,47 +61,40 @@ export class Game {
 
         this.renderer = new THREE.WebGLRenderer({
             canvas,
-            antialias: this.quality !== "low",
+            antialias: false /* SMAA in the post chain does a better job */,
             powerPreference: "high-performance",
+            stencil: false,
         });
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality === "high" ? 2 : 1.25));
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.quality.pixelRatio));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-        /* AgX and Reinhard both wash the saturation out of primary colours,
-           which is the last thing a Paw Patrol palette needs. ACES keeps the
-           reds red while still rolling off the sunlit highlights. */
-        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.16;
-        this.renderer.shadowMap.enabled = this.quality !== "low";
+        /* Tone mapping happens in the grade pass, which also does the grading
+           and the transfer function — one pass instead of three. */
+        this.renderer.toneMapping = THREE.NoToneMapping;
+        this.renderer.shadowMap.enabled = this.quality.shadows;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(FOG_COLOR);
-        this.scene.fog = new THREE.Fog(FOG_COLOR, 220, this.quality === "low" ? 520 : 780);
+        this.scene.background = new THREE.Color(HORIZON_COLOUR);
+        this.scene.fog = new THREE.Fog(
+            HORIZON_COLOUR,
+            this.quality.drawDistance * 0.3,
+            this.quality.drawDistance
+        );
 
-        this.camera = new THREE.PerspectiveCamera(62, 1, 0.4, 3600);
+        this.camera = new THREE.PerspectiveCamera(62, 1, 0.6, 9000);
         this.camera.position.set(0, 30, -40);
 
-        /* Bloom. Kept subtle and above a high threshold so it only catches
-           siren domes, headlights, chrome and sun on water — enough to make
-           the lights feel lit rather than painted, without hazing the whole
-           picture into a soft-focus mess. */
-        this.useBloom = this.quality === "high";
-        if (this.useBloom) {
-            this.composer = new EffectComposer(this.renderer);
-            this.composer.addPass(new RenderPass(this.scene, this.camera));
-            this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.42, 0.6, 0.86);
-            this.composer.addPass(this.bloom);
-            this.composer.addPass(new OutputPass());
-        }
+        /* What every metal and painted surface in the game is reflecting. */
+        this.environment = buildEnvironment(this.renderer, { sunDirection: SUN_DIRECTION });
+        this.scene.environment = this.environment;
+
+        this.postfx = new PostFX(this.renderer, this.scene, this.camera, this.quality);
 
         this.input = new Input(canvas);
-
-        /* Camera state, smoothed between frames rather than snapped. */
-        this.camYaw = 0;
-        this.camPos = new THREE.Vector3();
-        this.camLook = new THREE.Vector3();
-        this.camMode = 0; /* 0 chase, 1 close, 2 far */
-        this.lookBack = false;
+        this.rig = new CameraRig(this.camera);
+        this.rig.obstacles = obstacles;
+        this.rig.heightAt = heightAt;
+        this.rig.seaLevel = SEA_LEVEL;
 
         this.vehicle = null;
         this.vehicleMesh = null;
@@ -107,6 +104,9 @@ export class Game {
         this.obstacles = obstacles;
         this.obstacleScratch = [];
         this.lastCollision = 0;
+        this.wasAirborne = false;
+        this.airTime = 0;
+        this.bestAir = 0;
 
         this.audio = new GameAudio();
         this.onFoot = false;
@@ -115,7 +115,10 @@ export class Game {
         this.toasts = [];
         this.abilityActive = false;
         this.sirenOn = false;
-        this.abilityHeat = 0;
+        this.controls = { ...PARKED };
+        this.raw = { steer: 0, throttle: 0, brake: 0, lift: 0, lookX: 0, lookY: 0, looking: false, zoom: 0 };
+        this.driftTime = 0;
+        this.flash = 0;
 
         this.state = {
             pupId: this.pup.id,
@@ -127,6 +130,7 @@ export class Game {
             ready: false,
             missions: null,
             toasts: [],
+            quality: this.qualityName,
         };
     }
 
@@ -146,33 +150,44 @@ export class Game {
         const report = (fraction, label) => onProgress(clamp(fraction, 0, 1), label);
 
         report(0.02, "Waking up Adventure Bay");
-        this.lights = buildLighting(this.scene);
+        this.lights = buildLighting(this.scene, this.quality);
+        if (this.quality.shadows) this.shadowRig = new ShadowRig(this.lights.sun, this.quality);
 
-        report(0.06, "Painting the sky");
+        report(0.05, "Painting the sky");
         this.sky = buildSky();
         this.scene.add(this.sky);
 
+        report(0.07, "Raising the far islands");
+        this.horizon = buildDistantLands();
+        this.scene.add(this.horizon);
+        await this.yieldFrame();
+
         report(0.1, "Raising the island");
         this.ground = await buildGround(
-            (p) => report(0.1 + p * 0.6, "Raising the island"),
-            () => this.yieldFrame()
+            (p) => report(0.1 + p * 0.58, "Raising the island"),
+            () => this.yieldFrame(),
+            this.quality
         );
         if (this.disposed) return;
         this.scene.add(this.ground);
 
-        report(0.72, "Filling the bay");
-        this.sea = buildSea();
+        report(0.7, "Filling the bay");
+        this.sea = buildSea(this.quality);
         this.scene.add(this.sea);
         await this.yieldFrame();
 
-        report(0.76, "Laying the roads");
-        this.roadMesh = buildRoadRibbons();
+        report(0.75, "Laying the roads");
+        this.roadMesh = buildRoadRibbons(this.quality);
         this.scene.add(this.roadMesh);
         await this.yieldFrame();
 
         report(0.82, "Planting the woods");
         this.props = buildProps();
         this.scene.add(this.props);
+        await this.yieldFrame();
+
+        report(0.9, "Growing the grass");
+        this.cover = new GroundCover(this.scene, this.quality.cover);
         await this.yieldFrame();
 
         report(0.92, "Building the town");
@@ -183,13 +198,20 @@ export class Game {
 
         report(0.95, "Fuelling the trucks");
         this.effects = new Effects(this.scene);
-        this.spawnVehicle(this.pup.id, { x: 92, z: 138, heading: 2.3 });
+        /* On the road outside the Lookout, pointing down it. */
+        const lookout = placeById("lookout");
+        this.spawnPoint = nearestRoadPoint(lookout.x, lookout.z);
+        this.spawnVehicle(this.pup.id, this.spawnPoint);
         await this.yieldFrame();
 
         report(0.98, "Ryder is on the radio");
         this.missions = new MissionDirector(this.scene, {
             onEvent: (event) => this.pushToast(event),
         });
+
+        /* Compiling every shader now costs a second here and saves a stutter
+           the first time anything new comes on screen. */
+        this.renderer.compile(this.scene, this.camera);
 
         report(1, "Ready");
         this.state.ready = true;
@@ -208,6 +230,8 @@ export class Game {
         if (event.type === "completed") {
             this.audio.success();
             this.effects.confetti(this.vehicle.position.x, this.vehicle.position.y, this.vehicle.position.z);
+            this.flash = 0.12;
+            this.input.rumble(0.3, 0.6, 300);
         } else if (event.type === "progress") this.audio.pickup();
         else if (event.type === "failed") this.audio.failure();
         else if (event.type === "accepted") this.audio.accept();
@@ -283,8 +307,10 @@ export class Game {
             this.vehicle.setTransform(previous.position.x, previous.position.z, yawOf(previous.quaternion));
         }
 
-        this.camYaw = yawOf(this.vehicle.quaternion);
-        this.snapCamera();
+        /* Bonnet cam on a helicopter would put you inside the rotor mast. */
+        if (pup.spec.kind === "heli" && CAMERA_MODES[this.rig.mode].bonnet) this.rig.mode = 0;
+
+        this.rig.snap(this.cameraContext());
         this.state.pupId = pup.id;
     }
 
@@ -340,6 +366,7 @@ export class Game {
         mesh.visible = true;
         this.pupBody.placeAt(x, z, yawOf(this.vehicle.quaternion));
         this.onFoot = true;
+        if (CAMERA_MODES[this.rig.mode].bonnet) this.rig.mode = 0;
         this.audio.blip(660, 0.1, "sine", 0.1);
     }
 
@@ -382,11 +409,13 @@ export class Game {
             let dt = (now - this.lastFrame) / 1000;
             this.lastFrame = now;
             /* A backgrounded tab hands back an enormous dt; stepping physics
-               through it would fire the car into orbit. */
-            if (dt > 0.25) dt = 0.25;
+               through it would fire the car into orbit. The cap is a tenth of
+               a second because that is exactly what the substep budget below
+               can cover — asking for a quarter and then refusing to simulate
+               it just means the world quietly runs at a third speed. */
+            if (dt > 0.1) dt = 0.1;
             this.update(dt);
-            if (this.composer) this.composer.render();
-            else this.renderer.render(this.scene, this.camera);
+            this.postfx.render(this.scene, this.camera, dt);
             this.trackFps(dt);
         };
         this.rafId = requestAnimationFrame(frame);
@@ -395,6 +424,18 @@ export class Game {
     stop() {
         this.running = false;
         if (this.rafId) cancelAnimationFrame(this.rafId);
+    }
+
+    setPaused(paused) {
+        this.paused = paused;
+        if (paused) {
+            this.audio.silence();
+            /* Whatever was held when the menu opened must not still be held
+               when it closes, or you come back to a car at full throttle. */
+            this.input.keys.clear();
+            this.input.setTouch({ steer: 0, throttle: 0, brake: 0, lift: 0, handbrake: false });
+            this.controls = { ...PARKED, brake: 1, throttle: 0 };
+        }
     }
 
     trackFps(dt) {
@@ -406,11 +447,21 @@ export class Game {
 
     update(dt) {
         this.time += dt;
-        const raw = this.input.sample();
+        const raw = this.input.sample(dt);
+        this.raw = raw;
 
         this.handleShortcuts();
 
+        if (this.paused) {
+            this.updateCamera(dt);
+            this.updateSky(dt);
+            this.publishState();
+            this.input.endFrame();
+            return;
+        }
+
         const controls = this.mapControls(raw);
+        this.controls = controls;
 
         /* Fixed-step physics: variable steps make suspension springs behave
            differently at different frame rates, and the car handles like a
@@ -418,7 +469,7 @@ export class Game {
         this.accumulator += dt;
         let steps = 0;
         let hardestHit = 0;
-        while (this.accumulator >= FIXED_DT && steps < 8) {
+        while (this.accumulator >= FIXED_DT && steps < 12) {
             /* The truck keeps being simulated while you are out of it, so it
                settles on its springs instead of hanging in mid-air. */
             this.vehicle.step(FIXED_DT, this.onFoot ? PARKED : controls);
@@ -426,18 +477,20 @@ export class Game {
             if (!this.onFoot && hit > hardestHit) hardestHit = hit;
 
             if (this.onFoot) {
-                this.pupBody.step(FIXED_DT, controls, this.camYaw);
+                this.pupBody.step(FIXED_DT, controls, this.rig.yaw);
             }
 
             this.accumulator -= FIXED_DT;
             steps += 1;
         }
-        if (steps === 8) this.accumulator = 0;
+        if (steps === 12) this.accumulator = 0;
         this.lastCollision = hardestHit;
-        if (hardestHit > 2.5) this.audio.thud(hardestHit);
+        if (hardestHit > 2.5) this.registerImpact(hardestHit);
 
+        this.trackFlight(dt);
         this.syncVehicleMesh(dt);
         this.updateAbility(dt);
+        this.updateLights(dt);
         this.updateEffects(dt);
         this.updateMissions(dt);
         this.updateCamera(dt);
@@ -447,8 +500,62 @@ export class Game {
         this.input.endFrame();
     }
 
+    /* Everything that should happen when the truck hits something, in one
+       place, so a sound, a shake, a rumble and a puff never get out of step. */
+    registerImpact(force) {
+        this.audio.thud(force);
+        this.rig.addTrauma(clamp(force / 16, 0.06, 0.85));
+        this.input.rumble(clamp(force / 20, 0, 1), 0.4, 140);
+        this.flash = Math.max(this.flash, clamp(force / 90, 0, 0.14));
+        if (force > 6 && this.effects) {
+            this.effects.debris(
+                this.vehicle.position.x,
+                this.vehicle.position.y - this.pup.spec.size.y * 0.3,
+                this.vehicle.position.z,
+                Math.min(14, Math.round(force))
+            );
+        }
+    }
+
+    /* Air time, so a jump can be scored and a landing can land. */
+    trackFlight(dt) {
+        if (this.onFoot) {
+            /* Leaving the truck mid-jump used to freeze the air-time readout
+               at whatever it happened to be, so the HUD cheerfully announced
+               a permanent 0.6-second jump while the pup stood on the grass. */
+            this.airTime = 0;
+            this.wasAirborne = false;
+            return;
+        }
+        const airborne = this.vehicle.groundedCount === 0;
+        if (airborne) {
+            this.airTime += dt;
+            this.wasAirborne = true;
+        } else if (this.wasAirborne) {
+            this.wasAirborne = false;
+            if (this.airTime > 0.35) {
+                const weight = clamp(this.airTime / 1.6, 0.1, 1);
+                this.rig.addTrauma(weight * 0.5);
+                this.audio.landing(weight);
+                this.input.rumble(weight * 0.7, 0.3, 160);
+                if (this.airTime > this.bestAir) this.bestAir = this.airTime;
+                if (this.effects) {
+                    for (const wheel of this.vehicle.wheels) {
+                        if (!wheel.grounded) continue;
+                        this.effects.wheelSpray(wheel, 16);
+                    }
+                }
+            }
+            this.airTime = 0;
+        }
+    }
+
     handleShortcuts() {
-        if (this.input.consume("camera")) this.camMode = (this.camMode + 1) % 3;
+        if (this.input.consume("camera")) {
+            const mode = this.rig.cycle();
+            if (mode.bonnet && (this.onFoot || this.pup.spec.kind === "heli")) this.rig.cycle();
+            this.pushToast({ type: "hint", text: `Camera: ${this.rig.modeInfo.name}`, colour: 0x9fd8ff });
+        }
         if (this.input.consume("interact")) this.toggleFoot();
         if (this.input.consume("recover")) {
             const actor = this.actor;
@@ -457,7 +564,11 @@ export class Game {
         }
         if (this.input.consume("horn")) this.audio.horn();
         this.lookBack = this.input.held("confirm");
+        this.rig.lookBack = this.lookBack;
         this.abilityActive = !this.onFoot && this.input.held("ability");
+
+        const digit = this.input.consumeDigit();
+        if (digit > 0 && digit <= PUPS.length) this.spawnVehicle(PUPS[digit - 1].id, null);
     }
 
     /* ------------------------------------------------------------- *
@@ -479,8 +590,8 @@ export class Game {
             const bar = mesh.userData.lightBar;
             if (bar) {
                 const flash = Math.floor(this.time * 6) % 2;
-                bar.userData.lamps.forEach((lamp, i) => {
-                    lamp.material.emissiveIntensity = this.sirenOn && flash === i ? 2.4 : 0.15;
+                bar.userData.lamps.forEach((dome, i) => {
+                    dome.material.emissiveIntensity = this.sirenOn && flash === i ? 3.6 : 0.15;
                 });
             }
             if (this.sirenOn) this.activeAbility = "siren";
@@ -496,8 +607,41 @@ export class Game {
         } else if (ability === "plough") {
             /* Passive: the blade is always down. */
             this.activeAbility = "plough";
+            const beacon = mesh.userData.beacon;
+            if (beacon) beacon.material.emissiveIntensity = 0.5 + Math.abs(Math.sin(this.time * 4)) * 2.2;
         } else if (ability === "float" || ability === "winch" || ability === "tow") {
             this.activeAbility = this.abilityActive ? ability : null;
+        }
+    }
+
+    /* Lamps that react. The back of a truck telling you it is braking is a
+       small thing that makes every other vehicle on the island legible. */
+    updateLights(dt) {
+        const ud = this.vehicleMesh.userData;
+        const v = this.vehicle;
+        const braking = !this.onFoot && (this.controls.brake > 0.05 || this.controls.handbrake);
+        const reversing = !this.onFoot && v.reversing && Math.abs(v.forwardSpeed) > 0.4;
+
+        const ease = (light, target) => {
+            const m = light.material;
+            m.emissiveIntensity += (target - m.emissiveIntensity) * Math.min(1, dt * 22);
+        };
+
+        if (ud.brakeLights) ud.brakeLights.forEach((l) => ease(l, braking ? 3.4 : 0.3));
+        if (ud.reverseLights) ud.reverseLights.forEach((l) => ease(l, reversing ? 2.6 : 0.04));
+        if (ud.headlights) {
+            /* Brighter in the shade of the mountain and under the canopy,
+               which is the only "night" this island has. */
+            const shaded = clamp(1 - (v.position.y + 20) / 90, 0, 1);
+            ud.headlights.forEach((l) => ease(l, 0.4 + shaded * 0.9));
+        }
+
+        if (ud.rotorDisc) {
+            const spin = clamp((v.rotorSpeed || 0) / (this.pup.spec.rotorMax || 34), 0, 1);
+            ud.rotorDisc.material.opacity = clamp((spin - 0.35) / 0.45, 0, 1) * 0.3;
+        }
+        if (ud.beacon && this.pup.spec.kind === "heli") {
+            ud.beacon.material.emissiveIntensity = Math.floor(this.time * 1.6) % 2 ? 2.6 : 0.2;
         }
     }
 
@@ -534,13 +678,32 @@ export class Game {
             fx.wheelSpray(wheel, v.speed);
             if (wheel.skid > loudestSkid) loudestSkid = wheel.skid;
 
-            if (wheel.skid > 0.28 && v.speed > 3) {
+            if (wheel.skid > 0.24 && v.speed > 3) {
                 fx.addSkid(i, wheel.contact.x, wheel.contact.y, wheel.contact.z, wheel.radius * 0.7, wheel.skid);
             } else {
                 fx.endSkid(i);
             }
         }
         this.skidLevel = loudestSkid;
+
+        /* Exhaust, when the engine is working. Almost invisible at a cruise
+           and a proper puff when you plant it, which is the only feedback
+           there is that the throttle did something before the car moves. */
+        if (v.wheels.length && this.controls.throttle > 0.5 && Math.random() < 0.35) {
+            const anchor = this.vehicleMesh.userData.exhaust;
+            if (anchor) {
+                _v.copy(anchor).applyQuaternion(v.quaternion).add(v.position);
+                _v2.set(0, 0, -1).applyQuaternion(v.quaternion);
+                fx.spawn(_v.x, _v.y, _v.z, _v2.x * 2.4, 0.9, _v2.z * 2.4, {
+                    colour: 0xb9b7b0,
+                    size: 0.45,
+                    life: 0.5,
+                    alpha: 0.16 + v.wheelspin * 0.12,
+                    gravity: 0.9,
+                    drag: 2.2,
+                });
+            }
+        }
 
         /* Wake, when anything is in the water. */
         if (v.inWater && v.speed > 2) {
@@ -589,17 +752,25 @@ export class Game {
 
     updateAudio() {
         const v = this.actor;
+        const spec = this.pup.spec;
         this.audio.update({
-            kind: this.onFoot ? "foot" : this.pup.spec.kind,
+            kind: this.onFoot ? "foot" : spec.kind,
             speed: v.speed,
-            maxSpeed: this.pup.spec.maxSpeed || 30,
-            throttle: v.throttle || 0,
+            maxSpeed: spec.maxSpeed || 30,
+            throttle: Math.abs(this.controls.throttle || 0),
             grounded: v.groundedCount,
             skid: this.skidLevel || 0,
-            idle: Math.abs(v.forwardSpeed) < 0.4 && !v.throttle,
+            idle: Math.abs(v.forwardSpeed) < 0.4 && !this.controls.throttle,
             siren: this.sirenOn,
             water: this.activeAbility === "water",
             rotor: v.rotorSpeed || 0,
+            rotorMax: spec.rotorMax || 34,
+            rpm: v.rpm || 0,
+            maxRpm: (v.drivetrain && v.drivetrain.maxRpm) || 6400,
+            gear: v.gear || 0,
+            shifting: (v.shiftTimer || 0) > 0,
+            wheelspin: v.wheelspin || 0,
+            inWater: v.inWater,
         });
     }
 
@@ -690,7 +861,7 @@ export class Game {
             const drop = this.pup.spec.suspensionRest - wheel.compression;
             wm.position.set(wheel.local.x, wheel.local.y - drop, wheel.local.z);
             wm.rotation.x = wheel.spin;
-            wm.rotation.y = wheel.steering ? v.steer : 0;
+            wm.rotation.y = wheel.steerAngle || 0;
         }
 
         if (mesh.userData.rotor) {
@@ -700,117 +871,70 @@ export class Game {
         if (mesh.userData.fan) {
             mesh.userData.fan.rotation.z += (6 + Math.abs(v.forwardSpeed) * 1.4) * dt;
         }
+
+        /* The driver leans against the cornering force and ducks under
+           braking. Two lines, and suddenly somebody is driving. */
+        const driver = mesh.userData.driver;
+        if (driver && !this.onFoot) {
+            const lean = clamp(-v.lateralSpeed * 0.05, -0.32, 0.32);
+            driver.rotation.z += (lean - driver.rotation.z) * Math.min(1, dt * 6);
+            const pitch = clamp((this.controls.brake || 0) * 0.16 - (this.controls.throttle || 0) * 0.06, -0.2, 0.2);
+            driver.rotation.x += (pitch - driver.rotation.x) * Math.min(1, dt * 6);
+        }
     }
 
     /* ------------------------------------------------------------- *
      * Camera
-     *
-     * Follows the direction of travel rather than the nose of the car, so a
-     * drift shows you the corner instead of the inside of the hedge.
      * ------------------------------------------------------------- */
 
-    cameraRig() {
-        if (this.onFoot) return { distance: 5.6, height: 2.4, lookAhead: 3.0, lag: 4.5 };
-        const heli = this.pup.spec.kind === "heli";
-        if (heli) return { distance: 15, height: 5.4, lookAhead: 8, lag: 3.2 };
-        const long = this.pup.spec.size.z;
-        switch (this.camMode) {
-            case 1:
-                return { distance: long * 1.5, height: long * 0.42, lookAhead: 5, lag: 7 };
-            case 2:
-                return { distance: long * 3.6, height: long * 1.1, lookAhead: 10, lag: 3.4 };
-            default:
-                return { distance: long * 2.3, height: long * 0.72, lookAhead: 7, lag: 4.6 };
-        }
-    }
-
-    desiredCameraYaw() {
-        if (this.onFoot) return this.pupBody.heading;
-        const v = this.vehicle;
-        const bodyYaw = yawOf(v.quaternion);
-        if (this.pup.spec.kind === "heli") return bodyYaw;
-
-        const planarSpeed = Math.hypot(v.velocity.x, v.velocity.z);
-        if (planarSpeed < 2.5) return bodyYaw;
-
-        const travelYaw = Math.atan2(v.velocity.x, v.velocity.z);
-        /* Reversing should not swing the camera round the front of the car. */
-        const backwards = v.forwardSpeed < -0.5;
-        if (backwards) return bodyYaw;
-
-        const blend = clamp((planarSpeed - 2.5) / 12, 0, 1) * 0.55;
-        return bodyYaw + shortestAngle(bodyYaw, travelYaw) * blend;
-    }
-
-    snapCamera() {
-        const rig = this.cameraRig();
+    cameraContext() {
         const v = this.actor;
-        this.camPos.set(
-            v.position.x - Math.sin(this.camYaw) * rig.distance,
-            v.position.y + rig.height,
-            v.position.z - Math.cos(this.camYaw) * rig.distance
-        );
-        this.camLook.copy(v.position);
-        this.camera.position.copy(this.camPos);
-        this.camera.lookAt(this.camLook);
+        const spec = this.pup.spec;
+        return {
+            position: v.position,
+            velocity: v.velocity,
+            quaternion: v.quaternion,
+            heading: this.onFoot ? v.heading : 0,
+            forwardSpeed: v.forwardSpeed || 0,
+            lateral: this.onFoot ? 0 : v.lateralSpeed || 0,
+            braking: this.onFoot ? 0 : this.controls.brake || 0,
+            speed: v.speed,
+            onFoot: this.onFoot,
+            kind: this.onFoot ? "foot" : spec.kind,
+            size: spec.size,
+            look: { x: this.raw.lookX || 0, y: this.raw.lookY || 0, active: this.raw.looking },
+            zoom: this.raw.zoom || 0,
+        };
     }
 
     updateCamera(dt) {
-        const v = this.actor;
-        const rig = this.cameraRig();
+        this.rig.update(dt, this.cameraContext());
 
-        let targetYaw = this.desiredCameraYaw();
-        if (this.lookBack) targetYaw += Math.PI;
+        if (this.shadowRig) {
+            const v = this.actor;
+            _forward.set(0, 0, 1).applyQuaternion(this.camera.quaternion);
+            this.shadowRig.update(dt, v.position, _forward, v.speed, SUN_DIRECTION);
+        }
 
-        this.camYaw += shortestAngle(this.camYaw, targetYaw) * Math.min(1, dt * rig.lag);
-
-        const forwardX = Math.sin(this.camYaw);
-        const forwardZ = Math.cos(this.camYaw);
-
-        /* Pull back and up a little as speed rises. */
-        const rush = clamp(v.speed / 30, 0, 1);
-        const distance = rig.distance * (1 + rush * 0.22);
-        const height = rig.height * (1 + rush * 0.14);
-
-        _v.set(
-            v.position.x - forwardX * distance,
-            v.position.y + height,
-            v.position.z - forwardZ * distance
-        );
-
-        /* Never let the ground come between the camera and the car. */
-        const groundHere = heightAt(_v.x, _v.z);
-        const floor = Math.max(groundHere, SEA_LEVEL - 1) + 1.8;
-        if (_v.y < floor) _v.y = floor;
-
-        const follow = 1 - Math.pow(0.0016, dt);
-        this.camPos.lerp(_v, follow);
-
-        _v2.set(
-            v.position.x + forwardX * rig.lookAhead,
-            v.position.y + (this.onFoot ? 1.0 : this.pup.spec.kind === "heli" ? 0.5 : 1.1),
-            v.position.z + forwardZ * rig.lookAhead
-        );
-        this.camLook.lerp(_v2, 1 - Math.pow(0.0009, dt));
-
-        this.camera.position.copy(this.camPos);
-        this.camera.lookAt(this.camLook);
-
-        /* A touch of extra field of view at speed. Small, but it is most of
-           what makes fast feel fast. */
-        const targetFov = 62 + rush * 12;
-        this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 3);
-        this.camera.updateProjectionMatrix();
-
-        /* Keep the shadow frustum on the car rather than on the origin. */
-        const sun = this.lights.sun;
-        sun.position.copy(v.position).addScaledVector(SUN_DIRECTION, 180);
-        sun.target.position.copy(v.position);
-        sun.target.updateMatrixWorld();
+        const spec = this.pup.spec;
+        this.postfx.update(dt, {
+            speedRatio: clamp(this.actor.speed / (spec.maxSpeed || 30), 0, 1.2),
+            submerged: this.camera.position.y < SEA_LEVEL + 0.4,
+            flash: this.flash,
+        });
+        this.flash = 0;
     }
 
     updateSky(dt) {
         tickWind(this.time);
+
+        /* Grass follows the camera, not the car: at the far end of a long
+           free-look the two are eighty metres apart, and it is the camera that
+           decides what is on screen. */
+        if (this.cover) {
+            this.cover.update(this.camera.position.x, this.camera.position.z);
+            this.cover.flush(this.time);
+        }
 
         const animated = this.animated;
         if (animated) {
@@ -836,10 +960,13 @@ export class Game {
         for (let i = 0; i < clouds.children.length; i += 1) {
             const cloud = clouds.children[i];
             cloud.position.x += cloud.userData.drift * dt * 2.2;
-            if (cloud.position.x > 1400) cloud.position.x = -1400;
+            const span = cloud.userData.span;
+            if (cloud.position.x > span) cloud.position.x = -span;
         }
-        if (this.sea) this.sea.material.uniforms.uTime.value = this.time;
-        if (this.sea) this.sea.position.set(this.camera.position.x, SEA_LEVEL, this.camera.position.z);
+        if (this.sea) {
+            this.sea.material.uniforms.uTime.value = this.time;
+            this.sea.position.set(this.camera.position.x, SEA_LEVEL, this.camera.position.z);
+        }
     }
 
     nearestPlace() {
@@ -859,9 +986,14 @@ export class Game {
     publishState() {
         const v = this.actor;
         const place = this.nearestPlace();
+        const spec = this.pup.spec;
+        const drivetrain = v.drivetrain;
+
         this.state.onFoot = this.onFoot;
         this.state.speed = Math.round(v.speed * 3.6);
+        this.state.speedRatio = clamp(v.speed / (spec.maxSpeed || 30), 0, 1);
         this.state.airborne = v.groundedCount === 0 && v.airborneFor > 0.25;
+        this.state.airTime = this.airTime;
         this.state.grounded = v.groundedCount;
         this.state.place = place ? place.name : "";
         this.state.pupId = this.pup.id;
@@ -873,8 +1005,23 @@ export class Game {
         this.state.siren = this.sirenOn;
         this.state.ability = this.activeAbility;
         this.state.inWater = v.inWater;
+        this.state.paused = this.paused;
+        this.state.camera = this.rig.modeInfo.name;
         this.state.missions = this.missions ? this.missions.snapshot(v) : null;
         this.state.toasts = this.toasts;
+
+        if (this.onFoot || !drivetrain) {
+            this.state.rpm = 0;
+            this.state.rpmRatio = 0;
+            this.state.gear = "—";
+            this.state.drift = 0;
+        } else {
+            this.state.rpm = Math.round(v.rpm);
+            this.state.rpmRatio = clamp(v.rpm / drivetrain.maxRpm, 0, 1);
+            this.state.gear = v.reversing ? "R" : GEAR_LABELS[v.gear + 1] || String(v.gear);
+            this.state.drift = clamp((v.driftAngle - 0.14) * 3, 0, 1);
+        }
+
         this.onState(this.state);
     }
 
@@ -886,10 +1033,7 @@ export class Game {
         this.renderer.setSize(width, height, false);
         this.camera.aspect = width / Math.max(1, height);
         this.camera.updateProjectionMatrix();
-        if (this.composer) {
-            this.composer.setSize(width, height);
-            this.bloom.setSize(width, height);
-        }
+        this.postfx.setSize(width, height);
     }
 
     dispose() {
@@ -897,6 +1041,8 @@ export class Game {
         this.stop();
         this.input.dispose();
         this.audio.dispose();
+        this.postfx.dispose();
+        if (this.environment) this.environment.dispose();
         this.scene.traverse((object) => {
             if (object.geometry) object.geometry.dispose();
             const material = object.material;

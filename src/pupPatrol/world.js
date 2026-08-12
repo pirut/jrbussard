@@ -270,7 +270,7 @@ const ROAD_DEFS = [
     {
         id: "main",
         name: "Main Street",
-        width: 11,
+        width: 8.4,
         points: [
             [-168, 96],
             [-96, 62],
@@ -286,7 +286,7 @@ const ROAD_DEFS = [
            is what makes the island feel drivable rather than a set of spurs. */
         id: "bay",
         name: "Bay Road",
-        width: 10,
+        width: 7.8,
         points: [
             [118, 20],
             [152, 60],
@@ -305,7 +305,7 @@ const ROAD_DEFS = [
     {
         id: "farm",
         name: "Farm Lane",
-        width: 8.5,
+        width: 6.6,
         points: [
             [118, 20],
             [176, -8],
@@ -319,7 +319,7 @@ const ROAD_DEFS = [
     {
         id: "forest",
         name: "Forest Road",
-        width: 9,
+        width: 7,
         points: [
             [0, 24],
             [16, -46],
@@ -332,7 +332,7 @@ const ROAD_DEFS = [
     {
         id: "west",
         name: "Quarry Road",
-        width: 9,
+        width: 7,
         points: [
             [-168, 96],
             [-232, 112],
@@ -348,7 +348,7 @@ const ROAD_DEFS = [
         name: "Summit Trail",
         /* Hugs the ground more closely than the lowland roads: a mountain track
            follows the contour instead of bridging across it. */
-        width: 7,
+        width: 5.6,
         blend: 1.3,
         blur: 6,
         maxGrade: 0.17,
@@ -358,7 +358,7 @@ const ROAD_DEFS = [
     {
         id: "beach",
         name: "Beach Access",
-        width: 7.5,
+        width: 6,
         blur: 4,
         maxGrade: 0.2,
         points: [
@@ -622,8 +622,18 @@ function sampleRoad(x, z, out) {
         out.y = 0;
         return out;
     }
-    const tx = fx - x0;
-    const tz = fz - z0;
+    /* Smoothstep the interpolation weights rather than using them raw.
+     *
+     * Plain bilinear over a 3 m grid is continuous but its *gradient* is not:
+     * the surface creases along every cell boundary. You cannot see a
+     * three-centimetre crease, but the suspension can feel one every three
+     * metres, and at fifty km/h that is a seventeen-hertz buzz through the
+     * springs that reads as the road being made of corrugated iron. Easing the
+     * weights makes the slope continuous too, and the ride goes quiet. */
+    const rx = fx - x0;
+    const rz = fz - z0;
+    const tx = rx * rx * (3 - 2 * rx);
+    const tz = rz * rz * (3 - 2 * rz);
     const i00 = gridIndex(x0, z0);
     const i10 = i00 + 1;
     const i01 = i00 + GRID_SIZE;
@@ -698,7 +708,12 @@ export function surfaceAt(x, z) {
     ensureBuilt();
     const h = heightAt(x, z);
     if (h < SEA_LEVEL - 0.15) return SURFACE.WATER;
-    if (sampleRoad(x, z, roadProbe).influence > 0.52) return SURFACE.ROAD;
+    /* The influence field reaches far wider than the carriageway — it is the
+       terrain-flattening skirt, not the tarmac. Testing it loosely means the
+       verge grips like a race track for ten metres either side, so the
+       threshold is set where the influence has only just come off its
+       plateau: about a car's width of graded shoulder, then grass. */
+    if (sampleRoad(x, z, roadProbe).influence > 0.88) return SURFACE.ROAD;
     if (h < 3.6) return SURFACE.SAND;
     if (h > 56 && slopeAt(x, z) < 0.95) return SURFACE.SNOW;
     if (slopeAt(x, z) > 0.62) return SURFACE.ROCK;
@@ -712,6 +727,31 @@ export function isLand(x, z, margin = 1.2) {
 /* ------------------------------------------------------------------ *
  * Picking spots for missions and props
  * ------------------------------------------------------------------ */
+
+/* The nearest bit of tarmac to somewhere, and which way the road runs there.
+ *
+ * Used to start the game on a road rather than on the hillside beside one.
+ * That sounds like set dressing and is not: a heavy vehicle dropped nose-first
+ * onto a slope can settle with its rear wheels in the air, and a rear-wheel
+ * drive car with its driven wheels off the ground does not go anywhere at all,
+ * which looks exactly like the controls being broken. */
+export function nearestRoadPoint(x, z) {
+    ensureBuilt();
+    let best = null;
+    for (let r = 0; r < roads.length; r += 1) {
+        const road = roads[r];
+        for (let i = 1; i < road.path.length - 1; i += 1) {
+            const [px, pz] = road.path[i];
+            const d = Math.hypot(px - x, pz - z);
+            if (!best || d < best.d) best = { d, road, i };
+        }
+    }
+    if (!best) return { x, z, heading: 0 };
+    const { road, i } = best;
+    const [px, pz] = road.path[i];
+    const [nx, nz] = road.path[i + 1];
+    return { x: px, z: pz, heading: Math.atan2(nx - px, nz - pz) };
+}
 
 /* A point on the road network, `t` of the way along a random road. */
 export function randomRoadPoint(random = Math.random, minFromOrigin = 0) {
@@ -761,7 +801,7 @@ export function randomLandPoint(random = Math.random, opts = {}) {
 export function scatterProps() {
     ensureBuilt();
     const random = makeRandom(20260812);
-    const out = { trees: [], pines: [], palms: [], rocks: [], bushes: [], grass: [] };
+    const out = { trees: [], pines: [], palms: [], rocks: [], bushes: [] };
 
     const push = (list, x, z, scale, rot) => list.push({ x, z, y: heightAt(x, z), scale, rot });
 
@@ -807,16 +847,9 @@ export function scatterProps() {
         }
     }
 
-    /* Grass tufts, dense and close in — these are billboarded and cheap. */
-    for (let i = 0; i < 24000; i += 1) {
-        const x = (random() * 2 - 1) * WORLD_HALF * 0.9;
-        const z = (random() * 2 - 1) * WORLD_HALF * 0.9;
-        const h = heightAt(x, z);
-        if (h < 3.2 || h > 60) continue;
-        if (slopeAt(x, z) > 0.7) continue;
-        if (roadInfluenceAt(x, z) > 0.4) continue;
-        push(out.grass, x, z, 0.7 + random() * 0.8, random() * 6.28);
-    }
+    /* Grass is not scattered here. Ground cover dense enough to look right is
+       hundreds of thousands of tufts across an island this size, so it is
+       generated around the camera instead — see groundcover.js. */
 
     return out;
 }

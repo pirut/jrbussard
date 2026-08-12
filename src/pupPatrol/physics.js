@@ -1,15 +1,19 @@
 /*
  * Vehicle physics.
  *
- * A proper rigid body — position, orientation, linear and angular velocity —
- * with four raycast wheels hanging off it on spring suspension. Everything the
- * vehicle does comes out of forces applied at the contact patches: it squats
- * under power, leans into corners, unloads the inside wheels, lands nose-first
- * off a jump and can be spun by braking mid-corner. None of that is scripted.
+ * A rigid body — position, orientation, linear and angular velocity — with
+ * raycast wheels on spring suspension hanging off it. Everything the vehicle
+ * does comes out of forces at the contact patches: it squats under power, leans
+ * into corners, unloads the inside wheels, lands nose-first off a jump and can
+ * be spun by braking mid-corner. None of that is scripted.
  *
- * The alternative — moving a box along the ground and tilting it to match the
- * slope — is half the code and none of the fun. You can feel the difference
- * within about three seconds of driving.
+ * The tyres are the part that matters. Each wheel carries its own angular
+ * velocity, integrated from drive torque, brake torque and the reaction from
+ * the road, so the wheel can spin faster than the car (wheelspin) or slower
+ * (lockup) instead of being welded to road speed. Force comes from a combined
+ * slip curve that rises to a peak and then *falls away*, which is the whole
+ * difference between a car that understeers into a hedge and a car that steps
+ * its tail out, holds a slide and comes back when you lift.
  *
  * Body axes: +Z forward, +X right, +Y up.
  */
@@ -17,8 +21,14 @@
 import * as THREE from "three";
 import { heightAt, normalAt, surfaceAt, SURFACE_INFO, SEA_LEVEL, WORLD_HALF } from "./world";
 
+/* Arcade gravity. Higher than earth on purpose: jumps come back down inside a
+   readable arc instead of hanging, and the whole island feels like a toy set
+   rather than a simulator. Every force in the game is tuned against it. */
 export const GRAVITY = 22;
 export const FIXED_DT = 1 / 120;
+
+const RPM_TO_RAD = Math.PI / 30;
+const RAD_TO_RPM = 30 / Math.PI;
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -33,6 +43,7 @@ const _q2 = new THREE.Quaternion();
 const _euler = new THREE.Euler();
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const sign = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0);
 
 /* Underside sample points, as fractions of half-width and half-length. Pulled
    well inside the outline: probing the very corners means the tail touches
@@ -90,12 +101,92 @@ export function groundProbe(x, y, z, maxDistance = 6) {
 }
 
 /* --------------------------------------------------------------- *
+ * Tyre
+ *
+ * One normalised curve serves both directions. `s` is how far past the peak
+ * slip the tyre is, combining longitudinal and lateral slip as a vector — a
+ * tyre has one budget of grip and spending it sideways leaves none for
+ * driving, which is exactly why you cannot power out of a slide you have
+ * already overcooked.
+ *
+ * Below the peak the curve rises with zero gradient at the top, so grip does
+ * not switch on and off at a threshold. Past it, force *decays* toward a
+ * plateau rather than staying pinned at maximum: that decay is what makes a
+ * slide something you have to catch instead of something the car catches for
+ * you, and it is the single biggest reason this now feels like driving.
+ * --------------------------------------------------------------- */
+
+const SLIDE_PLATEAU = 0.72;
+
+function tyreCurve(s) {
+    if (s <= 0) return 0;
+    if (s < 1) return s * (2 - s);
+    return SLIDE_PLATEAU + (1 - SLIDE_PLATEAU) * Math.exp(-(s - 1) * 1.35);
+}
+
+/* Gradient of the curve at zero slip, for the implicit wheel-spin solve. */
+const TYRE_STIFFNESS_AT_ZERO = 2;
+
+/* --------------------------------------------------------------- *
+ * Drivetrain
+ *
+ * The specs are written in the units that are easy to reason about — "this
+ * truck does 34 m/s and pushes 16 kN" — and the gearing is solved backwards
+ * from those two numbers. That way adding a pup means picking a top speed and
+ * a shove, not hand-fitting five gear ratios.
+ * --------------------------------------------------------------- */
+
+const DEFAULT_GEARS = [3.42, 2.14, 1.52, 1.14, 0.88];
+
+function torqueFactor(x) {
+    /* Normalised torque against normalised rpm. Peaks around 73% of the
+       redline and falls off after, so there is a reason to change gear and a
+       reason not to bounce off the limiter. */
+    if (x <= 0) return 0.6;
+    const f = 0.6 + 1.05 * x - 0.72 * x * x;
+    return clamp(f / 0.9829, 0, 1.02);
+}
+
+export function deriveDrivetrain(spec) {
+    if (spec._drivetrain) return spec._drivetrain;
+
+    const gears = spec.gears || DEFAULT_GEARS;
+    const maxRpm = spec.maxRpm || 6400;
+    const idleRpm = spec.idleRpm || 780;
+    const radius = spec.wheels && spec.wheels.length ? spec.wheels[0].radius : 0.45;
+    const top = gears[gears.length - 1];
+
+    /* Final drive sized so top gear at the redline is exactly the quoted top
+       speed. Everything else follows from there. */
+    const finalDrive = (maxRpm * RPM_TO_RAD * radius) / (top * Math.max(spec.maxSpeed, 4));
+    /* Peak torque sized so first gear at peak rpm gives the quoted shove. */
+    const peakTorque = (spec.engineForce * radius) / (gears[0] * finalDrive);
+
+    const drivetrain = {
+        gears,
+        reverse: spec.reverseGear || -gears[0] * 0.86,
+        finalDrive,
+        peakTorque,
+        maxRpm,
+        idleRpm,
+        shiftUp: spec.shiftUp || maxRpm * 0.93,
+        shiftDown: spec.shiftDown || maxRpm * 0.42,
+        shiftTime: spec.shiftTime || 0.17,
+        efficiency: 0.92,
+        engineBrake: spec.engineBrake || 0.09,
+    };
+    spec._drivetrain = drivetrain;
+    return drivetrain;
+}
+
+/* --------------------------------------------------------------- *
  * Vehicle
  * --------------------------------------------------------------- */
 
 export class Vehicle {
     constructor(spec) {
         this.spec = spec;
+        this.drivetrain = deriveDrivetrain(spec);
         this.mass = spec.mass;
         this.position = new THREE.Vector3();
         this.quaternion = new THREE.Quaternion();
@@ -122,25 +213,40 @@ export class Vehicle {
             1 / this.inertiaLocal.z
         );
 
-        this.wheels = spec.wheels.map((w) => ({
-            local: new THREE.Vector3(w.x, w.y, w.z),
-            radius: w.radius,
-            steering: !!w.steering,
-            powered: !!w.powered,
-            handbrake: !!w.handbrake,
-            /* runtime */
-            compression: 0,
-            lastCompression: 0,
-            grounded: false,
-            spin: 0,
-            spinSpeed: 0,
-            slip: 0,
-            skid: 0,
-            surface: 0,
-            worldPos: new THREE.Vector3(),
-            contact: new THREE.Vector3(),
-            contactNormal: new THREE.Vector3(0, 1, 0),
-        }));
+        /* Nominal vertical load per wheel, used to make grip load-sensitive:
+           a tyre carrying twice its share does not give twice the grip, which
+           is the reason weight transfer costs you time. */
+        this.nominalLoad = (m * GRAVITY) / Math.max(1, spec.wheels.length);
+
+        this.wheels = spec.wheels.map((w) => {
+            const inertia = 0.5 * (spec.mass * 0.018 + 8) * w.radius * w.radius;
+            return {
+                local: new THREE.Vector3(w.x, w.y, w.z),
+                radius: w.radius,
+                steering: !!w.steering,
+                powered: !!w.powered,
+                handbrake: !!w.handbrake,
+                inertia,
+                invInertia: 1 / inertia,
+                /* runtime */
+                compression: 0,
+                lastCompression: 0,
+                grounded: false,
+                load: 0,
+                omega: 0,
+                spin: 0,
+                spinSpeed: 0,
+                steerAngle: 0,
+                slipRatio: 0,
+                slipAngle: 0,
+                slip: 0,
+                skid: 0,
+                surface: 0,
+                worldPos: new THREE.Vector3(),
+                contact: new THREE.Vector3(),
+                contactNormal: new THREE.Vector3(0, 1, 0),
+            };
+        });
 
         this.steer = 0;
         this.steerTarget = 0;
@@ -150,6 +256,7 @@ export class Vehicle {
         this.groundedCount = 0;
         this.speed = 0;
         this.forwardSpeed = 0;
+        this.lateralSpeed = 0;
         this.engineLoad = 0;
         this.inWater = false;
         this.waterDepth = 0;
@@ -157,8 +264,23 @@ export class Vehicle {
         this.airborneFor = 0;
         this.lastImpact = 0;
         this.odometer = 0;
+        this.lateralG = 0;
+        this.driftAngle = 0;
+
+        /* Drivetrain state. */
+        this.gear = 1; /* 0 = neutral/reverse handled by sign, 1..n forward */
+        this.rpm = this.drivetrain.idleRpm;
+        this.shiftTimer = 0;
+        this.lastShift = 0;
+        this.reversing = false;
+        this.wheelspin = 0;
 
         this.poweredCount = this.wheels.filter((w) => w.powered).length || 1;
+        this.wheelbase = Math.max(
+            0.5,
+            Math.max(...spec.wheels.map((w) => w.z)) - Math.min(...spec.wheels.map((w) => w.z))
+        );
+        this.track = Math.max(0.5, Math.max(...spec.wheels.map((w) => Math.abs(w.x))) * 2);
 
         /* Reusable scratch so a physics step allocates nothing. */
         this._forward = new THREE.Vector3();
@@ -171,6 +293,15 @@ export class Vehicle {
         this.quaternion.setFromAxisAngle(_v1.set(0, 1, 0), heading);
         this.velocity.set(0, 0, 0);
         this.angularVelocity.set(0, 0, 0);
+        this.wheels.forEach((w) => {
+            w.omega = 0;
+            w.slipRatio = 0;
+            w.slipAngle = 0;
+            w.skid = 0;
+        });
+        this.gear = 1;
+        this.rpm = this.drivetrain.idleRpm;
+        this.shiftTimer = 0;
     }
 
     axes() {
@@ -206,6 +337,95 @@ export class Vehicle {
         out.addScaledVector(_bodyTorque, dt);
     }
 
+    /* ----------------------------------------------------------- *
+     * Gearbox
+     *
+     * Automatic, because the audience is five. It still shifts properly:
+     * torque is cut for the duration of the change, which you can hear and
+     * feel as the car goes light for a fraction of a second.
+     * ----------------------------------------------------------- */
+
+    updateGearbox(dt, wantReverse) {
+        const dt3 = this.drivetrain;
+        const drivenOmega = this.averageDrivenOmega();
+
+        if (this.shiftTimer > 0) this.shiftTimer -= dt;
+
+        this.reversing = wantReverse;
+        const ratio = wantReverse ? dt3.reverse : dt3.gears[this.gear - 1];
+        const shaftRpm = Math.abs(drivenOmega * ratio * dt3.finalDrive) * RAD_TO_RPM;
+        this.rpm += (Math.max(dt3.idleRpm, shaftRpm) - this.rpm) * Math.min(1, dt * 18);
+        /* Blip toward the limiter when the clutch is effectively open at a
+           standstill, so flooring it from rest sounds like flooring it. */
+        if (Math.abs(drivenOmega) < 1 && this.throttle > 0.1) {
+            this.rpm +=
+                (dt3.idleRpm + this.throttle * (dt3.maxRpm - dt3.idleRpm) * 0.55 - this.rpm) * Math.min(1, dt * 5);
+        }
+        this.rpm = clamp(this.rpm, dt3.idleRpm, dt3.maxRpm);
+
+        if (wantReverse || this.shiftTimer > 0) return;
+
+        /* Shift on road speed, not on the tachometer.
+         *
+         * Reading the rev counter is the obvious thing and it is wrong: a
+         * wheel spinning in the air, or on ice, pins the needle at the
+         * limiter, and the box ladders straight up through every gear in
+         * about a second and sits in top at walking pace. What a real
+         * automatic responds to is how fast the *car* is going, so that is
+         * what this asks. */
+        const radius = this.wheels.length ? this.wheels[0].radius : 0.45;
+        const roadRpm =
+            (Math.abs(this.forwardSpeed) / radius) * Math.abs(ratio) * dt3.finalDrive * RAD_TO_RPM;
+
+        if (roadRpm > dt3.shiftUp && this.gear < dt3.gears.length && this.throttle > 0.05) {
+            this.gear += 1;
+            this.shiftTimer = dt3.shiftTime;
+            this.lastShift = 1;
+        } else if (roadRpm < dt3.shiftDown && this.gear > 1) {
+            this.gear -= 1;
+            this.shiftTimer = dt3.shiftTime * 0.6;
+            this.lastShift = -1;
+        }
+    }
+
+    /* The fastest a driven wheel can turn in the current gear. The engine
+       cannot exceed its redline, and the gearbox is what ties the two
+       together — without this a wheel that leaves the ground under power
+       accelerates without limit and comes back down doing four hundred. */
+    maxDrivenOmega() {
+        const dt3 = this.drivetrain;
+        const ratio = Math.abs(this.reversing ? dt3.reverse : dt3.gears[this.gear - 1]);
+        return (dt3.maxRpm * RPM_TO_RAD) / Math.max(0.05, ratio * dt3.finalDrive);
+    }
+
+    averageDrivenOmega() {
+        let total = 0;
+        let count = 0;
+        for (let i = 0; i < this.wheels.length; i += 1) {
+            if (!this.wheels[i].powered) continue;
+            total += this.wheels[i].omega;
+            count += 1;
+        }
+        return count ? total / count : 0;
+    }
+
+    /* Torque arriving at one driven wheel, in newton-metres. */
+    driveTorque() {
+        const dt3 = this.drivetrain;
+        if (this.shiftTimer > 0) return 0;
+        if (this.throttle === 0) return 0;
+        const ratio = this.reversing ? dt3.reverse : dt3.gears[this.gear - 1];
+        const factor = torqueFactor(this.rpm / dt3.maxRpm);
+        /* Soft limiter rather than a wall. */
+        const limiter = this.rpm > dt3.maxRpm * 0.995 ? 0.25 : 1;
+        const engine = dt3.peakTorque * factor * Math.abs(this.throttle) * limiter;
+        return (engine * ratio * dt3.finalDrive * dt3.efficiency) / this.poweredCount;
+    }
+
+    /* ----------------------------------------------------------- *
+     * Step
+     * ----------------------------------------------------------- */
+
     step(dt, controls) {
         const spec = this.spec;
         this.forceAccum.set(0, 0, 0);
@@ -218,28 +438,82 @@ export class Vehicle {
 
         this.speed = this.velocity.length();
         this.forwardSpeed = this.velocity.dot(forward);
+        this.lateralSpeed = this.velocity.dot(right);
 
-        /* ---- steering ------------------------------------------------ */
-        /* Less lock the faster you go, or the car becomes a spinning top. */
+        /* Planar speed drives every "how fast am I really going" decision;
+           the vertical component of a jump should not sharpen the steering. */
+        const planar = Math.hypot(this.velocity.x, this.velocity.z);
+        this.driftAngle = planar > 2 ? Math.abs(Math.atan2(this.lateralSpeed, Math.abs(this.forwardSpeed) + 0.5)) : 0;
+
+        /* ---- steering ------------------------------------------------ *
+         *
+         * Lock falls away with speed, but not to a fixed fraction: what
+         * matters is that the *lateral acceleration* a full-lock input asks
+         * for stays inside what the tyres can deliver. Ask for more than that
+         * and the front simply washes out, which feels like the steering has
+         * stopped working. Solving for the angle that requests roughly one
+         * gravity of cornering keeps full lock always meaning "as much as
+         * this thing can actually do".
+         */
         const speedFactor = 1 - clamp(Math.abs(this.forwardSpeed) / spec.steerFalloff, 0, 0.72);
-        this.steerTarget = controls.steer * spec.steerMax * speedFactor;
-        const steerRate = spec.steerSpeed * dt;
+        let steerLimit = spec.steerMax * speedFactor;
+        if (planar > 6) {
+            const gripLimit = Math.atan(((spec.corneringLimit || 24) * this.wheelbase) / (planar * planar));
+            steerLimit = Math.min(steerLimit, Math.max(0.055, gripLimit));
+        }
+
+        /* Counter-steer assist. Once the back is out, allow — and gently
+           encourage — more lock into the slide than the limiter would give,
+           so catching it is possible for hands that are not expert. */
+        const assist = spec.counterSteer || 0;
+        const slideDirection = -sign(this.lateralSpeed);
+        let target = controls.steer * steerLimit;
+        if (assist > 0 && this.driftAngle > 0.12 && Math.abs(this.forwardSpeed) > 4) {
+            const help = clamp((this.driftAngle - 0.12) * 2.4, 0, 1) * assist;
+            target += slideDirection * spec.steerMax * help;
+            target = clamp(target, -spec.steerMax, spec.steerMax);
+        }
+        this.steerTarget = target;
+
+        /* Rate-limited, and quicker to return to centre than away from it —
+           real steering self-centres and it makes small corrections feel
+           crisp instead of syrupy. */
+        const returning = Math.abs(this.steerTarget) < Math.abs(this.steer) && this.steerTarget * this.steer >= 0;
+        const steerRate = spec.steerSpeed * (returning ? 1.7 : 1) * dt;
         this.steer += clamp(this.steerTarget - this.steer, -steerRate, steerRate);
 
         this.throttle = controls.throttle;
         this.brake = controls.brake;
         this.handbrake = controls.handbrake ? 1 : 0;
 
+        this.updateGearbox(dt, this.throttle < 0);
+        const wheelDrive = this.driveTorque();
+        const omegaCeiling = this.maxDrivenOmega() * 1.06;
+
         /* ---- gravity -------------------------------------------------- */
         this.forceAccum.y -= this.mass * GRAVITY;
 
         /* ---- wheels --------------------------------------------------- */
         let grounded = 0;
-        const poweredCount = this.poweredCount;
+        let worstSpin = 0;
 
         for (let i = 0; i < this.wheels.length; i += 1) {
             const wheel = this.wheels[i];
             wheel.worldPos.copy(wheel.local).applyQuaternion(this.quaternion).add(this.position);
+
+            /* Ackermann: the inside wheel of a turn traces a tighter circle
+               and has to point further in. Without it both front tyres fight
+               each other through every slow corner and the car scrubs. */
+            if (wheel.steering) {
+                const inner = wheel.local.x * this.steer > 0;
+                const geo = spec.ackermann === undefined ? 0.75 : spec.ackermann;
+                const offset = (this.track * 0.5) * geo;
+                const radius = this.wheelbase / Math.max(Math.tan(Math.abs(this.steer)), 1e-4);
+                const adjusted = Math.atan(this.wheelbase / Math.max(0.4, radius + (inner ? -offset : offset)));
+                wheel.steerAngle = sign(this.steer) * adjusted;
+            } else {
+                wheel.steerAngle = 0;
+            }
 
             const maxReach = spec.suspensionRest + spec.suspensionTravel + wheel.radius;
             _v3.copy(up).negate();
@@ -250,11 +524,21 @@ export class Vehicle {
 
             if (!hit.hit || contactDistance > restDistance + spec.suspensionTravel) {
                 wheel.grounded = false;
+                wheel.load = 0;
                 wheel.compression = Math.max(0, wheel.compression - dt * 6);
                 wheel.skid *= 0.9;
-                /* Free-spinning wheel slowly matches road speed again. */
-                wheel.spinSpeed += (this.forwardSpeed / wheel.radius - wheel.spinSpeed) * Math.min(1, dt * 3);
-                wheel.spin += wheel.spinSpeed * dt;
+                wheel.slipRatio *= 0.85;
+                wheel.slipAngle *= 0.85;
+                /* In the air a driven wheel still spins up under power, and an
+                   undriven one slowly winds down. Both are visible. */
+                const airDrive = wheel.powered ? wheelDrive * wheel.invInertia * dt : 0;
+                wheel.omega += airDrive;
+                if (this.brake > 0 || this.throttle === 0) {
+                    wheel.omega -= wheel.omega * Math.min(1, dt * (this.brake > 0 ? 6 : 1.2));
+                }
+                if (wheel.powered) wheel.omega = clamp(wheel.omega, -omegaCeiling, omegaCeiling);
+                wheel.spin += wheel.omega * dt;
+                wheel.spinSpeed = wheel.omega;
                 continue;
             }
 
@@ -269,10 +553,14 @@ export class Vehicle {
             wheel.lastCompression = compression;
             wheel.compression = compression;
 
-            let normalForce = spec.suspensionStiffness * compression + spec.suspensionDamping * compressionVelocity;
+            /* Asymmetric damping: firm on rebound, softer on compression. It
+               is what stops a heavy truck pogoing off every kerb. */
+            const damping = compressionVelocity > 0 ? spec.suspensionDamping : spec.suspensionDamping * 1.55;
+            let normalForce = spec.suspensionStiffness * compression + damping * compressionVelocity;
             /* Springs push, they never pull the car down onto the road. */
             if (normalForce < 0) normalForce = 0;
             if (normalForce > spec.suspensionMaxForce) normalForce = spec.suspensionMaxForce;
+            wheel.load = normalForce;
 
             /* Along the contact normal, but scaled by how square the car is to
                the ground: on a steep bank a wheel should not launch you
@@ -282,8 +570,7 @@ export class Vehicle {
             this.applyForce(_v1, wheel.contact);
 
             /* ---- tyre basis, in the plane of the ground ---- */
-            const steerAngle = wheel.steering ? this.steer : 0;
-            _v2.copy(forward).applyAxisAngle(up, steerAngle);
+            _v2.copy(forward).applyAxisAngle(up, wheel.steerAngle);
             /* Project onto the contact plane and renormalise. */
             _v2.addScaledVector(wheel.contactNormal, -_v2.dot(wheel.contactNormal)).normalize();
             _v3.crossVectors(wheel.contactNormal, _v2).normalize(); /* points left */
@@ -293,48 +580,92 @@ export class Vehicle {
             const vLat = _v1.dot(_v3);
 
             const surfaceInfo = SURFACE_INFO[hit.surface] || SURFACE_INFO[0];
-            const mu = spec.grip * surfaceInfo.grip;
-            const maxFriction = mu * normalForce;
+            /* Load sensitivity: grip per newton falls as the tyre is squashed
+               harder, so the loaded outside wheel cannot fully make up for the
+               unloaded inside one. This is what gives weight transfer a cost. */
+            const loadRatio = normalForce / this.nominalLoad;
+            const sensitivity = 1 - clamp((loadRatio - 1) * (spec.loadSensitivity ?? 0.18), -0.35, 0.4);
+            const mu = spec.grip * surfaceInfo.grip * sensitivity;
+            const capacity = mu * normalForce;
 
-            /* ---- longitudinal ---- */
+            /* Reference speed for turning velocities into slips. Floored so
+               the maths stays finite at a standstill; the floor is also what
+               makes the tyre behave like static friction when barely moving. */
+            const vRef = Math.max(Math.abs(vLong), 2.2);
+
+            const slipRatio = (wheel.omega * wheel.radius - vLong) / vRef;
+            const slipAngle = Math.atan2(vLat, vRef);
+            wheel.slipRatio = slipRatio;
+            wheel.slipAngle = slipAngle;
+
+            const peakRatio = spec.peakSlipRatio || 0.16;
+            let peakAngle = spec.peakSlipAngle || 0.16;
+            if (wheel.handbrake && this.handbrake) peakAngle *= 3.4;
+
+            const sx = slipRatio / peakRatio;
+            const sy = Math.tan(slipAngle) / peakAngle;
+            const s = Math.hypot(sx, sy);
+
             let longForce = 0;
-            if (this.throttle !== 0 && wheel.powered) {
-                /* Torque falls away as you approach top speed. */
-                const speedRatio = clamp(Math.abs(this.forwardSpeed) / spec.maxSpeed, 0, 1);
-                const curve = 1 - speedRatio * speedRatio;
-                longForce += (this.throttle * spec.engineForce * curve) / poweredCount;
+            let latForce = 0;
+            if (s > 1e-5) {
+                const magnitude = capacity * tyreCurve(s);
+                longForce = (sx / s) * magnitude;
+                latForce = -(sy / s) * magnitude;
             }
-            if (this.brake > 0) {
-                const brakeForce = (this.brake * spec.brakeForce) / this.wheels.length;
-                longForce -= clamp(vLong * 90, -brakeForce, brakeForce);
+            wheel.slip = clamp(s - 1, 0, 2) * 0.5;
+
+            /* ---- wheel spin ----
+             *
+             * Integrated implicitly against the tyre's own stiffness. Doing it
+             * explicitly at 120 Hz makes the wheel overshoot the grip peak and
+             * back again every step, and the car buzzes as though the road
+             * were corrugated. The implicit form is unconditionally stable and
+             * costs one divide. */
+            let brakeTorque = (this.brake * spec.brakeForce * wheel.radius) / this.wheels.length;
+            if (wheel.handbrake && this.handbrake) {
+                brakeTorque += spec.handbrakeForce ?? spec.brakeForce * 0.55 * wheel.radius;
             }
-            /* Rolling resistance, heavier on sand than tarmac. */
-            longForce -= vLong * surfaceInfo.roll * spec.rollingResistance;
-
-            /* ---- lateral ---- */
-            /* Force proportional to slip velocity, which is roughly what a tyre
-               does, and what lets the back end step out when you ask too much
-               of it. The friction circle below is what stops it being
-               unbreakable. */
-            let latStiffness = spec.lateralGrip * normalForce;
-            if (wheel.handbrake && this.handbrake) latStiffness *= 0.2;
-            let latForce = -vLat * latStiffness;
-
-            /* ---- friction circle ---- */
-            /* A tyre has one budget of grip to spend on turning and driving
-               combined. Spend it all cornering and there is none left to
-               accelerate with — which is the whole reason drifting works. */
-            const total = Math.hypot(longForce, latForce);
-            if (total > maxFriction && total > 0) {
-                const scale = maxFriction / total;
-                longForce *= scale;
-                latForce *= scale;
-                wheel.slip = clamp((total / maxFriction - 1) * 0.6, 0, 1);
-            } else {
-                wheel.slip = 0;
+            /* Engine braking, only through the driven wheels and only off the
+               throttle. Multiplied up through the gearing exactly as the drive
+               torque is, so second gear holds you back down a hill and top
+               gear lets you coast — the difference is audible and useful. */
+            if (wheel.powered && this.throttle === 0 && this.shiftTimer <= 0) {
+                const dt3 = this.drivetrain;
+                const ratio = Math.abs(this.reversing ? dt3.reverse : dt3.gears[this.gear - 1]);
+                brakeTorque +=
+                    dt3.engineBrake * dt3.peakTorque * ratio * dt3.finalDrive * (this.rpm / dt3.maxRpm);
             }
+            /* Rolling resistance as a fraction of the load the tyre carries,
+               heavier on sand than tarmac. Faded out at a standstill so it
+               cannot masquerade as a parking brake. */
+            const crr = surfaceInfo.roll * spec.rollingResistance * 0.00022;
+            brakeTorque += crr * normalForce * wheel.radius * clamp(Math.abs(vLong) * 2, 0, 1);
 
-            wheel.skid = clamp(Math.max(wheel.slip, Math.abs(vLat) / 14 - 0.15), 0, 1);
+            const drive = wheel.powered ? wheelDrive : 0;
+            const resist = brakeTorque * sign(wheel.omega || vLong || 1);
+            const netTorque = drive - resist - longForce * wheel.radius;
+            const stiffness = (TYRE_STIFFNESS_AT_ZERO * capacity) / peakRatio;
+            const implicit = 1 + (dt * stiffness * wheel.radius * wheel.radius) / (wheel.inertia * vRef);
+            let deltaOmega = (netTorque * wheel.invInertia * dt) / implicit;
+
+            /* Brakes stop a wheel, they never drive it backwards. */
+            const nextOmega = wheel.omega + deltaOmega;
+            if (brakeTorque > 0 && drive === 0 && wheel.omega !== 0 && sign(nextOmega) !== sign(wheel.omega)) {
+                const rollOmega = vLong / wheel.radius;
+                deltaOmega = (Math.abs(rollOmega) < 0.4 ? 0 : nextOmega) - wheel.omega;
+            }
+            wheel.omega += deltaOmega;
+            if (wheel.powered) wheel.omega = clamp(wheel.omega, -omegaCeiling, omegaCeiling);
+
+            wheel.spin += wheel.omega * dt;
+            wheel.spinSpeed = wheel.omega;
+
+            const spinExcess = Math.abs(slipRatio);
+            if (wheel.powered && spinExcess > worstSpin) worstSpin = spinExcess;
+
+            /* What the effects layer reads: 0 gripping, 1 fully sliding. */
+            wheel.skid = clamp(Math.max(s - 0.85, Math.abs(vLat) / 11 - 0.18), 0, 1);
 
             _v1.copy(_v2).multiplyScalar(longForce).addScaledVector(_v3, latForce);
 
@@ -353,15 +684,15 @@ export class Vehicle {
                 wheel.contact.z
             );
             this.applyForce(_v1, _rollPoint);
-
-            /* Wheel spin for the visual, plus wheelspin when overpowered. */
-            const rollSpeed = vLong / wheel.radius;
-            wheel.spinSpeed = rollSpeed + wheel.slip * Math.sign(this.throttle || 1) * 14;
-            wheel.spin += wheel.spinSpeed * dt;
         }
 
         this.groundedCount = grounded;
-        this.engineLoad = clamp(Math.abs(this.forwardSpeed) / spec.maxSpeed, 0, 1);
+        this.wheelspin = worstSpin;
+        this.engineLoad = clamp(
+            (this.rpm - this.drivetrain.idleRpm) / (this.drivetrain.maxRpm - this.drivetrain.idleRpm),
+            0,
+            1
+        );
 
         /* ---- anti-roll ------------------------------------------------- */
         /* Without this a tall vehicle tips over in any corner worth taking.
@@ -378,6 +709,23 @@ export class Vehicle {
                     if (a.grounded) this.applyForce(_v1.copy(up).multiplyScalar(-force), a.contact);
                     if (b.grounded) this.applyForce(_v1.copy(up).multiplyScalar(force), b.contact);
                 }
+            }
+        }
+
+        /* ---- stability control ------------------------------------------
+         *
+         * A light hand on the yaw rate: if the car is rotating a lot faster
+         * than the steering asked for, take a little of it back. Deliberately
+         * weak — the point is to keep a slide catchable, not to prevent one.
+         * Set `stability: 0` on a spec and it drifts like a shopping trolley,
+         * which is precisely what the hovercraft wants. */
+        if (spec.stability > 0 && grounded > 1 && planar > 5) {
+            const yawRate = this.angularVelocity.dot(up);
+            const wanted = (this.forwardSpeed * Math.tan(this.steer)) / this.wheelbase;
+            const excess = yawRate - clamp(wanted, -2.6, 2.6);
+            const overrun = Math.max(0, Math.abs(excess) - 0.35) * sign(excess);
+            if (overrun !== 0) {
+                this.torqueAccum.addScaledVector(up, -overrun * spec.stability * this.mass);
             }
         }
 
@@ -414,6 +762,8 @@ export class Vehicle {
             if (air > 0) {
                 this.torqueAccum.addScaledVector(up, -controls.steer * air * this.mass);
                 this.torqueAccum.addScaledVector(right, controls.pitch * air * this.mass * 0.7);
+                /* Roll authority too, so a wonky take-off can be corrected. */
+                this.torqueAccum.addScaledVector(forward, -controls.steer * air * this.mass * 0.25);
             }
         } else {
             this.airborneFor = 0;
@@ -453,6 +803,16 @@ export class Vehicle {
         this.velocity.multiplyScalar(1 - clamp(spec.linearDamping * dt, 0, 0.4));
         this.angularVelocity.multiplyScalar(1 - clamp(spec.angularDamping * dt, 0, 0.5));
 
+        /* Creeping. Below walking pace with nothing asked of it, a car sits
+           still; the slip model alone leaves it drifting imperceptibly down
+           every camber, which reads as the handbrake being broken. */
+        if (grounded > 1 && this.throttle === 0 && planar < 0.9) {
+            const settle = Math.min(1, dt * (this.brake > 0 || this.handbrake ? 14 : 5));
+            this.velocity.x -= this.velocity.x * settle;
+            this.velocity.z -= this.velocity.z * settle;
+            this.angularVelocity.multiplyScalar(1 - settle * 0.8);
+        }
+
         this.position.addScaledVector(this.velocity, dt);
         this.odometer += this.speed * dt;
 
@@ -464,6 +824,8 @@ export class Vehicle {
         this.quaternion.z += _q1.z * 0.5 * dt;
         this.quaternion.w += _q1.w * 0.5 * dt;
         this.quaternion.normalize();
+
+        this.lateralG = grounded > 0 ? this.angularVelocity.dot(up) * this.forwardSpeed : 0;
 
         this.resolvePenetration(dt);
         this.keepInsideWorld();
@@ -558,7 +920,11 @@ export class Vehicle {
         this.position.y = heightAt(this.position.x, this.position.z) + this.spec.spawnHeight;
         this.velocity.set(0, 0, 0);
         this.angularVelocity.set(0, 0, 0);
+        this.wheels.forEach((w) => {
+            w.omega = 0;
+        });
         this.upsideDownFor = 0;
+        this.gear = 1;
     }
 }
 
@@ -593,9 +959,17 @@ export class Helicopter {
         this.wheels = [];
         this.steer = 0;
         this.forwardSpeed = 0;
+        this.lateralSpeed = 0;
+        this.driftAngle = 0;
+        this.wheelspin = 0;
+        this.rpm = 0;
+        this.gear = 0;
+        this.shiftTimer = 0;
         this._up = new THREE.Vector3();
         this._forward = new THREE.Vector3();
         this._right = new THREE.Vector3();
+        /* Gusts, so a hover is a thing you hold rather than a thing you set. */
+        this.gustPhase = Math.random() * 100;
     }
 
     setTransform(x, z, heading) {
@@ -628,6 +1002,7 @@ export class Helicopter {
         this.rotorSpin += this.rotorSpeed * dt;
         const authority = clamp(this.rotorSpeed / spec.rotorMax, 0, 1);
         this.engineLoad = authority;
+        this.rpm = authority * 4200;
 
         /* Collective: hold to climb, release to settle. Hovering is the
            default, because a five-year-old cannot hold an altitude trim. */
@@ -641,6 +1016,15 @@ export class Helicopter {
 
         this.velocity.addScaledVector(up, (thrust / this.mass) * dt);
         this.velocity.y -= GRAVITY * dt;
+
+        /* A slow wander in the air. Small enough that it never fights you,
+           big enough that a hover looks alive rather than parked. */
+        if (!landed && authority > 0.5) {
+            this.gustPhase += dt;
+            const gust = spec.gust ?? 0.55;
+            this.velocity.x += Math.sin(this.gustPhase * 0.73) * gust * dt;
+            this.velocity.z += Math.cos(this.gustPhase * 0.51) * gust * dt;
+        }
 
         /* Cyclic. Pitch and roll are attitude targets, not torques — a real
            helicopter needs constant correction and this one should not. */
@@ -689,6 +1073,7 @@ export class Helicopter {
 
         this.speed = this.velocity.length();
         this.forwardSpeed = vLocalF;
+        this.lateralSpeed = vLocalR;
         this.inWater = this.position.y < SEA_LEVEL + 0.5;
         this.odometer += this.speed * dt;
 
@@ -707,4 +1092,4 @@ export class Helicopter {
     }
 }
 
-export { clamp };
+export { clamp, tyreCurve, torqueFactor };

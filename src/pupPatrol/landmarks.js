@@ -427,6 +427,110 @@ function overlapsRoad(x, z, radius) {
     return false;
 }
 
+/*
+ * What turns a house into a home someone lives in.
+ *
+ * A cottage dropped onto open grass reads as an asset, not as a building —
+ * there is nothing between its front door and the road, so nothing says a
+ * person walks between the two. A path, a fence and a couple of shrubs cost
+ * nine boxes and fix it completely.
+ *
+ * Every piece samples the terrain at its own position rather than inheriting
+ * one height from the house, because even the levelled town bowl has a metre
+ * of fall across a garden, and a fence built flat on it hangs in the air at
+ * one end and is buried at the other.
+ */
+function buildFrontGarden(x, z, facing, random) {
+    const garden = new THREE.Group();
+    const cos = Math.cos(facing);
+    const sin = Math.sin(facing);
+
+    /* Local frame: +out toward the road, +side across the frontage. */
+    const at = (out, side) => ({ x: x + sin * out + cos * side, z: z + cos * out - sin * side });
+
+    const paving = 0xd7cfbe;
+    for (let i = 0; i < 5; i += 1) {
+        const p = at(4.6 + i * 1.9, 0);
+        const slab = box(1.7, 0.14, 1.55, paving, p.x, heightAt(p.x, p.z) + 0.07, p.z, { roughness: 0.85 });
+        slab.rotation.y = facing;
+        slab.receiveShadow = true;
+        garden.add(slab);
+    }
+
+    /* Picket fence along the frontage, with a gap where the path crosses it. */
+    const fenceOut = 13.2;
+    const paint = random() < 0.5 ? 0xf6f2e8 : 0xe8dcc6;
+    for (let s = -4; s <= 4; s += 1) {
+        if (Math.abs(s) < 1) continue;
+        const p = at(fenceOut, s * 1.5);
+        const y = heightAt(p.x, p.z);
+        garden.add(box(0.16, 1.1, 0.16, paint, p.x, y + 0.55, p.z, { roughness: 0.8 }));
+        if (s < 4 && Math.abs(s + 1) >= 1) {
+            const next = at(fenceOut, (s + 1) * 1.5);
+            const rail = box(1.5, 0.12, 0.09, paint, (p.x + next.x) / 2, y + 0.78, (p.z + next.z) / 2, {
+                roughness: 0.8,
+            });
+            rail.rotation.y = facing;
+            garden.add(rail);
+        }
+    }
+
+    /* Two shrubs and, on about half of them, a letterbox at the gate. */
+    for (const side of [-1, 1]) {
+        if (random() < 0.3) continue;
+        const p = at(6.5 + random() * 3, side * (2.6 + random() * 1.6));
+        const y = heightAt(p.x, p.z);
+        const r = 0.7 + random() * 0.5;
+        const bush = mesh(new THREE.IcosahedronGeometry(r, 1), 0x4f9c3a, { roughness: 0.9 }, p.x, y + r * 0.7, p.z);
+        bush.scale.set(1.2, 0.85, 1.2);
+        garden.add(bush);
+    }
+    if (random() < 0.55) {
+        const p = at(fenceOut - 0.4, 1.5);
+        const y = heightAt(p.x, p.z);
+        garden.add(box(0.14, 1.2, 0.14, 0x8a6134, p.x, y + 0.6, p.z, { roughness: 0.8 }));
+        const flag = box(0.42, 0.34, 0.5, 0xd8382c, p.x, y + 1.32, p.z, { roughness: 0.6 });
+        flag.rotation.y = facing;
+        garden.add(flag);
+    }
+
+    return garden;
+}
+
+/* A street lamp. Adventure Bay is permanently at midday, so the lamp is not
+   for lighting anything — it is a vertical, at a regular interval, which is
+   what makes a stretch of road read as a street rather than as a lane. */
+function buildStreetLamp(x, z, facing) {
+    const lamp = new THREE.Group();
+    const y = heightAt(x, z);
+
+    lamp.add(cylinder(0.3, 0.42, 0.5, 0x9aa1a8, 10).translateX(x).translateY(y + 0.25).translateZ(z));
+    lamp.add(cylinder(0.13, 0.17, 5.2, 0x3c4650, 10).translateX(x).translateY(y + 2.9).translateZ(z));
+
+    const arm = box(0.14, 0.14, 1.5, 0x3c4650, x + Math.sin(facing) * 0.6, y + 5.4, z + Math.cos(facing) * 0.6);
+    arm.rotation.y = facing;
+    lamp.add(arm);
+
+    const head = box(0.7, 0.3, 0.95, 0x3c4650, x + Math.sin(facing) * 1.25, y + 5.25, z + Math.cos(facing) * 1.25);
+    head.rotation.y = facing;
+    lamp.add(head);
+
+    const glass = box(
+        0.55,
+        0.16,
+        0.78,
+        0xfff3c4,
+        x + Math.sin(facing) * 1.25,
+        y + 5.06,
+        z + Math.cos(facing) * 1.25,
+        { emissive: 0xffe27a, emissiveIntensity: 0.35, roughness: 0.2 }
+    );
+    glass.rotation.y = facing;
+    lamp.add(glass);
+
+    return lamp;
+}
+
 /* Where the town meets the road, laid out along the actual centreline rather
    than on a grid — the streets curve, and buildings on a grid would float. */
 function buildTown() {
@@ -472,8 +576,10 @@ function buildTown() {
                 if (overlapsRoad(hx, hz, 6.5)) continue;
                 const house = buildHouse(random, 0.9 + random() * 0.4);
                 /* Front door toward the street it stands on. */
-                ground(house, hx, hz, Math.atan2(x - hx, z - hz));
+                const facing = Math.atan2(x - hx, z - hz);
+                ground(house, hx, hz, facing);
                 group.add(house);
+                group.add(buildFrontGarden(hx, hz, facing, random));
                 placed.push({ x: hx, z: hz, radius: 7 });
                 /* Halfway between the inscribed and circumscribed circle of a
                    typical footprint. Inscribed lets you drive through the
@@ -481,6 +587,27 @@ function buildTown() {
                    a metre out from every wall. */
                 obstacles.add(hx, hz, 5.2, { kind: "building", restitution: 0.34, absorb: 0.42 });
             }
+        }
+    }
+
+    /* Street lamps down Main Street, alternating sides. */
+    if (main) {
+        let side = 1;
+        for (let i = 4; i < main.path.length - 4; i += 11) {
+            const [x, z] = main.path[i];
+            if (Math.hypot(x - townCentre.x, z - townCentre.z) > 135) continue;
+            const [px, pz] = main.path[i - 3];
+            const [nx, nz] = main.path[i + 3];
+            let tx = nx - px;
+            let tz = nz - pz;
+            const len = Math.hypot(tx, tz) || 1;
+            tx /= len;
+            tz /= len;
+            const offset = 6.4;
+            const lx = x - tz * side * offset;
+            const lz = z + tx * side * offset;
+            group.add(buildStreetLamp(lx, lz, Math.atan2(x - lx, z - lz)));
+            side = -side;
         }
     }
 
@@ -701,6 +828,8 @@ function buildBridge() {
     });
 
     const span = 7;
+    /* Just outside the carriageway, whatever the road happens to be. */
+    const kerb = bay.width * 0.5 + 0.6;
     const from = bay.path[Math.max(0, best - span)];
     const to = bay.path[Math.min(bay.path.length - 1, best + span)];
     const midX = (from[0] + to[0]) / 2;
@@ -713,13 +842,13 @@ function buildBridge() {
     for (const side of [-1, 1]) {
         for (let i = 0; i <= 8; i += 1) {
             const t = i / 8;
-            const post = box(0.24, 1.3, 0.24, 0xe8edf3, side * 5.4, 0.65, (t - 0.5) * length);
+            const post = box(0.24, 1.3, 0.24, 0xe8edf3, side * kerb, 0.65, (t - 0.5) * length);
             group.add(post);
         }
-        group.add(box(0.2, 0.2, length, 0xd8382c, side * 5.4, 1.25, 0));
-        group.add(box(0.2, 0.2, length, 0xe8edf3, side * 5.4, 0.7, 0));
+        group.add(box(0.2, 0.2, length, 0xd8382c, side * kerb, 1.25, 0));
+        group.add(box(0.2, 0.2, length, 0xe8edf3, side * kerb, 0.7, 0));
         /* Deck edge, so it reads as a structure from below. */
-        group.add(box(0.6, 1.1, length, 0xc8cfd7, side * 5.4, -0.6, 0));
+        group.add(box(0.6, 1.1, length, 0xc8cfd7, side * kerb, -0.6, 0));
     }
     for (let i = -1; i <= 1; i += 2) {
         const pier = box(2, 12, 1.6, 0xc8cfd7, 0, -6.6, i * length * 0.24);

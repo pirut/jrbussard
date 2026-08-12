@@ -6,6 +6,10 @@
  * hurried and does not care; Zuma is the only one who treats the bay as a
  * road; Skye ignores the road network entirely. Missions ask for a specific
  * pup often enough that you end up learning all of them.
+ *
+ * The handling numbers are grouped by what they do rather than by where the
+ * physics happens to read them: how much grip, how the grip lets go, how much
+ * the car helps you when it does.
  */
 
 import * as THREE from "three";
@@ -19,20 +23,48 @@ const CAR_BASE = {
     kind: "car",
     mass: 1250,
     size: new THREE.Vector3(2.1, 1.5, 4.3),
+
+    /* ---- suspension ---- */
     suspensionRest: 0.42,
     suspensionTravel: 0.34,
     suspensionStiffness: 42000,
     suspensionDamping: 3600,
     suspensionMaxForce: 110000,
+
+    /* ---- drivetrain ---- */
     engineForce: 16000,
-    brakeForce: 28000,
+    brakeForce: 30000,
     maxSpeed: 34,
+    maxRpm: 6400,
+    idleRpm: 780,
+    engineBrake: 0.11,
+
+    /* ---- steering ---- */
     steerMax: 0.62,
-    steerSpeed: 5.0,
+    steerSpeed: 5.4,
     steerFalloff: 42,
+    ackermann: 0.75,
+    /* The most lateral acceleration a full-lock request is allowed to ask
+       for. Above it the front tyres would simply give up, which reads as the
+       steering having stopped working rather than as a limit being reached. */
+    corneringLimit: 24,
+    /* How much extra opposite lock the car gives you for free once the back
+       steps out. Zero is authentic; this is a programme for five year olds. */
+    counterSteer: 0.34,
+    /* Gentle electronic hand on the yaw rate. Not enough to prevent a slide. */
+    stability: 3.4,
+
+    /* ---- tyres ---- */
     grip: 1.35,
-    lateralGrip: 0.85,
+    /* Where the grip curve peaks. Smaller is a sharper, more nervous tyre. */
+    peakSlipRatio: 0.16,
+    peakSlipAngle: 0.17,
+    /* How much grip a tyre loses as it is loaded past its share of the weight.
+       This is what makes weight transfer cost you something. */
+    loadSensitivity: 0.18,
     rollingResistance: 55,
+
+    /* ---- aero and body ---- */
     drag: 3.0,
     downforce: 3.0,
     linearDamping: 0.05,
@@ -92,11 +124,19 @@ export const PUPS = [
             mass: 1180,
             size: new THREE.Vector3(2.0, 1.32, 4.3),
             engineForce: 18500,
+            brakeForce: 34000,
             maxSpeed: 40,
-            grip: 1.45,
-            lateralGrip: 0.95,
-            downforce: 4.2,
+            maxRpm: 7000,
+            gears: [3.3, 2.05, 1.46, 1.1, 0.86, 0.72],
+            grip: 1.48,
+            peakSlipAngle: 0.15,
+            downforce: 4.6,
             steerMax: 0.6,
+            steerSpeed: 6.2,
+            corneringLimit: 27,
+            stability: 4.2,
+            counterSteer: 0.3,
+            antiRoll: 20000,
             wheels: carWheels({ track: 0.9, front: 1.44, rear: -1.4, radius: 0.42, y: -0.3 }),
         },
     },
@@ -117,13 +157,19 @@ export const PUPS = [
             ...CAR_BASE,
             mass: 2400,
             size: new THREE.Vector3(2.4, 2.4, 5.8),
-            engineForce: 24000,
-            brakeForce: 38000,
+            engineForce: 26000,
+            brakeForce: 42000,
             maxSpeed: 27,
-            grip: 1.25,
-            lateralGrip: 0.72,
+            maxRpm: 4200,
+            gears: [4.1, 2.4, 1.55, 1.0],
+            grip: 1.24,
+            peakSlipAngle: 0.2,
+            loadSensitivity: 0.24,
             steerMax: 0.5,
-            steerSpeed: 3.4,
+            steerSpeed: 3.6,
+            corneringLimit: 17,
+            stability: 5.0,
+            counterSteer: 0.42,
             antiRoll: 42000,
             /* Tall and heavy: even more reluctant to lie over. */
             inertiaScale: new THREE.Vector3(1.9, 1.15, 4.6),
@@ -154,12 +200,13 @@ export const PUPS = [
             size: new THREE.Vector3(2.2, 2.2, 6.4),
             rotorMax: 34,
             climbPower: 0.85,
-            maxTilt: 0.44,
-            tiltResponse: 3.0,
-            yawRate: 1.5,
-            dragForward: 0.55,
+            maxTilt: 0.46,
+            tiltResponse: 3.2,
+            yawRate: 1.6,
+            dragForward: 0.52,
             dragSide: 2.6,
             dragVertical: 1.5,
+            gust: 0.6,
             ceiling: 210,
             spawnHeight: 1.1,
             maxSpeed: 42,
@@ -182,21 +229,28 @@ export const PUPS = [
             ...CAR_BASE,
             mass: 3200,
             size: new THREE.Vector3(2.6, 2.2, 4.8),
-            engineForce: 30000,
-            brakeForce: 44000,
+            engineForce: 34000,
+            brakeForce: 48000,
             maxSpeed: 18,
-            grip: 1.7,
-            lateralGrip: 1.05,
+            maxRpm: 2600,
+            gears: [3.6, 1.9, 1.0],
+            grip: 1.72,
+            peakSlipAngle: 0.26,
+            peakSlipRatio: 0.24,
+            loadSensitivity: 0.1,
             steerMax: 0.72,
-            steerSpeed: 3.0,
+            steerSpeed: 3.2,
             steerFalloff: 26,
+            corneringLimit: 15,
+            stability: 6.0,
+            counterSteer: 0.5,
             antiRoll: 55000,
             inertiaScale: new THREE.Vector3(1.9, 1.15, 4.8),
             rollCentre: 0.8,
             suspensionStiffness: 105000,
             suspensionDamping: 9000,
             suspensionTravel: 0.42,
-            rollingResistance: 110,
+            rollingResistance: 120,
             chassisClearance: 0.85,
             spawnHeight: 1.75,
             downforce: 1.0,
@@ -220,11 +274,15 @@ export const PUPS = [
             ...CAR_BASE,
             mass: 1750,
             size: new THREE.Vector3(2.2, 2.0, 5.0),
-            engineForce: 19000,
+            engineForce: 20500,
             maxSpeed: 30,
+            maxRpm: 5200,
+            gears: [3.6, 2.2, 1.5, 1.05, 0.84],
             grip: 1.32,
-            lateralGrip: 0.8,
+            peakSlipAngle: 0.185,
             steerMax: 0.56,
+            corneringLimit: 20,
+            stability: 3.8,
             antiRoll: 14000,
             suspensionStiffness: 58000,
             suspensionDamping: 4800,
@@ -250,20 +308,29 @@ export const PUPS = [
             ...CAR_BASE,
             mass: 1050,
             size: new THREE.Vector3(2.6, 1.4, 4.6),
-            engineForce: 14500,
+            engineForce: 15500,
             brakeForce: 12000,
             maxSpeed: 33,
-            grip: 0.9,
-            lateralGrip: 0.42,
-            steerMax: 0.7,
-            steerSpeed: 4.0,
+            maxRpm: 5400,
+            gears: [2.6, 1.5, 1.0],
+            /* The whole personality: almost no lateral bite, so it slides
+               everywhere on land, and it lets go smoothly rather than
+               snapping. On water none of that matters. */
+            grip: 0.95,
+            peakSlipAngle: 0.42,
+            peakSlipRatio: 0.3,
+            loadSensitivity: 0.05,
+            steerMax: 0.72,
+            steerSpeed: 4.4,
+            corneringLimit: 11,
+            stability: 0.9,
+            counterSteer: 0.62,
             rollingResistance: 22,
             suspensionRest: 0.55,
             suspensionTravel: 0.4,
             suspensionStiffness: 30000,
             suspensionDamping: 2600,
             antiRoll: 4000,
-            /* The whole trick: it floats high and barely slows in water. */
             buoyancy: 1.06,
             waterDrag: 0.35,
             chassisClearance: 0.5,
@@ -288,12 +355,18 @@ export const PUPS = [
             ...CAR_BASE,
             mass: 2000,
             size: new THREE.Vector3(2.5, 2.0, 5.0),
-            engineForce: 23000,
+            engineForce: 25000,
             maxSpeed: 25,
-            grip: 1.85,
-            lateralGrip: 1.15,
+            maxRpm: 3800,
+            gears: [3.8, 2.1, 1.35, 1.0],
+            grip: 1.9,
+            peakSlipAngle: 0.23,
+            peakSlipRatio: 0.22,
+            loadSensitivity: 0.12,
             steerMax: 0.66,
-            steerSpeed: 3.6,
+            steerSpeed: 3.8,
+            corneringLimit: 19,
+            stability: 5.2,
             antiRoll: 20000,
             suspensionStiffness: 72000,
             suspensionDamping: 6000,
@@ -315,6 +388,11 @@ export const pupById = (id) => PUPS.find((p) => p.id === id) || PUPS[0];
  * wraparound bubble canopy and wheels far too big for the body. Reproducing
  * that proportion is most of the job; the rest is that every panel gets a
  * highlight because nothing is flat.
+ *
+ * Paint is a physical material with a clearcoat over it, so the body picks up
+ * the sky as a second, sharper reflection on top of the colour. That one
+ * property is most of the difference between "a coloured shape" and "a
+ * lacquered toy" — it is what the eye reads as expensive.
  * --------------------------------------------------------------- */
 
 const materialCache = new Map();
@@ -322,28 +400,50 @@ const materialCache = new Map();
 function mat(color, opts = {}) {
     const key = `${color}|${JSON.stringify(opts)}`;
     let m = materialCache.get(key);
-    if (!m) {
-        m = new THREE.MeshStandardMaterial({
-            color,
-            /* Toy plastic: smooth, a little metallic sparkle in the paint. */
-            roughness: opts.roughness ?? 0.34,
-            metalness: opts.metalness ?? 0.12,
-            emissive: opts.emissive ?? 0x000000,
-            emissiveIntensity: opts.emissiveIntensity ?? 1,
-            transparent: opts.transparent ?? false,
-            opacity: opts.opacity ?? 1,
-            side: opts.side ?? THREE.FrontSide,
-            flatShading: opts.flatShading ?? false,
-        });
-        materialCache.set(key, m);
-    }
+    if (m) return m;
+
+    const common = {
+        color,
+        roughness: opts.roughness ?? 0.34,
+        metalness: opts.metalness ?? 0.12,
+        emissive: opts.emissive ?? 0x000000,
+        emissiveIntensity: opts.emissiveIntensity ?? 1,
+        transparent: opts.transparent ?? false,
+        opacity: opts.opacity ?? 1,
+        side: opts.side ?? THREE.FrontSide,
+        flatShading: opts.flatShading ?? false,
+        envMapIntensity: opts.envMapIntensity ?? 1,
+    };
+
+    m = opts.clearcoat
+        ? new THREE.MeshPhysicalMaterial({
+              ...common,
+              clearcoat: opts.clearcoat,
+              clearcoatRoughness: opts.clearcoatRoughness ?? 0.06,
+          })
+        : new THREE.MeshStandardMaterial(common);
+
+    materialCache.set(key, m);
     return m;
 }
 
-const PAINT = { roughness: 0.28, metalness: 0.2 };
-const CHROME = { roughness: 0.16, metalness: 0.9 };
-const RUBBER = { roughness: 0.88, metalness: 0.02 };
-const GLASS = { roughness: 0.06, metalness: 0.35, transparent: true, opacity: 0.55 };
+/* Bodywork: colour under a lacquer coat. */
+/* A full-strength clearcoat sits a mirror over the colour and takes a
+   surprising amount of it away — the police cruiser came out navy. Two
+   thirds keeps the wet-lacquer highlight and lets the blue back through. */
+const PAINT = { roughness: 0.32, metalness: 0.0, clearcoat: 0.65, clearcoatRoughness: 0.05, envMapIntensity: 1.2 };
+const TRIM = { roughness: 0.5, metalness: 0.05, envMapIntensity: 0.9 };
+const CHROME = { roughness: 0.13, metalness: 1, envMapIntensity: 1.6 };
+const RUBBER = { roughness: 0.92, metalness: 0.0, envMapIntensity: 0.35 };
+const GLASS = {
+    roughness: 0.03,
+    metalness: 0.0,
+    clearcoat: 1,
+    clearcoatRoughness: 0.02,
+    transparent: true,
+    opacity: 0.42,
+    envMapIntensity: 2.2,
+};
 
 function mesh(geometry, color, opts) {
     const m = new THREE.Mesh(geometry, mat(color, opts));
@@ -366,14 +466,46 @@ function sphere(r, color, opts, segments = 16) {
     return mesh(new THREE.SphereGeometry(r, segments, Math.round(segments * 0.7)), color, opts);
 }
 
-/* A wheel: fat rounded tyre, dished rim, chrome hub. */
+/* A lamp that can be switched on. Kept as one helper so headlights, brake
+   lights, indicators and beacons all respond the same way and the game only
+   has to set `.userData.on`. */
+function lamp(radius, colour, emissive, intensity, segments = 12) {
+    const m = sphere(radius, colour, { emissive, emissiveIntensity: intensity, roughness: 0.08, metalness: 0 }, segments);
+    /* Its own material instance: these are driven per-vehicle at runtime and
+       must not be shared with anything else through the cache. */
+    m.material = m.material.clone();
+    m.userData.baseIntensity = intensity;
+    return m;
+}
+
+/* A wheel: fat rounded tyre, dished rim, chrome hub, and a brake disc you can
+   see through the spokes. */
 function buildWheel(radius, width, rimColor) {
     const group = new THREE.Group();
 
-    const tyre = mesh(tyreGeometry(radius, width), 0x23232a, RUBBER);
+    const tyre = mesh(tyreGeometry(radius, width), 0x1e1e24, RUBBER);
     group.add(tyre);
 
-    const rim = cyl(radius * 0.62, radius * 0.62, width * 0.86, rimColor, 16, CHROME);
+    /* Tread blocks. Only readable close up and when stopped, which is exactly
+       when a bare cylinder gives the game away. */
+    const tread = new THREE.Group();
+    for (let i = 0; i < 14; i += 1) {
+        const a = (i / 14) * Math.PI * 2;
+        const block = mesh(roundedBox(width * 0.82, radius * 0.1, radius * 0.22, radius * 0.03, 2), 0x15151a, RUBBER);
+        block.position.set(0, Math.cos(a) * radius * 0.99, Math.sin(a) * radius * 0.99);
+        block.rotation.x = -a;
+        tread.add(block);
+    }
+    group.add(tread);
+
+    const disc = cyl(radius * 0.56, radius * 0.56, width * 0.3, 0x6a6f76, 16, {
+        roughness: 0.35,
+        metalness: 0.85,
+    });
+    disc.rotation.z = Math.PI / 2;
+    group.add(disc);
+
+    const rim = cyl(radius * 0.62, radius * 0.62, width * 0.86, rimColor, 18, CHROME);
     rim.rotation.z = Math.PI / 2;
     group.add(rim);
 
@@ -395,31 +527,32 @@ function buildWheel(radius, width, rimColor) {
 function buildDriver(pup) {
     const group = new THREE.Group();
     const fur = pup.id === "marshall" ? 0xf7f2e8 : pup.id === "rubble" ? 0xdaa94c : 0xecdcbf;
+    const skin = { roughness: 0.78, metalness: 0, envMapIntensity: 0.5 };
 
-    const head = sphere(0.34, fur, { roughness: 0.72, metalness: 0 });
+    const head = sphere(0.34, fur, skin);
     head.scale.set(1, 0.95, 1.06);
     head.position.y = 0.26;
     group.add(head);
 
-    const snout = sphere(0.18, fur, { roughness: 0.72, metalness: 0 });
+    const snout = sphere(0.18, fur, skin);
     snout.scale.set(0.92, 0.72, 1.28);
     snout.position.set(0, 0.17, 0.3);
     group.add(snout);
 
-    const nose = sphere(0.075, 0x2a2320, { roughness: 0.4 }, 10);
+    const nose = sphere(0.075, 0x2a2320, { roughness: 0.3, metalness: 0 }, 10);
     nose.position.set(0, 0.22, 0.44);
     group.add(nose);
 
     for (const side of [-1, 1]) {
-        const ear = rbox(0.11, 0.26, 0.17, pup.trim, side * 0.29, 0.32, -0.02, { roughness: 0.7 }, 0.05);
+        const ear = rbox(0.11, 0.26, 0.17, pup.trim, side * 0.29, 0.32, -0.02, skin, 0.05);
         ear.rotation.z = side * 0.34;
         group.add(ear);
 
-        const eye = sphere(0.068, 0xffffff, { roughness: 0.2 }, 10);
+        const eye = sphere(0.068, 0xffffff, { roughness: 0.12, metalness: 0 }, 10);
         eye.position.set(side * 0.13, 0.31, 0.26);
         eye.scale.set(1, 1.1, 0.6);
         group.add(eye);
-        const pupil = sphere(0.04, 0x14141a, { roughness: 0.2 }, 8);
+        const pupil = sphere(0.04, 0x14141a, { roughness: 0.1, metalness: 0 }, 8);
         pupil.position.set(side * 0.14, 0.3, 0.3);
         group.add(pupil);
     }
@@ -438,7 +571,7 @@ function buildDriver(pup) {
     collar.castShadow = true;
     group.add(collar);
 
-    const tag = mesh(pawGeometry(0.34, 0.05), 0xffd83d, { roughness: 0.3, metalness: 0.4 });
+    const tag = mesh(pawGeometry(0.34, 0.05), 0xffd83d, { roughness: 0.2, metalness: 0.8, envMapIntensity: 1.4 });
     tag.position.set(0, -0.05, 0.25);
     group.add(tag);
 
@@ -453,16 +586,11 @@ function buildLightBar(pup, width) {
     const lamps = [];
     for (const side of [-1, 1]) {
         const colour = side < 0 ? 0xff2f22 : 0x2f6fe0;
-        const lamp = sphere(0.13, colour, {
-            emissive: colour,
-            emissiveIntensity: 0.25,
-            roughness: 0.18,
-            metalness: 0.1,
-        }, 14);
-        lamp.scale.set(width * 0.24, 0.85, 1);
-        lamp.position.set(side * width * 0.26, 0.08, 0);
-        group.add(lamp);
-        lamps.push(lamp);
+        const dome = lamp(0.13, colour, colour, 0.25, 14);
+        dome.scale.set(width * 0.24, 0.85, 1);
+        dome.position.set(side * width * 0.26, 0.08, 0);
+        group.add(dome);
+        lamps.push(dome);
     }
     group.userData.lamps = lamps;
     return group;
@@ -484,12 +612,13 @@ function buildCar(pup) {
     group.add(cab);
 
     /* Wraparound bubble glass — the signature shape. */
-    const glass = mesh(canopyGeometry(w * 0.86, h * 0.74, l * 0.52), 0x1c3348, GLASS);
+    const glass = mesh(canopyGeometry(w * 0.86, h * 0.74, l * 0.52), 0x16283a, GLASS);
+    glass.castShadow = false;
     glass.position.set(0, h * 0.3, -l * 0.02);
     group.add(glass);
 
     /* Belt-line stripe in the accent colour. */
-    const stripe = rbox(w * 1.015, h * 0.15, l * 0.78, pup.accent, 0, h * 0.06, 0, { roughness: 0.3 }, 0.06);
+    const stripe = rbox(w * 1.015, h * 0.15, l * 0.78, pup.accent, 0, h * 0.06, 0, PAINT, 0.06);
     group.add(stripe);
 
     /* Chrome bumpers with a bit of overhang. */
@@ -498,30 +627,46 @@ function buildCar(pup) {
 
     /* Running boards. */
     for (const side of [-1, 1]) {
-        group.add(rbox(0.16, 0.12, l * 0.5, pup.trim, side * w * 0.52, -h * 0.28, 0, { roughness: 0.6 }, 0.05));
+        group.add(rbox(0.16, 0.12, l * 0.5, pup.trim, side * w * 0.52, -h * 0.28, 0, TRIM, 0.05));
     }
+
+    /* Grille, so the front has something to read as a face. */
+    const grille = rbox(w * 0.52, h * 0.16, 0.12, 0x2a2f36, 0, h * 0.02, l * 0.505, CHROME, 0.04);
+    group.add(grille);
 
     /* The paw badge on both doors. */
     for (const side of [-1, 1]) {
-        const badge = mesh(pawGeometry(0.62, 0.06), 0xffffff, { roughness: 0.3 });
+        const badge = mesh(pawGeometry(0.62, 0.06), 0xffffff, { roughness: 0.3, metalness: 0.05 });
         badge.position.set(side * (w * 0.5 + 0.02), h * 0.06, -l * 0.04);
         badge.rotation.y = side * Math.PI * 0.5;
         group.add(badge);
     }
 
-    /* Lights. */
+    /* Lights. Headlights, brake lights and reversing lights are all driven at
+       runtime, so the back of the truck tells you what the driver is doing —
+       which is most of what makes traffic in front of you legible in any
+       driving game. */
     const headlights = [];
+    const brakeLights = [];
+    const reverseLights = [];
     for (const side of [-1, 1]) {
-        const lamp = sphere(0.15, 0xfff8e0, { emissive: 0xfff0c0, emissiveIntensity: 0.5, roughness: 0.1 }, 12);
-        lamp.scale.set(1.25, 0.9, 0.55);
-        lamp.position.set(side * w * 0.31, h * 0.04, l * 0.5);
-        group.add(lamp);
-        headlights.push(lamp);
+        const head = lamp(0.15, 0xfff8e0, 0xfff0c0, 0.45);
+        head.scale.set(1.25, 0.9, 0.55);
+        head.position.set(side * w * 0.31, h * 0.04, l * 0.5);
+        group.add(head);
+        headlights.push(head);
 
-        const tail = sphere(0.12, 0xe0281b, { emissive: 0xff2a1a, emissiveIntensity: 0.4, roughness: 0.1 }, 12);
+        const tail = lamp(0.12, 0xe0281b, 0xff2a1a, 0.35);
         tail.scale.set(1.2, 0.9, 0.5);
         tail.position.set(side * w * 0.31, h * 0.08, -l * 0.5);
         group.add(tail);
+        brakeLights.push(tail);
+
+        const reverse = lamp(0.075, 0xf4f8ff, 0xffffff, 0.05, 10);
+        reverse.scale.set(1.3, 0.9, 0.5);
+        reverse.position.set(side * w * 0.16, h * 0.02, -l * 0.5);
+        group.add(reverse);
+        reverseLights.push(reverse);
     }
 
     const driver = buildDriver(pup);
@@ -548,7 +693,7 @@ function buildCar(pup) {
         ladder.rotation.x = -0.1;
         extras.add(ladder);
 
-        const tank = cyl(0.44, 0.44, l * 0.42, 0xf4f6f8, 18, { roughness: 0.25, metalness: 0.5 });
+        const tank = cyl(0.44, 0.44, l * 0.42, 0xf4f6f8, 18, { roughness: 0.22, metalness: 0.6 });
         tank.rotation.z = Math.PI / 2;
         tank.position.set(0, -h * 0.04, -l * 0.3);
         extras.add(tank);
@@ -566,9 +711,10 @@ function buildCar(pup) {
         for (const side of [-1, 1]) {
             extras.add(rbox(0.18, 0.18, 0.95, pup.trim, side * w * 0.38, -h * 0.16, l * 0.5, PAINT, 0.07));
         }
-        const beacon = sphere(0.17, 0xffb114, { emissive: 0xff9500, emissiveIntensity: 0.8, roughness: 0.15 }, 12);
+        const beacon = lamp(0.17, 0xffb114, 0xff9500, 0.8);
         beacon.position.set(0, h * 0.92, -l * 0.06);
         extras.add(beacon);
+        group.userData.beacon = beacon;
     } else if (pup.id === "rocky") {
         const hopper = rbox(w * 0.92, h * 0.6, l * 0.46, pup.trim, 0, h * 0.46, -l * 0.26, PAINT, 0.14);
         extras.add(hopper);
@@ -638,7 +784,11 @@ function buildCar(pup) {
     group.userData.wheels = wheelMeshes;
     group.userData.lightBar = lightBar;
     group.userData.headlights = headlights;
+    group.userData.brakeLights = brakeLights;
+    group.userData.reverseLights = reverseLights;
     group.userData.driver = driver;
+    /* Where the exhaust smoke comes from, and where a tow rope would attach. */
+    group.userData.exhaust = new THREE.Vector3(w * 0.3, -h * 0.22, -l * 0.5);
     return group;
 }
 
@@ -658,7 +808,8 @@ function buildHelicopter(pup) {
     group.add(nose);
 
     /* Big bubble canopy. */
-    const glass = mesh(canopyGeometry(1.9, 1.5, 2.5, Math.PI * 1.5), 0x1d3247, GLASS);
+    const glass = mesh(canopyGeometry(1.9, 1.5, 2.5, Math.PI * 1.5), 0x16283a, GLASS);
+    glass.castShadow = false;
     glass.position.set(0, 0.12, 0.75);
     group.add(glass);
 
@@ -674,7 +825,7 @@ function buildHelicopter(pup) {
     const rotor = new THREE.Group();
     rotor.add(cyl(0.2, 0.2, 0.3, 0x3b4046, 12, CHROME));
     for (let i = 0; i < 4; i += 1) {
-        const blade = rbox(0.36, 0.06, 8.0, 0x2f343a, 0, 0.06, 0, { roughness: 0.5 }, 0.03);
+        const blade = rbox(0.36, 0.06, 8.0, 0x2f343a, 0, 0.06, 0, { roughness: 0.5, metalness: 0.2 }, 0.03);
         const a = (i / 4) * Math.PI * 2;
         blade.rotation.y = a;
         blade.position.set(Math.sin(a) * 3.9, 0.06, Math.cos(a) * 3.9);
@@ -686,13 +837,30 @@ function buildHelicopter(pup) {
     rotor.position.set(0, 1.3, 0.3);
     group.add(rotor);
 
+    /* The blur disc: at speed a rotor is a translucent circle, not four
+       blades, and switching to it is what stops the strobing. */
+    const disc = new THREE.Mesh(
+        new THREE.CircleGeometry(7.9, 40),
+        new THREE.MeshBasicMaterial({
+            color: 0xdfe6ee,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+        })
+    );
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(0, 1.36, 0.3);
+    group.add(disc);
+    group.userData.rotorDisc = disc;
+
     const mast = cyl(0.14, 0.17, 0.62, 0x9aa1a8, 10, CHROME);
     mast.position.set(0, 1.0, 0.3);
     group.add(mast);
 
     const tailRotor = new THREE.Group();
     for (let i = 0; i < 3; i += 1) {
-        const blade = rbox(0.07, 1.5, 0.16, 0x2f343a, 0, 0, 0, { roughness: 0.5 }, 0.03);
+        const blade = rbox(0.07, 1.5, 0.16, 0x2f343a, 0, 0, 0, { roughness: 0.5, metalness: 0.2 }, 0.03);
         const a = (i / 3) * Math.PI * 2;
         blade.rotation.z = a;
         blade.position.set(Math.sin(a) * 0.74, Math.cos(a) * 0.74, 0);
@@ -713,7 +881,7 @@ function buildHelicopter(pup) {
     }
 
     /* Paw badge on the tail. */
-    const badge = mesh(pawGeometry(0.7, 0.06), 0xffffff, { roughness: 0.3 });
+    const badge = mesh(pawGeometry(0.7, 0.06), 0xffffff, { roughness: 0.3, metalness: 0.05 });
     badge.position.set(0.23, 0.3, -size.z * 0.44);
     badge.rotation.y = Math.PI * 0.5;
     group.add(badge);
@@ -723,14 +891,21 @@ function buildHelicopter(pup) {
     driver.scale.setScalar(0.88);
     group.add(driver);
 
-    const beacon = sphere(0.14, 0xff3b30, { emissive: 0xff2a1a, emissiveIntensity: 0.9, roughness: 0.1 }, 10);
+    const beacon = lamp(0.14, 0xff3b30, 0xff2a1a, 0.9, 10);
     beacon.position.set(0, -0.98, 0.3);
     group.add(beacon);
+
+    const searchlight = lamp(0.16, 0xfff6d8, 0xfff0c0, 0.2, 10);
+    searchlight.position.set(0, -0.7, 1.7);
+    group.add(searchlight);
 
     group.userData.rotor = rotor;
     group.userData.tailRotor = tailRotor;
     group.userData.wheels = [];
     group.userData.beacon = beacon;
+    group.userData.headlights = [searchlight];
+    group.userData.brakeLights = [];
+    group.userData.reverseLights = [];
     group.userData.driver = driver;
     return group;
 }

@@ -206,6 +206,26 @@ export class GameAudio {
         water.gain.connect(this.bus);
         water.source.start();
         this.nodes.water = water;
+
+        /* ---- wind ----
+           Rushing air, rising with speed. It carries almost no information but
+           it is most of what tells you, with your eyes on the corner, that you
+           are going fast — the engine note alone says "revving", not "quick". */
+        const wind = {};
+        wind.source = ctx.createBufferSource();
+        wind.source.buffer = this.noiseBuffer(3);
+        wind.source.loop = true;
+        wind.filter = ctx.createBiquadFilter();
+        wind.filter.type = "bandpass";
+        wind.filter.frequency.value = 500;
+        wind.filter.Q.value = 0.5;
+        wind.gain = ctx.createGain();
+        wind.gain.gain.value = 0;
+        wind.source.connect(wind.filter);
+        wind.filter.connect(wind.gain);
+        wind.gain.connect(this.bus);
+        wind.source.start();
+        this.nodes.wind = wind;
     }
 
     at(param, value, smoothing = 0.08) {
@@ -220,7 +240,7 @@ export class GameAudio {
             return;
         }
 
-        const { engine, tyre, road, siren, rotor, water } = this.nodes;
+        const { engine, tyre, road, siren, rotor, water, wind } = this.nodes;
         const isHeli = state.kind === "heli";
 
         if (state.kind === "foot") {
@@ -231,28 +251,49 @@ export class GameAudio {
             this.at(road.gain.gain, 0, 0.1);
             this.at(siren.gain.gain, 0, 0.1);
             this.at(water.gain.gain, 0, 0.1);
+            this.at(wind.gain.gain, 0, 0.2);
             return;
         }
 
         if (isHeli) {
             this.at(engine.gain.gain, 0.0, 0.2);
-            const spin = clamp(state.rotor / 34, 0, 1);
+            const spin = clamp(state.rotor / (state.rotorMax || 34), 0, 1);
             this.at(rotor.gain.gain, spin * 0.34, 0.15);
             this.at(rotor.thump.frequency, 8 + spin * 16, 0.2);
             this.at(rotor.filter.frequency, 240 + spin * 420, 0.2);
         } else {
             this.at(rotor.gain.gain, 0, 0.2);
-            /* Revs rise with speed but jump when you floor it, so the engine
-               reacts to the throttle rather than only to how fast you are. */
-            const revs = clamp(Math.abs(state.speed) / state.maxSpeed, 0, 1);
+
+            /* The engine note now comes from the crankshaft, not from road
+               speed. That single change is what makes changing gear audible:
+               the pitch drops on the shift and climbs again, which is the
+               sound of a car accelerating rather than of a siren rising
+               monotonically to the horizon.
+               A four-stroke fires twice per revolution, so the fundamental is
+               rpm/30 Hz; the divisor here is a shade lower to keep the idle
+               growly rather than clicky. */
+            const rpm = state.rpm || 800;
+            const revs = clamp(rpm / (state.maxRpm || 6400), 0, 1);
             const load = clamp(Math.abs(state.throttle), 0, 1);
-            const pitch = 42 + revs * 128 + load * 26;
+            const pitch = clamp(rpm / 26, 22, 320);
             engine.oscillators.forEach(({ osc, multiple }) => {
-                this.at(osc.frequency, pitch * multiple, 0.05);
+                this.at(osc.frequency, pitch * multiple, 0.035);
             });
-            this.at(engine.filter.frequency, 260 + revs * 1500 + load * 500, 0.05);
-            this.at(engine.rumbleFilter.frequency, 90 + revs * 160, 0.1);
-            this.at(engine.gain.gain, state.idle ? 0.06 : 0.09 + load * 0.1 + revs * 0.06, 0.08);
+            this.at(engine.filter.frequency, 240 + revs * revs * 2200 + load * 700, 0.05);
+            this.at(engine.filter.Q, 3.5 + load * 2.5, 0.1);
+            this.at(engine.rumbleFilter.frequency, 80 + revs * 200, 0.1);
+
+            /* Torque cut on the shift, heard as the note going momentarily
+               slack. Wheelspin adds a thin edge on top of the load. */
+            const shiftCut = state.shifting ? 0.35 : 1;
+            const spin = clamp(state.wheelspin || 0, 0, 1.5);
+            const level = (state.idle ? 0.055 : 0.085 + load * 0.1 + revs * 0.07 + spin * 0.03) * shiftCut;
+            this.at(engine.gain.gain, level, 0.05);
+
+            if (state.gear !== this.lastGear && this.lastGear !== undefined && !state.shifting) {
+                this.shiftClunk();
+            }
+            this.lastGear = state.gear;
         }
 
         /* Road roar, only while touching the ground. */
@@ -260,12 +301,18 @@ export class GameAudio {
         this.at(road.gain.gain, rolling * 0.1, 0.1);
         this.at(road.filter.frequency, 300 + rolling * 1400, 0.1);
 
+        /* Wind, from about walking pace upward and rising steeply. */
+        const rush = clamp(Math.abs(state.speed) / (state.maxSpeed || 30), 0, 1.2);
+        this.at(wind.gain.gain, Math.max(0, rush - 0.18) * 0.16, 0.14);
+        this.at(wind.filter.frequency, 380 + rush * 1100, 0.14);
+
         /* Tyre squeal, only when they are actually sliding. */
         const squeal = clamp(state.skid, 0, 1);
-        this.at(tyre.gain.gain, squeal * squeal * 0.16, 0.06);
-        this.at(tyre.filter.frequency, 1200 + squeal * 1800, 0.06);
+        this.at(tyre.gain.gain, squeal * squeal * 0.17, 0.05);
+        this.at(tyre.filter.frequency, 1100 + squeal * 2100, 0.05);
+        this.at(tyre.filter.Q, 1.6 + squeal * 4, 0.08);
 
-        this.at(siren.gain.gain, state.siren ? 0.09 : 0, 0.05);
+        this.at(siren.gain.gain, state.siren ? 0.085 : 0, 0.05);
         this.at(water.gain.gain, state.water ? 0.13 : 0, 0.05);
     }
 
@@ -335,6 +382,64 @@ export class GameAudio {
         gain.connect(this.bus);
         source.start();
         source.stop(ctx.currentTime + 0.36);
+    }
+
+    /* Landing: the thump of the tyres and the springs taking it, layered so a
+       gentle touchdown and a two-storey drop do not sound like the same
+       event. */
+    landing(weight) {
+        if (!this.ready || this.muted || !this.ctx) return;
+        const ctx = this.ctx;
+        const amount = clamp(weight, 0.08, 1);
+
+        const source = ctx.createBufferSource();
+        source.buffer = this.noiseBuffer(0.5);
+        const filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(420 + amount * 700, ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(70, ctx.currentTime + 0.24);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(amount * 0.34, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.bus);
+        source.start();
+        source.stop(ctx.currentTime + 0.34);
+
+        /* The springs, as a short descending tone under the thump. */
+        const osc = ctx.createOscillator();
+        const oscGain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(120 + amount * 60, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(48, ctx.currentTime + 0.18);
+        oscGain.gain.setValueAtTime(amount * 0.2, ctx.currentTime);
+        oscGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+        osc.connect(oscGain);
+        oscGain.connect(this.bus);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.24);
+    }
+
+    /* A gear going home: brief, dry and low in the mix, because you should
+       notice it without ever being asked to listen to it. */
+    shiftClunk() {
+        if (!this.ready || this.muted || !this.ctx) return;
+        const ctx = this.ctx;
+        const source = ctx.createBufferSource();
+        source.buffer = this.noiseBuffer(0.14);
+        const filter = ctx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.frequency.value = 260;
+        filter.Q.value = 2.4;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.07, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.09);
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.bus);
+        source.start();
+        source.stop(ctx.currentTime + 0.12);
     }
 
     horn() {
