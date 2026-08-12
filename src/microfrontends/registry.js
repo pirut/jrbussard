@@ -39,7 +39,9 @@ export const microfrontends = [
         blurb:
             "A 3D open world for the rescue pups. Seven vehicles with real suspension, a whole island of roads, and rescues that are different every time.",
         tags: ["3D", "Open world", "Physics"],
-        element: <PupPatrol3D />,
+        /* AdventureBay, not PupPatrol3D directly: the latter is a lazy
+           component and would throw without the Suspense boundary. */
+        element: <AdventureBay />,
     },
     {
         id: "commons",
