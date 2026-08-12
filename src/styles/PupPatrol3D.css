@@ -1,0 +1,731 @@
+/*
+ * HUD for Adventure Bay. Everything here floats over a WebGL canvas, so the
+ * default is pointer-events: none and only the things you are meant to press
+ * turn it back on — a stray transparent panel swallowing clicks is the classic
+ * way to make a game feel broken.
+ */
+
+.bay {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: #0d1b2a;
+    font-family: "Baloo 2", "Nunito", "Segoe UI", system-ui, sans-serif;
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+}
+
+.bay__canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.bay kbd {
+    display: inline-block;
+    padding: 0 0.32em;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    font: inherit;
+    font-size: 0.85em;
+    line-height: 1.35;
+}
+
+/* ---------------------------------------------------------- loading */
+
+.bay__loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.9rem;
+    background: radial-gradient(circle at 50% 32%, #2f7fd4 0%, #17456f 55%, #0d1b2a 100%);
+    text-align: center;
+    padding: 2rem;
+    z-index: 40;
+}
+
+.bay__badge {
+    width: 92px;
+    height: 92px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 2.6rem;
+    background: linear-gradient(160deg, #ffd23f, #ff9f1c);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38), inset 0 -6px 0 rgba(0, 0, 0, 0.16);
+    animation: bay-bob 1.9s ease-in-out infinite;
+}
+
+@keyframes bay-bob {
+    0%,
+    100% {
+        transform: translateY(0) rotate(-4deg);
+    }
+    50% {
+        transform: translateY(-10px) rotate(4deg);
+    }
+}
+
+.bay__loading h1 {
+    margin: 0;
+    font-size: clamp(2rem, 6vw, 3.4rem);
+    letter-spacing: 0.04em;
+    text-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
+}
+
+.bay__loading-label {
+    margin: 0;
+    opacity: 0.86;
+    font-size: 1rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.bay__loading-foot {
+    margin: 0.4rem 0 0;
+    font-size: 0.85rem;
+    opacity: 0.6;
+}
+
+.bay__bar {
+    width: min(420px, 78vw);
+    height: 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    overflow: hidden;
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.32);
+}
+
+.bay__bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #ffd23f, #ff5c4d);
+    transition: width 0.25s ease-out;
+}
+
+/* ---------------------------------------------------------- chrome */
+
+.bay__topleft,
+.bay__topright {
+    position: absolute;
+    top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    z-index: 10;
+}
+
+.bay__topleft {
+    left: 12px;
+}
+
+.bay__topright {
+    right: 12px;
+}
+
+.bay__back,
+.bay__icon,
+.bay__board-open {
+    pointer-events: auto;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.38rem 0.8rem;
+    border-radius: 999px;
+    background: rgba(12, 26, 42, 0.62);
+    backdrop-filter: blur(6px);
+    color: #eaf6ff;
+    text-decoration: none;
+    font: inherit;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.bay__back:hover,
+.bay__icon:hover,
+.bay__board-open:hover {
+    background: rgba(12, 26, 42, 0.88);
+}
+
+.bay__board-open {
+    background: rgba(255, 210, 63, 0.92);
+    color: #33260a;
+    font-weight: 700;
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+.bay__place {
+    padding: 0.38rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(255, 210, 63, 0.9);
+    color: #33260a;
+    font-weight: 700;
+    font-size: 0.85rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+
+.bay__treats,
+.bay__rank {
+    padding: 0.38rem 0.8rem;
+    border-radius: 999px;
+    background: rgba(12, 26, 42, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------- minimap */
+
+.bay__mapwrap {
+    position: absolute;
+    right: 14px;
+    top: 62px;
+    padding: 5px;
+    border-radius: 14px;
+    background: rgba(12, 26, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+    z-index: 9;
+}
+
+.bay__minimap {
+    display: block;
+    border-radius: 10px;
+    width: 168px;
+    height: 168px;
+}
+
+/* ---------------------------------------------------------- roster */
+
+.bay__roster {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    z-index: 10;
+}
+
+.bay__pup {
+    pointer-events: auto;
+    cursor: pointer;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 0.34rem 0.7rem;
+    min-width: 118px;
+    text-align: left;
+    font: inherit;
+    color: #fff;
+    background: color-mix(in srgb, var(--pup) 74%, rgba(10, 20, 34, 0.72));
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.26);
+    transition: transform 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+    display: grid;
+    line-height: 1.15;
+}
+
+.bay__pup-name {
+    font-weight: 800;
+    font-size: 0.9rem;
+}
+
+.bay__pup-role {
+    font-size: 0.68rem;
+    opacity: 0.78;
+}
+
+.bay__pup:hover {
+    transform: translateX(4px);
+}
+
+.bay__pup.is-active {
+    border-color: #fff;
+    transform: translateX(8px);
+}
+
+.bay__pup.is-dimmed {
+    opacity: 0.42;
+}
+
+.bay__pup.is-needed {
+    border-color: #ffd23f;
+    animation: bay-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes bay-pulse {
+    0%,
+    100% {
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.26);
+    }
+    50% {
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.26), 0 0 0 5px rgba(255, 210, 63, 0.28);
+    }
+}
+
+/* ---------------------------------------------------------- objective */
+
+.bay__objective {
+    position: absolute;
+    left: 50%;
+    top: 12px;
+    transform: translateX(-50%);
+    width: min(420px, 62vw);
+    padding: 0.5rem 0.8rem 0.6rem;
+    border-radius: 14px;
+    background: rgba(12, 26, 42, 0.72);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-left: 5px solid var(--mission);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+    z-index: 9;
+}
+
+.bay__objective-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.6rem;
+    font-size: 0.9rem;
+}
+
+.bay__objective-head span {
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8rem;
+}
+
+.bay__objective-body {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.2rem;
+    font-size: 0.82rem;
+}
+
+.bay__objective-text {
+    flex: 1;
+    opacity: 0.9;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bay__objective-distance {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--mission);
+}
+
+.bay__arrow {
+    display: inline-block;
+    color: var(--mission);
+    font-size: 1.1rem;
+    /* The glyph points right; rotate 0 should mean straight ahead. */
+    transform-origin: 50% 50%;
+    rotate: -90deg;
+}
+
+.bay__timer {
+    position: relative;
+    height: 16px;
+    margin-top: 0.4rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+    overflow: hidden;
+}
+
+.bay__timer-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6bd66b, #ffd23f);
+    transition: width 0.2s linear;
+}
+
+.bay__timer-fill.is-urgent {
+    background: linear-gradient(90deg, #ff5c4d, #ff8a3d);
+    animation: bay-flash 0.6s steps(2) infinite;
+}
+
+@keyframes bay-flash {
+    50% {
+        opacity: 0.55;
+    }
+}
+
+.bay__timer span {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #0d1b2a;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------- speedo */
+
+.bay__speedo {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    padding: 0.45rem 1rem;
+    border-radius: 18px;
+    background: rgba(12, 26, 42, 0.58);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    z-index: 10;
+}
+
+.bay__speedo strong {
+    font-size: 2.1rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.bay__speedo span {
+    font-size: 0.72rem;
+    opacity: 0.7;
+    letter-spacing: 0.1em;
+}
+
+/* ---------------------------------------------------------- toasts */
+
+.bay__toasts {
+    position: absolute;
+    left: 50%;
+    bottom: 74px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    z-index: 11;
+    pointer-events: none;
+}
+
+.bay__toast {
+    padding: 0.4rem 1rem;
+    border-radius: 999px;
+    background: rgba(12, 26, 42, 0.86);
+    border: 1px solid var(--toast);
+    color: var(--toast);
+    font-weight: 700;
+    font-size: 0.85rem;
+    animation: bay-rise 0.28s ease-out;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+}
+
+@keyframes bay-rise {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.94);
+    }
+}
+
+.bay__nudge {
+    position: absolute;
+    left: 50%;
+    top: 40%;
+    transform: translateX(-50%);
+    margin: 0;
+    padding: 0.5rem 1.1rem;
+    border-radius: 999px;
+    background: rgba(255, 92, 77, 0.9);
+    font-weight: 700;
+    z-index: 11;
+}
+
+.bay__hint {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    margin: 0;
+    padding: 0.38rem 1rem;
+    border-radius: 999px;
+    background: rgba(12, 26, 42, 0.55);
+    font-size: 0.78rem;
+    white-space: nowrap;
+    z-index: 10;
+}
+
+/* ---------------------------------------------------------- board */
+
+.bay__board {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(6, 14, 24, 0.72);
+    backdrop-filter: blur(4px);
+    z-index: 30;
+    pointer-events: auto;
+    padding: 1rem;
+    animation: bay-fade 0.16s ease-out;
+}
+
+@keyframes bay-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+.bay__board-inner {
+    width: min(940px, 96vw);
+    max-height: 92vh;
+    overflow-y: auto;
+    background: linear-gradient(160deg, #17456f, #0d2438);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 1.1rem 1.3rem 1.3rem;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+}
+
+.bay__board-inner header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.9rem;
+}
+
+.bay__board-inner h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    letter-spacing: 0.02em;
+}
+
+.bay__cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 0.8rem;
+}
+
+.bay__card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.9rem;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-top: 4px solid var(--mission);
+}
+
+.bay__card h3 {
+    margin: 0;
+    font-size: 1.02rem;
+    color: var(--mission);
+}
+
+.bay__card p {
+    margin: 0;
+    font-size: 0.84rem;
+    line-height: 1.42;
+    opacity: 0.88;
+}
+
+.bay__card-meta {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+}
+
+.bay__card-meta li {
+    padding: 0.14rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    font-size: 0.74rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.bay__card-need {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #ffd23f;
+}
+
+.bay__accept {
+    margin-top: auto;
+    cursor: pointer;
+    border: none;
+    border-radius: 10px;
+    padding: 0.55rem;
+    font: inherit;
+    font-weight: 800;
+    color: #10202f;
+    background: var(--mission);
+    box-shadow: 0 4px 0 rgba(0, 0, 0, 0.24);
+    transition: transform 0.1s ease;
+}
+
+.bay__accept:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.24);
+}
+
+.bay__board-inner footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.bay__board-foot {
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.bay__ghost {
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: transparent;
+    color: #eaf6ff;
+    border-radius: 999px;
+    padding: 0.42rem 1rem;
+    font: inherit;
+    font-size: 0.82rem;
+}
+
+.bay__ghost:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+/* ---------------------------------------------------------- touch */
+
+.bay__touch {
+    position: absolute;
+    inset: auto 0 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0 14px 14px;
+    z-index: 12;
+    pointer-events: none;
+}
+
+.bay__wheel,
+.bay__pedals {
+    pointer-events: auto;
+}
+
+.bay__wheel {
+    width: 42vw;
+    max-width: 260px;
+    height: 92px;
+    border-radius: 18px;
+    background: rgba(12, 26, 42, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    display: grid;
+    place-items: center;
+    font-size: 0.8rem;
+    opacity: 0.75;
+    touch-action: none;
+}
+
+.bay__pedals {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+}
+
+.bay__pedal {
+    width: 66px;
+    height: 66px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    font-size: 1.4rem;
+    color: #fff;
+    background: rgba(12, 26, 42, 0.55);
+    touch-action: none;
+}
+
+.bay__pedal--go {
+    width: 84px;
+    height: 84px;
+    background: rgba(107, 214, 107, 0.6);
+}
+
+.bay__pedal--brake {
+    background: rgba(255, 92, 77, 0.55);
+}
+
+.bay__pedal--extra {
+    background: rgba(255, 210, 63, 0.5);
+}
+
+/* ---------------------------------------------------------- small screens */
+
+@media (max-width: 860px) {
+    .bay__roster {
+        top: auto;
+        bottom: 118px;
+        left: 50%;
+        transform: translateX(-50%);
+        flex-direction: row;
+        overflow-x: auto;
+        max-width: 94vw;
+        padding-bottom: 2px;
+    }
+
+    .bay__pup {
+        min-width: auto;
+        white-space: nowrap;
+        padding: 0.3rem 0.6rem;
+    }
+
+    .bay__pup-role {
+        display: none;
+    }
+
+    .bay__pup.is-active,
+    .bay__pup:hover {
+        transform: none;
+    }
+
+    .bay__hint,
+    .bay__rank {
+        display: none;
+    }
+
+    .bay__minimap {
+        width: 108px;
+        height: 108px;
+    }
+
+    .bay__objective {
+        width: min(400px, 86vw);
+        top: 56px;
+    }
+
+    .bay__speedo {
+        bottom: 108px;
+        padding: 0.3rem 0.7rem;
+    }
+
+    .bay__speedo strong {
+        font-size: 1.5rem;
+    }
+
+    .bay__toasts {
+        bottom: 190px;
+    }
+}

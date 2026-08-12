@@ -99,3 +99,22 @@ button {
         transition-duration: 0.001ms !important;
     }
 }
+
+/*
+ * Shown for the moment between opening /adventure-bay and its Three.js chunk
+ * arriving. It lives here rather than in PupPatrol3D.css because that
+ * stylesheet ships *inside* the lazy chunk — styling the fallback from there
+ * would mean the fallback is unstyled for exactly as long as it is on screen.
+ */
+.bay-boot {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 50% 32%, #2f7fd4 0%, #17456f 55%, #0d1b2a 100%);
+    color: #eaf6ff;
+    font-family: "Baloo 2", "Nunito", "Segoe UI", system-ui, sans-serif;
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}

@@ -20,10 +20,11 @@ and the page carries a screen-reader-only copy of the same content.
 
 ## The Arcade
 
-Six cabinets, five filled:
+Six cabinets, all filled:
 
 | Cabinet | What it is |
 | --- | --- |
+| **ADVENTURE BAY** | A 3D open world for the rescue pups — see below |
 | **THE COMMONS** | A real multiplayer ASCII sandbox — see below |
 | **THE NIGHT SHIFT** | Idle operations game; time away still counts, up to 8 hours |
 | **SNAKE** | The one you know. Pink apples are worth five |
@@ -31,6 +32,44 @@ Six cabinets, five filled:
 | **CHARLIE'S PAW PATROL** | Sirens and pups, built for my kid |
 
 Snake, Breakout and the idle game keep their best scores in `localStorage`.
+
+## Adventure Bay (3D)
+
+The big one. An island you drive around as any of seven rescue pups, on
+Three.js, with no downloaded assets at all — every mesh, texture and sound is
+generated in the browser at load.
+
+- **One island, generated.** Terrain is a single height function in
+  [`src/pupPatrol/world.js`](src/pupPatrol/world.js). Roads are splines laid
+  over it: a rasterisation pass stamps each into a grid of "how much road is
+  here" and "what height does the road want", and the final ground is the raw
+  terrain blended toward that. The uphill side gets cut and the downhill side
+  filled for free, so the mountain road is a notch someone carved rather than a
+  stripe painted on a slope. Grades are capped at 14% and junctions are
+  reconciled so roads that meet agree on their height.
+- **Real vehicle physics.** A rigid body with four raycast wheels on spring
+  suspension ([`physics.js`](src/pupPatrol/physics.js)). It squats under power,
+  leans into corners, unloads the inside wheels, lands nose-first off a jump
+  and can be spun by braking mid-corner — all of it falling out of forces
+  applied at the contact patches, none of it scripted. Skye's helicopter is a
+  separate flight model where the collective lifts and the cyclic tilts the
+  rotor disc.
+- **Seven pups, seven feels.** Chase is quickest on tarmac, Marshall is heavy
+  and the only one with water, Rubble cannot be hurried and shoves boulders,
+  Zuma treats the bay as a shortcut, Everest owns the mountain, Skye ignores
+  the road network entirely.
+- **Missions are generated, not authored.** Nine templates pick their own
+  locations from the road network and the terrain, decide how many of a thing
+  there are, how long you get, which pup is needed, and what it is all called.
+  Underneath they share one shape — an ordered list of objectives, each a place
+  to be and a thing to do there — which is what lets them share one update
+  loop, one marker renderer and one HUD.
+- **Get out and walk.** Press `E` to hop out and run around as the pup itself.
+
+Drive with `WASD`, `Space` for the handbrake (or climb, in the helicopter),
+`F` for whatever that pup does, `E` in and out of the truck, `R` to flip back
+over, `C` for the camera, `M` for the mission board. Touchscreens get a
+steering pad and pedals.
 
 ## The Commons (multiplayer)
 

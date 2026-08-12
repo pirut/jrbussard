@@ -6,6 +6,24 @@ import Idle from "../arcade/Idle";
 import Commons from "../arcade/Commons";
 
 /*
+ * Adventure Bay is loaded on demand. It pulls in Three.js, which is 180 kB
+ * gzipped — more than the whole rest of the site put together — and almost
+ * nobody arriving at the front page is going to open it. Importing it here
+ * eagerly would also drag WebGL into the test run, where two suites that only
+ * wanted the site index ended up failing to parse Three's ESM post-processing
+ * modules.
+ */
+const PupPatrol3D = React.lazy(() => import("../pages/PupPatrol3D"));
+
+function AdventureBay() {
+    return (
+        <React.Suspense fallback={<div className="bay-boot">Rolling out…</div>}>
+            <PupPatrol3D />
+        </React.Suspense>
+    );
+}
+
+/*
  * Small projects hosted inside this site.
  *
  * One entry here does three things: it registers the route, it lights up the
@@ -14,6 +32,15 @@ import Commons from "../arcade/Commons";
  * to plug into them.
  */
 export const microfrontends = [
+    {
+        id: "adventure-bay",
+        name: "ADVENTURE BAY",
+        route: "/adventure-bay",
+        blurb:
+            "A 3D open world for the rescue pups. Seven vehicles with real suspension, a whole island of roads, and rescues that are different every time.",
+        tags: ["3D", "Open world", "Physics"],
+        element: <PupPatrol3D />,
+    },
     {
         id: "commons",
         name: "THE COMMONS",
