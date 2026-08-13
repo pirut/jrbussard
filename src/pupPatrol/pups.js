@@ -38,13 +38,38 @@ const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
  * --------------------------------------------------------------- */
 
 const LOOKS = {
-    chase: { fur: 0xd0a065, belly: 0xf3e3c4, muzzle: 0xf0dcbb, paw: 0xe8d3ab, mark: 0x8a5a2b, pattern: "saddle", pack: "megaphone" },
-    marshall: { fur: 0xfbf7ef, belly: 0xffffff, muzzle: 0xe6ded0, paw: 0xddd3c2, mark: 0x2c2c31, pattern: "spots", pack: "hose" },
-    skye: { fur: 0xf6ddaf, belly: 0xfff3de, muzzle: 0xfdf0d6, paw: 0xecd6a8, mark: 0xd8b276, pattern: "none", pack: "wings" },
-    rubble: { fur: 0xdaa94c, belly: 0xf6e2b4, muzzle: 0xf2dda9, paw: 0xc6913a, mark: 0xa87226, pattern: "patch", pack: "shovel" },
-    rocky: { fur: 0xc0b9ab, belly: 0xeeeae0, muzzle: 0xe4dfd4, paw: 0xa8a294, mark: 0x6f6a62, pattern: "patch", pack: "claw" },
-    zuma: { fur: 0xb07b45, belly: 0xdcae76, muzzle: 0xd9ab72, paw: 0x94623a, mark: 0x7d5028, pattern: "none", pack: "scuba" },
-    everest: { fur: 0xf4eee5, belly: 0xffffff, muzzle: 0xe8e2d8, paw: 0xd6d0c6, mark: 0x8494a4, pattern: "husky", pack: "grapple" },
+    /* `ears` is not decoration. A German Shepherd's ears stand up and a
+       Dalmatian's hang down, and getting that one property right does more for
+       telling seven pups apart at a glance than every other difference on this
+       line put together. */
+    chase: {
+        fur: 0xd2a469, belly: 0xf6e8cd, muzzle: 0xf6e8cd, paw: 0xecd8b2, mark: 0x8a5a2b,
+        pattern: "saddle", ears: "erect", pack: "megaphone",
+    },
+    marshall: {
+        fur: 0xfcf8f1, belly: 0xffffff, muzzle: 0xf2ece2, paw: 0xe6ded0, mark: 0x2c2c31,
+        pattern: "spots", ears: "flop", pack: "hose",
+    },
+    skye: {
+        fur: 0xf7e0b4, belly: 0xfff6e4, muzzle: 0xfff6e4, paw: 0xeed9ae, mark: 0xd8b276,
+        pattern: "none", ears: "flop", pack: "wings",
+    },
+    rubble: {
+        fur: 0xddae54, belly: 0xf8e7bd, muzzle: 0xf8e7bd, paw: 0xc6913a, mark: 0xa87226,
+        pattern: "patch", ears: "flop", pack: "shovel",
+    },
+    rocky: {
+        fur: 0xc3bcae, belly: 0xf0ede4, muzzle: 0xf0ede4, paw: 0xa8a294, mark: 0x6f6a62,
+        pattern: "patch", ears: "mixed", pack: "claw",
+    },
+    zuma: {
+        fur: 0xb5814a, belly: 0xe0b47e, muzzle: 0xe0b47e, paw: 0x94623a, mark: 0x7d5028,
+        pattern: "none", ears: "flop", pack: "scuba",
+    },
+    everest: {
+        fur: 0xf6f1e9, belly: 0xffffff, muzzle: 0xf2ece2, paw: 0xdcd6cc, mark: 0x8494a4,
+        pattern: "husky", ears: "erect", pack: "grapple",
+    },
 };
 
 const lookFor = (id) => LOOKS[id] || LOOKS.chase;
@@ -97,6 +122,14 @@ function slab(w, h, d, colour, kind, radius) {
     return part(roundedBox(w, h, d, radius ?? Math.min(w, h, d) * 0.34, 3), colour, kind);
 }
 
+/* A soft tapered wedge: wide and thin at the base, narrowing to a rounded
+   point. Ears are this shape, and a box with rounded corners is not. */
+function coneGeometry(width, height, depth) {
+    const geo = new THREE.CylinderGeometry(width * 0.14, width * 0.5, height, 12, 1);
+    geo.scale(1, 1, depth / (width * 0.5));
+    return geo;
+}
+
 /* A marking laid on the surface of a sphere: a flattened disc pushed out along
    its own normal so it sits on the fur rather than in it. Cheaper and far more
    controllable than trying to paint spots through a sphere's UVs, where
@@ -119,202 +152,313 @@ function marking(parent, radius, dir, size, colour, squash = 0.34) {
  * the windscreen is the same face you see when you get out.
  * --------------------------------------------------------------- */
 
+/*
+ * An ear.
+ *
+ * Two styles, and the difference is the single loudest identifier a pup has.
+ * An erect ear is a tapered triangle standing off the top corner of the skull;
+ * a flop ear is the same triangle hinged over halfway down so it hangs. Both
+ * get a paler inner surface, because an ear with one colour is a fin.
+ */
+function buildEar(look, R, side, style) {
+    const root = new THREE.Group();
+    const ear = { root, side };
+
+    if (style === "erect") {
+        root.position.set(side * R * 0.7, R * 0.5, -R * 0.1);
+        root.rotation.z = side * 0.32;
+        root.rotation.x = -0.14;
+
+        /* Thin front-to-back. The depth argument is what makes an ear an ear
+           rather than a horn, and the first version was deeper than it was
+           wide. */
+        const shell = part(coneGeometry(R * 0.4, R * 0.94, R * 0.09), look.mark, "fur");
+        shell.position.y = R * 0.44;
+        root.add(shell);
+
+        const inner = part(coneGeometry(R * 0.19, R * 0.52, R * 0.025), look.muzzle, "fur");
+        inner.position.set(0, R * 0.34, R * 0.05);
+        inner.castShadow = false;
+        root.add(inner);
+
+        /* Erect ears still move; they pivot near the tip rather than folding. */
+        const hinge = new THREE.Group();
+        hinge.position.y = R * 0.72;
+        root.add(hinge);
+        ear.hinge = hinge;
+        ear.erect = true;
+        return ear;
+    }
+
+    root.position.set(side * R * 0.82, R * 0.42, -R * 0.02);
+    root.rotation.z = side * 0.46;
+    root.rotation.x = -0.08;
+
+    const upper = part(coneGeometry(R * 0.44, R * 0.6, R * 0.13), look.mark, "fur");
+    upper.rotation.x = Math.PI;
+    upper.position.y = -R * 0.28;
+    root.add(upper);
+
+    const hinge = new THREE.Group();
+    hinge.position.y = -R * 0.56;
+    root.add(hinge);
+
+    const lower = part(coneGeometry(R * 0.34, R * 0.54, R * 0.1), look.mark, "fur");
+    lower.rotation.x = Math.PI;
+    lower.position.y = -R * 0.25;
+    hinge.add(lower);
+
+    const inner = part(coneGeometry(R * 0.15, R * 0.34, R * 0.025), look.muzzle, "fur");
+    inner.rotation.x = Math.PI;
+    inner.position.set(side * -R * 0.05, -R * 0.22, R * 0.07);
+    inner.castShadow = false;
+    hinge.add(inner);
+
+    ear.hinge = hinge;
+    ear.erect = false;
+    return ear;
+}
+
+/*
+ * The head.
+ *
+ * Three things carry the likeness, and everything else is scaffolding:
+ *
+ *   The eyes. Tall ovals, not spheres, set close together and taking up most
+ *   of the front of the face — and the iris fills three quarters of the eye,
+ *   which is the actual reason cartoon animals read as young. A round eyeball
+ *   with a small iris reads as a bird.
+ *
+ *   The snout. It tapers. A ball stuck on a ball is a bear; a narrow bridge
+ *   running out from between the eyes to a small rounded nose pad is a dog,
+ *   and the taper is the whole difference.
+ *
+ *   The ears, per breed, above.
+ *
+ * Shared with the driver sitting in each truck, so the face you see through
+ * the windscreen is the same face you see when you get out.
+ */
 export function buildPupHead(pup, options = {}) {
     const look = lookFor(pup.id);
     const head = new THREE.Group();
     const R = 0.3;
 
-    const skull = ball(R, look.fur, "fur", 22);
-    skull.scale.set(1, 0.96, 1.02);
+    /* Skull: a touch taller than it is deep, with the mass carried high. */
+    const skull = ball(R, look.fur, "fur", 24);
+    skull.scale.set(1, 1.04, 0.96);
     head.add(skull);
 
-    /* Cheeks: two small spheres broadening the jaw. Kept well inside the
-       skull's silhouette — pushed out even slightly too far they stop reading
-       as cheeks and start reading as a second pair of ears. */
+    /* The brow mass — a wider, flatter sphere across the top of the face. It
+       is what the eyes sit under, and without it they sit *on* a ball. */
+    const brow = ball(R * 0.68, look.fur, "fur", 18);
+    brow.scale.set(1.08, 0.62, 0.82);
+    brow.position.set(0, R * 0.34, R * 0.06);
+    brow.castShadow = false;
+    head.add(brow);
+
+    /* ---- snout ----
+       Bridge, pad and jaw. Three parts because the taper is the likeness. */
+    const bridge = ball(R * 0.3, look.muzzle, "fur", 16);
+    bridge.scale.set(0.78, 0.72, 1.7);
+    bridge.position.set(0, -R * 0.1, R * 0.68);
+    head.add(bridge);
+
+    const pad = ball(R * 0.32, look.muzzle, "fur", 18);
+    pad.scale.set(1.06, 0.9, 0.94);
+    pad.position.set(0, -R * 0.16, R * 1.06);
+    head.add(pad);
+
+    const jaw = ball(R * 0.34, look.muzzle, "fur", 16);
+    jaw.scale.set(0.94, 0.6, 1.15);
+    jaw.position.set(0, -R * 0.42, R * 0.7);
+    jaw.castShadow = false;
+    head.add(jaw);
+
+    /* Cheeks, tucked well inside the silhouette. Pushed out even slightly too
+       far they stop reading as cheeks and start reading as a second pair of
+       ears — which is exactly what happened the first time. */
     for (const side of [-1, 1]) {
-        const cheek = ball(R * 0.3, look.muzzle, "fur", 12);
-        cheek.scale.set(1, 0.85, 1.1);
-        cheek.position.set(side * R * 0.46, -R * 0.34, R * 0.5);
+        const cheek = ball(R * 0.3, look.fur, "fur", 12);
+        cheek.scale.set(0.9, 0.86, 1.05);
+        cheek.position.set(side * R * 0.5, -R * 0.3, R * 0.34);
         cheek.castShadow = false;
         head.add(cheek);
     }
 
-    /* Muzzle: a stubby rounded wedge, wider than it is tall, protruding a
-       clear third of a head radius past the skull. */
-    const muzzle = ball(R * 0.46, look.muzzle, "fur", 18);
-    muzzle.scale.set(1.05, 0.82, 1.25);
-    muzzle.position.set(0, -R * 0.3, R * 0.8);
-    head.add(muzzle);
-
-    const nose = ball(R * 0.17, 0x2b2429, "wet", 14);
-    nose.scale.set(1.3, 0.95, 0.85);
-    nose.position.set(0, -R * 0.14, R * 1.3);
+    const nose = ball(R * 0.128, 0x2b2429, "wet", 16);
+    nose.scale.set(1.3, 0.95, 0.9);
+    nose.position.set(0, -R * 0.02, R * 1.3);
     head.add(nose);
 
-    /* The mouth line, and a suggestion of a tongue behind it. */
-    const mouth = part(roundedBox(R * 0.3, R * 0.05, R * 0.09, R * 0.025, 2), 0x40282c, "fur", 0, -R * 0.5, R * 1.16);
-    mouth.castShadow = false;
-    head.add(mouth);
+    /* A smile, as an arc rather than a bar. The bar version reads as a frown
+       no matter where it is put, because a straight mouth on a round face
+       always does. */
+    const smile = new THREE.Mesh(
+        new THREE.TorusGeometry(R * 0.17, R * 0.022, 6, 16, Math.PI - 1.0),
+        mat(0x4a2f2c, "fur")
+    );
+    smile.rotation.z = Math.PI + 0.5;
+    smile.position.set(0, -R * 0.24, R * 1.2);
+    smile.castShadow = false;
+    head.add(smile);
 
     /* ---- eyes ----
-       Big, wet, and set well forward. The white sphere reads as an eye; the
-       highlight is what makes it read as alive. */
+       Tall ovals, close together, high on the face. */
     const eyes = [];
     for (const side of [-1, 1]) {
         const socket = new THREE.Group();
-        socket.position.set(side * R * 0.37, R * 0.13, R * 0.79);
+        socket.position.set(side * R * 0.33, R * 0.2, R * 0.72);
+        socket.rotation.y = side * -0.16;
         head.add(socket);
 
         /* A dark rim just behind the eyeball. Without it a white sclera on
            white fur has no edge at all, and Marshall ends up with two faint
            smudges where his eyes should be. */
-        const rim = ball(R * 0.29, 0x3b2f2b, "fur", 14);
-        rim.scale.set(0.96, 1.08, 0.8);
+        const rim = ball(R * 0.31, 0x3b2f2b, "fur", 16);
+        rim.scale.set(0.9, 1.3, 0.62);
         rim.castShadow = false;
         socket.add(rim);
 
-        const white = ball(R * 0.275, 0xfdfdff, "wet", 18);
-        white.scale.set(0.94, 1.06, 0.85);
+        const white = ball(R * 0.295, 0xfdfdff, "wet", 20);
+        white.scale.set(0.9, 1.3, 0.66);
         socket.add(white);
 
-        /* Iris and pupil both large: the single biggest lever on how young and
-           how friendly a stylised animal reads is how much of the eye is dark. */
-        const iris = ball(R * 0.185, 0x4a2c15, "wet", 16);
-        iris.scale.set(1, 1, 0.45);
-        iris.position.set(side * R * 0.02, -R * 0.01, R * 0.18);
+        /* The iris fills three quarters of the eye. This is the single
+           strongest lever on how young a stylised animal reads, and the
+           previous pass had it at barely half. */
+        const iris = ball(R * 0.225, 0x59320f, "wet", 18);
+        iris.scale.set(1, 1.06, 0.34);
+        iris.position.set(side * R * 0.015, -R * 0.03, R * 0.15);
         socket.add(iris);
 
-        const pupil = ball(R * 0.115, 0x120e0d, "wet", 14);
-        pupil.scale.set(1, 1, 0.45);
-        pupil.position.set(side * R * 0.02, -R * 0.01, R * 0.22);
+        const pupil = ball(R * 0.13, 0x0f0c0b, "wet", 14);
+        pupil.scale.set(1, 1.08, 0.3);
+        pupil.position.set(side * R * 0.015, -R * 0.03, R * 0.185);
         socket.add(pupil);
 
-        /* Two highlights, one big and one small, both offset the same way on
-           both eyes — a highlight that mirrors between the eyes looks wrong
-           and nobody can say why. */
-        const glint = ball(R * 0.075, 0xffffff, "wet", 10);
-        glint.position.set(-R * 0.075, R * 0.09, R * 0.24);
+        /* Two highlights, offset the same way on both eyes — a highlight that
+           mirrors between the eyes looks wrong and nobody can say why. */
+        const glint = ball(R * 0.082, 0xffffff, "wet", 12);
+        glint.scale.set(1, 1.1, 0.4);
+        glint.position.set(-R * 0.085, R * 0.11, R * 0.2);
         glint.castShadow = false;
         socket.add(glint);
-        const glint2 = ball(R * 0.03, 0xffffff, "wet", 8);
-        glint2.position.set(R * 0.08, -R * 0.07, R * 0.23);
+        const glint2 = ball(R * 0.038, 0xffffff, "wet", 8);
+        glint2.scale.set(1, 1.1, 0.4);
+        glint2.position.set(R * 0.09, -R * 0.11, R * 0.19);
         glint2.castShadow = false;
         socket.add(glint2);
 
-        /* The lid rides above the eye and drops to close it. Slightly larger
-           than the eyeball so a closed lid covers it completely. */
-        const lid = ball(R * 0.305, look.fur, "fur", 14);
-        lid.scale.set(0.96, 1.08, 0.9);
-        lid.position.y = R * 0.36;
-        socket.add(lid);
+        /* ---- the lid ----
+         *
+         * Hung from a pivot at the top of the eye and scaled down rather than
+         * slid up out of the way. Sliding is the obvious approach and it does
+         * not work: parked high enough to uncover the eye, the lid clears the
+         * skull entirely and sits above the head as a pale egg — which is
+         * exactly what the previous version was doing, and it read so much
+         * like an ear that it took a screenshot to notice.
+         *
+         * Scaling from a pivot at the brow closes the way a real lid closes,
+         * top downward, and vanishes completely when open. */
+        const lidPivot = new THREE.Group();
+        lidPivot.position.y = R * 0.4;
+        lidPivot.scale.y = 0;
+        socket.add(lidPivot);
 
-        eyes.push({ socket, lid, open: R * 0.36 });
-    }
+        const lid = ball(R * 0.33, look.fur, "fur", 16);
+        lid.scale.set(0.94, 1.3, 0.74);
+        lid.position.y = -R * 0.33 * 1.3;
+        lid.castShadow = false;
+        lidPivot.add(lid);
 
-    /* Brows, in the marking colour: the single cheapest way to give a face an
-       expression it did not have. */
-    for (const side of [-1, 1]) {
-        const brow = part(
-            roundedBox(R * 0.26, R * 0.055, R * 0.09, R * 0.025, 2),
-            look.mark,
-            "fur",
-            side * R * 0.37,
-            R * 0.45,
-            R * 0.76
+        /* A dark line along the top edge of the eye, always there. Every drawn
+           version of these characters has one, and it is what stops a big
+           round eye reading as a marble. */
+        const lash = new THREE.Mesh(
+            new THREE.TorusGeometry(R * 0.27, R * 0.019, 6, 16, Math.PI * 0.85),
+            mat(0x2f2521, "fur")
         );
-        /* Outer end up, inner end down. The opposite — which is what a
-           symmetric slab defaults to — is the universal cartoon shorthand for
-           cross, and it is remarkable how stern a friendly dog looks with it. */
-        brow.rotation.z = side * 0.2;
-        brow.castShadow = false;
-        head.add(brow);
+        lash.scale.set(1, 1.16, 0.5);
+        lash.position.set(0, R * 0.01, R * 0.17);
+        lash.rotation.z = -0.4;
+        lash.castShadow = false;
+        socket.add(lash);
+
+        eyes.push({ socket, lid: lidPivot });
     }
 
-    /* ---- ears ----
-       Two joints each, so they can flop rather than swing as one rigid flap. */
+    /* ---- ears ---- */
     const ears = [];
     for (const side of [-1, 1]) {
-        const root = new THREE.Group();
-        root.position.set(side * R * 0.8, R * 0.2, R * 0.02);
-        root.rotation.z = side * 0.68;
-        root.rotation.x = -0.1;
-        root.rotation.y = side * -0.3;
-        head.add(root);
-
-        const upper = slab(R * 0.3, R * 0.6, R * 0.4, look.mark, "fur", R * 0.13);
-        upper.position.y = -R * 0.29;
-        root.add(upper);
-
-        const hinge = new THREE.Group();
-        hinge.position.y = -R * 0.58;
-        root.add(hinge);
-
-        const lower = slab(R * 0.25, R * 0.5, R * 0.34, look.mark, "fur", R * 0.11);
-        lower.position.y = -R * 0.24;
-        hinge.add(lower);
-
-        /* A paler inner ear, so the flap has a front and a back. */
-        const inner = slab(R * 0.04, R * 0.32, R * 0.18, look.muzzle, "fur", R * 0.02);
-        inner.position.set(side * -R * 0.13, -R * 0.24, 0);
-        inner.castShadow = false;
-        hinge.add(inner);
-
-        ears.push({ root, hinge, side });
+        let style = look.ears;
+        /* Rocky wears one up and one down, which is the entire joke. */
+        if (style === "mixed") style = side < 0 ? "erect" : "flop";
+        const ear = buildEar(look, R, side, style);
+        head.add(ear.root);
+        ears.push(ear);
     }
 
-    /* ---- cap ---- */
+    /* ---- cap ----
+       A baseball cap: rounded crown, a curved peak, the emblem on the front,
+       sitting between the ears rather than over them. */
     if (options.cap !== false) {
         const cap = new THREE.Group();
-        cap.position.y = R * 0.62;
+        cap.position.set(0, R * 0.6, R * 0.04);
+        cap.rotation.x = -0.1;
         head.add(cap);
 
-        const dome = part(
-            new THREE.SphereGeometry(R * 0.86, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.56),
+        const crown = part(
+            new THREE.SphereGeometry(R * 0.62, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.66),
             pup.colour,
             "kit"
         );
-        dome.scale.set(1.02, 0.62, 1.02);
-        cap.add(dome);
+        crown.scale.set(1.06, 0.84, 1.06);
+        cap.add(crown);
 
-        const band = part(new THREE.TorusGeometry(R * 0.85, R * 0.06, 8, 24), pup.trim, "kit");
-        band.rotation.x = Math.PI / 2;
-        band.position.y = -R * 0.02;
-        cap.add(band);
+        const seam = part(new THREE.TorusGeometry(R * 0.65, R * 0.042, 8, 26), pup.trim, "kit");
+        seam.rotation.x = Math.PI / 2;
+        seam.position.y = -R * 0.02;
+        cap.add(seam);
 
-        const brim = slab(R * 1.05, R * 0.08, R * 0.66, pup.colour, "kit", R * 0.035);
-        brim.position.set(0, -R * 0.04, R * 0.78);
-        brim.rotation.x = -0.16;
-        cap.add(brim);
+        /* A curved peak, from a shallow ring segment. A flat slab reads as a
+           visor. */
+        const peak = part(
+            new THREE.CylinderGeometry(R * 0.88, R * 0.88, R * 0.06, 20, 1, false, -0.9, 1.8),
+            pup.colour,
+            "kit"
+        );
+        peak.scale.set(1, 1, 0.66);
+        peak.position.set(0, -R * 0.02, R * 0.18);
+        cap.add(peak);
 
-        const badge = part(pawGeometry(R * 0.6, R * 0.045), 0xffffff, "kit", 0, R * 0.16, R * 0.64);
-        badge.rotation.x = -0.55;
+        const button = ball(R * 0.09, pup.trim, "kit", 10);
+        button.position.y = R * 0.52;
+        cap.add(button);
+
+        const badge = part(pawGeometry(R * 0.42, R * 0.03), 0xffffff, "kit", 0, R * 0.18, R * 0.5);
+        badge.rotation.x = -0.4;
         cap.add(badge);
     }
 
     /* ---- breed markings ---- */
-    const look3 = look.pattern;
-    if (look3 === "spots") {
-        const spots = [
-            [-0.55, 0.5, 0.6],
-            [0.62, 0.28, 0.55],
-            [-0.3, -0.5, 0.72],
-            [0.75, -0.3, 0.4],
-            [-0.8, 0.05, 0.2],
-        ];
-        spots.forEach(([x, y, z], i) =>
-            marking(head, R, new THREE.Vector3(x, y, z), R * (0.16 + (i % 3) * 0.04), look.mark)
-        );
-    } else if (look3 === "saddle") {
-        marking(head, R, new THREE.Vector3(0, 0.75, -0.4), R * 0.4, look.mark, 0.28);
-    } else if (look3 === "husky") {
+    if (look.pattern === "spots") {
+        [
+            [-0.6, 0.55, 0.55, 0.19],
+            [0.68, 0.3, 0.5, 0.16],
+            [-0.85, -0.1, 0.15, 0.14],
+            [0.5, 0.72, -0.2, 0.15],
+        ].forEach(([x, y, z, r]) => marking(head, R, new THREE.Vector3(x, y, z), R * r, look.mark));
+    } else if (look.pattern === "saddle") {
+        marking(head, R, new THREE.Vector3(0, 0.8, -0.5), R * 0.42, look.mark, 0.26);
+    } else if (look.pattern === "husky") {
         for (const side of [-1, 1]) {
-            marking(head, R, new THREE.Vector3(side * 0.55, 0.55, 0.5), R * 0.24, look.mark, 0.25);
+            marking(head, R, new THREE.Vector3(side * 0.5, 0.6, 0.4), R * 0.26, look.mark, 0.22);
         }
-    } else if (look3 === "patch") {
-        marking(head, R, new THREE.Vector3(-0.6, 0.3, 0.62), R * 0.26, look.mark, 0.25);
+    } else if (look.pattern === "patch") {
+        marking(head, R, new THREE.Vector3(-0.62, 0.35, 0.55), R * 0.28, look.mark, 0.22);
     }
 
-    head.userData = { eyes, ears, skull, muzzle };
+    head.userData = { eyes, ears, skull };
     return head;
 }
 
@@ -431,9 +575,9 @@ export function buildPupMesh(pup) {
     /* ---- torso ----
        Deep and short. The chest sits forward and a shade higher than the hips,
        which is what gives a four-legged animal its line. */
-    const chest = capsule(0.185, 0.2, look.fur, "fur", 16);
+    const chest = capsule(0.163, 0.22, look.fur, "fur", 16);
     chest.rotation.x = Math.PI / 2;
-    chest.position.set(0, 0.02, 0.08);
+    chest.position.set(0, 0.015, 0.075);
     root.add(chest);
 
     const hips = ball(0.175, look.fur, "fur", 18);
@@ -464,9 +608,14 @@ export function buildPupMesh(pup) {
 
     /* A ruff where the neck meets the chest, so the head is joined on rather
        than balanced on top. */
-    const ruff = ball(0.135, look.fur, "fur", 14);
-    ruff.scale.set(1, 0.95, 0.8);
-    ruff.position.set(0, 0.07, 0.17);
+    const neckColumn = capsule(0.088, 0.07, look.fur, "fur", 12);
+    neckColumn.rotation.x = 0.5;
+    neckColumn.position.set(0, 0.115, 0.185);
+    root.add(neckColumn);
+
+    const ruff = ball(0.125, look.fur, "fur", 14);
+    ruff.scale.set(1, 0.9, 0.72);
+    ruff.position.set(0, 0.06, 0.16);
     root.add(ruff);
 
     /* Markings hang off their own unrotated, unscaled anchor. Putting them on
@@ -486,7 +635,7 @@ export function buildPupMesh(pup) {
         ].forEach(([x, y, z, r]) => {
             const spot = ball(r, look.mark, "fur", 12);
             const dir = new THREE.Vector3(x, y, z).normalize();
-            spot.position.set(dir.x * 0.175, dir.y * 0.15 - 0.01, dir.z * 0.24 - 0.05);
+            spot.position.set(dir.x * 0.195, dir.y * 0.17 - 0.01, dir.z * 0.27 - 0.05);
             spot.scale.set(1, 0.6, 1);
             spot.castShadow = false;
             hide.add(spot);
@@ -494,14 +643,14 @@ export function buildPupMesh(pup) {
     } else if (look.pattern === "saddle" || look.pattern === "husky") {
         /* A darker coat over the back and shoulders, stopping short of the
            belly. Two spheres rather than one so it follows the body's line. */
-        const back = ball(0.183, look.mark, "fur", 16);
-        back.scale.set(0.97, 0.78, 1.05);
-        back.position.set(0, 0.035, 0.06);
+        const back = ball(0.185, look.mark, "fur", 18);
+        back.scale.set(0.98, 0.92, 1.3);
+        back.position.set(0, 0.02, 0.02);
         back.castShadow = false;
         hide.add(back);
-        const rump = ball(0.175, look.mark, "fur", 16);
-        rump.scale.set(0.97, 0.72, 1.1);
-        rump.position.set(0, 0.03, -0.2);
+        const rump = ball(0.184, look.mark, "fur", 16);
+        rump.scale.set(0.98, 0.92, 1.1);
+        rump.position.set(0, 0.01, -0.19);
         rump.castShadow = false;
         hide.add(rump);
     } else if (look.pattern === "patch") {
@@ -537,12 +686,12 @@ export function buildPupMesh(pup) {
 
     /* ---- head ---- */
     const neck = new THREE.Group();
-    neck.position.set(0, 0.11, 0.19);
+    neck.position.set(0, 0.135, 0.2);
     root.add(neck);
 
     const head = buildPupHead(pup);
     head.scale.setScalar(0.95);
-    head.position.set(0, 0.17, 0.07);
+    head.position.set(0, 0.2, 0.11);
     neck.add(head);
 
     /* ---- legs ----
@@ -854,9 +1003,18 @@ export class PupOnFoot {
         this.earPitch = clamp(this.earPitch, -1.1, 0.9);
         for (let i = 0; i < ears.length; i += 1) {
             const ear = ears[i];
-            ear.root.rotation.x = this.earPitch * 0.55;
-            ear.hinge.rotation.x = this.earPitch;
-            ear.hinge.rotation.z = ear.side * this.earPitch * 0.2;
+            if (ear.erect) {
+                /* An ear that stands up does not flop; it swivels and tips
+                   back. Driving both styles off the same spring with the same
+                   sign would have a German Shepherd's ears folding inside out
+                   every time he landed. */
+                ear.root.rotation.x = -0.14 + this.earPitch * 0.3;
+                ear.root.rotation.z = ear.side * (0.26 - this.earPitch * 0.16);
+            } else {
+                ear.root.rotation.x = -0.1 + this.earPitch * 0.5;
+                ear.hinge.rotation.x = this.earPitch;
+                ear.hinge.rotation.z = ear.side * this.earPitch * 0.22;
+            }
         }
 
         /* ---- tail ----
@@ -885,7 +1043,9 @@ export class PupOnFoot {
         /* One fast down-up rather than a linear fade. */
         const shut = Math.sin(clamp(this.blink, 0, 1) * Math.PI);
         for (let i = 0; i < eyes.length; i += 1) {
-            eyes[i].lid.position.y = eyes[i].open * (1 - shut);
+            const lid = eyes[i].lid;
+            lid.scale.y = shut;
+            lid.visible = shut > 0.02;
         }
     }
 
