@@ -196,10 +196,10 @@ const GradeShader = {
         uExposure: { value: 1.05 },
         uSpeedBlur: { value: 0 },
         uAberration: { value: 0.0016 },
-        uVignette: { value: 0.34 },
+        uVignette: { value: 0.28 },
         uSaturation: { value: 1.12 },
-        uContrast: { value: 1.06 },
-        uLift: { value: new THREE.Vector3(0.006, 0.008, 0.014) },
+        uContrast: { value: 1.1 },
+        uLift: { value: new THREE.Vector3(0.002, 0.003, 0.006) },
         uGain: { value: new THREE.Vector3(1.02, 1.0, 0.985) },
         uGrain: { value: 0.028 },
         uFlash: { value: 0 },
@@ -312,11 +312,22 @@ export class PostFX {
         this.composer.addPass(new RenderPass(scene, camera));
 
         if (quality.bloom) {
-            /* Kept above a high threshold so it only catches siren domes,
-               headlights, chrome and sun on water — enough to make the lights
-               feel lit rather than painted, without hazing the whole picture
-               into a soft-focus mess. */
-            this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.62, 0.85);
+            /*
+             * Bloom, and the threshold is the whole argument.
+             *
+             * This pass runs *before* the tone map, on linear HDR values, and a
+             * threshold of 0.85 in linear terms is not "bright highlights" — it
+             * is most of a sunlit scene. Every white wall, every stretch of lit
+             * grass and the entire sky were over it, so the whole picture got a
+             * halo and the game looked like it was being viewed through
+             * greaseproof paper.
+             *
+             * At 1.9 only things genuinely brighter than white get through:
+             * siren domes, headlights, sun on chrome, sun on water. Strength
+             * comes down to match, because the point is to make lights look
+             * lit, not to make the image soft.
+             */
+            this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.5, 1.9);
             this.composer.addPass(this.bloom);
         }
 
@@ -350,7 +361,7 @@ export class PostFX {
         /* Under water the whole picture goes green and loses its contrast. */
         const wet = state.submerged ? 1 : 0;
         u.uSaturation.value += (1.12 - wet * 0.34 - u.uSaturation.value) * Math.min(1, dt * 4);
-        u.uContrast.value += (1.06 - wet * 0.14 - u.uContrast.value) * Math.min(1, dt * 4);
+        u.uContrast.value += (1.1 - wet * 0.14 - u.uContrast.value) * Math.min(1, dt * 4);
     }
 
     render(scene, camera, dt) {

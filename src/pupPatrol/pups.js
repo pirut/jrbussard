@@ -122,6 +122,41 @@ function slab(w, h, d, colour, kind, radius) {
     return part(roundedBox(w, h, d, radius ?? Math.min(w, h, d) * 0.34, 3), colour, kind);
 }
 
+/*
+ * A surface of revolution swept along Z.
+ *
+ * This is the single most important helper in the file. A dog's head and a
+ * dog's body are each *one* form that changes width along its length — a skull
+ * that narrows into a muzzle, a chest that tapers to a waist and swells again
+ * at the hips. Approximating either as a pile of overlapping spheres gives you
+ * the right silhouette from exactly one angle and a bag of lumps from every
+ * other, which is what the previous three attempts were.
+ *
+ * `profile` is a list of [z, radius] pairs from tail to nose. `droop` bends the
+ * front of the form downward, which is how a muzzle sits below the line of the
+ * skull without being a separate object stuck on the end.
+ */
+function revolve(profile, { segments = 22, squash = 1, widen = 1, droop = 0, droopFrom = 0 } = {}) {
+    const points = profile.map(([z, r]) => new THREE.Vector2(Math.max(r, 0.0002), z));
+    const geo = new THREE.LatheGeometry(points, segments);
+    /* Lathe sweeps around Y; rotating a quarter turn stands the axis along Z. */
+    geo.rotateX(Math.PI / 2);
+
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i += 1) {
+        const x = pos.getX(i) * widen;
+        let y = pos.getY(i) * squash;
+        const z = pos.getZ(i);
+        if (droop > 0 && z > droopFrom) {
+            const t = z - droopFrom;
+            y -= t * t * droop;
+        }
+        pos.setXYZ(i, x, y, z);
+    }
+    geo.computeVertexNormals();
+    return geo;
+}
+
 /* A soft tapered wedge: wide and thin at the base, narrowing to a rounded
    point. Ears are this shape, and a box with rounded corners is not. */
 function coneGeometry(width, height, depth) {
@@ -172,11 +207,11 @@ function buildEar(look, R, side, style) {
         /* Thin front-to-back. The depth argument is what makes an ear an ear
            rather than a horn, and the first version was deeper than it was
            wide. */
-        const shell = part(coneGeometry(R * 0.4, R * 0.94, R * 0.09), look.mark, "fur");
+        const shell = part(coneGeometry(R * 0.48, R * 0.92, R * 0.13), look.mark, "fur");
         shell.position.y = R * 0.44;
         root.add(shell);
 
-        const inner = part(coneGeometry(R * 0.19, R * 0.52, R * 0.025), look.muzzle, "fur");
+        const inner = part(coneGeometry(R * 0.24, R * 0.54, R * 0.03), look.muzzle, "fur");
         inner.position.set(0, R * 0.34, R * 0.05);
         inner.castShadow = false;
         root.add(inner);
@@ -194,7 +229,7 @@ function buildEar(look, R, side, style) {
     root.rotation.z = side * 0.46;
     root.rotation.x = -0.08;
 
-    const upper = part(coneGeometry(R * 0.44, R * 0.6, R * 0.13), look.mark, "fur");
+    const upper = part(coneGeometry(R * 0.5, R * 0.6, R * 0.16), look.mark, "fur");
     upper.rotation.x = Math.PI;
     upper.position.y = -R * 0.28;
     root.add(upper);
@@ -203,7 +238,7 @@ function buildEar(look, R, side, style) {
     hinge.position.y = -R * 0.56;
     root.add(hinge);
 
-    const lower = part(coneGeometry(R * 0.34, R * 0.54, R * 0.1), look.mark, "fur");
+    const lower = part(coneGeometry(R * 0.4, R * 0.54, R * 0.13), look.mark, "fur");
     lower.rotation.x = Math.PI;
     lower.position.y = -R * 0.25;
     hinge.add(lower);
@@ -243,51 +278,75 @@ export function buildPupHead(pup, options = {}) {
     const head = new THREE.Group();
     const R = 0.3;
 
-    /* Skull: a touch taller than it is deep, with the mass carried high. */
-    const skull = ball(R, look.fur, "fur", 24);
-    skull.scale.set(1, 1.04, 0.96);
+    /*
+     * Skull and muzzle.
+     *
+     * Two swept forms rather than one, because a dog's head is genuinely not a
+     * surface of revolution: the skull is an egg and the muzzle hangs off the
+     * lower front of it. Trying to do both in one sweep — which the previous
+     * attempt did — forces the head to narrow where the eyes need to sit, and
+     * the muzzle balloons into a pale dome over the whole face.
+     *
+     * The important consequence is where the eyes go. On an egg, the outward
+     * direction anywhere near the front is mostly *forward*, so the eyes have
+     * to sit close to the front pole and bulge along +Z. Moving them sideways
+     * to "get them onto the surface" only buries them deeper, which is the
+     * mistake that cost three passes.
+     */
+    const skull = part(
+        revolve(
+            [
+                [-1.05 * R, 0.02 * R],
+                [-0.98 * R, 0.36 * R],
+                [-0.85 * R, 0.62 * R],
+                [-0.6 * R, 0.85 * R],
+                [-0.25 * R, 0.98 * R],
+                [0.1 * R, 1.0 * R],
+                [0.4 * R, 0.95 * R],
+                [0.65 * R, 0.84 * R],
+                [0.85 * R, 0.65 * R],
+                [1.0 * R, 0.4 * R],
+                [1.06 * R, 0.02 * R],
+            ],
+            { segments: 28, squash: 1.02 }
+        ),
+        look.fur,
+        "fur"
+    );
     head.add(skull);
 
-    /* The brow mass — a wider, flatter sphere across the top of the face. It
-       is what the eyes sit under, and without it they sit *on* a ball. */
-    const brow = ball(R * 0.68, look.fur, "fur", 18);
-    brow.scale.set(1.08, 0.62, 0.82);
-    brow.position.set(0, R * 0.34, R * 0.06);
+    /* The muzzle: a short tapered sweep hung off the lower front, drooping as
+       it goes. Its base is inside the skull, so it emerges rather than being
+       stuck on. */
+    const muzzle = part(
+        revolve(
+            [
+                [0.0, 0.02 * R],
+                [0.06 * R, 0.3 * R],
+                [0.22 * R, 0.37 * R],
+                [0.44 * R, 0.34 * R],
+                [0.6 * R, 0.29 * R],
+                [0.7 * R, 0.17 * R],
+                [0.75 * R, 0.02 * R],
+            ],
+            { segments: 22, squash: 0.88, widen: 1.08, droop: 0.3, droopFrom: 0.2 * R }
+        ),
+        look.muzzle,
+        "fur"
+    );
+    muzzle.position.set(0, -R * 0.24, R * 0.72);
+    head.add(muzzle);
+
+    /* A forehead, kept well behind the eyes so it can never swallow them. */
+    const brow = ball(R * 0.6, look.fur, "fur", 18);
+    brow.scale.set(1.2, 0.62, 1.0);
+    brow.position.set(0, R * 0.46, R * 0.16);
     brow.castShadow = false;
     head.add(brow);
 
-    /* ---- snout ----
-       Bridge, pad and jaw. Three parts because the taper is the likeness. */
-    const bridge = ball(R * 0.3, look.muzzle, "fur", 16);
-    bridge.scale.set(0.78, 0.72, 1.7);
-    bridge.position.set(0, -R * 0.1, R * 0.68);
-    head.add(bridge);
-
-    const pad = ball(R * 0.32, look.muzzle, "fur", 18);
-    pad.scale.set(1.06, 0.9, 0.94);
-    pad.position.set(0, -R * 0.16, R * 1.06);
-    head.add(pad);
-
-    const jaw = ball(R * 0.34, look.muzzle, "fur", 16);
-    jaw.scale.set(0.94, 0.6, 1.15);
-    jaw.position.set(0, -R * 0.42, R * 0.7);
-    jaw.castShadow = false;
-    head.add(jaw);
-
-    /* Cheeks, tucked well inside the silhouette. Pushed out even slightly too
-       far they stop reading as cheeks and start reading as a second pair of
-       ears — which is exactly what happened the first time. */
-    for (const side of [-1, 1]) {
-        const cheek = ball(R * 0.3, look.fur, "fur", 12);
-        cheek.scale.set(0.9, 0.86, 1.05);
-        cheek.position.set(side * R * 0.5, -R * 0.3, R * 0.34);
-        cheek.castShadow = false;
-        head.add(cheek);
-    }
-
     const nose = ball(R * 0.128, 0x2b2429, "wet", 16);
     nose.scale.set(1.3, 0.95, 0.9);
-    nose.position.set(0, -R * 0.02, R * 1.3);
+    nose.position.set(0, -R * 0.3, R * 1.42);
     head.add(nose);
 
     /* A smile, as an arc rather than a bar. The bar version reads as a frown
@@ -298,7 +357,7 @@ export function buildPupHead(pup, options = {}) {
         mat(0x4a2f2c, "fur")
     );
     smile.rotation.z = Math.PI + 0.5;
-    smile.position.set(0, -R * 0.24, R * 1.2);
+    smile.position.set(0, -R * 0.48, R * 1.24);
     smile.castShadow = false;
     head.add(smile);
 
@@ -307,15 +366,15 @@ export function buildPupHead(pup, options = {}) {
     const eyes = [];
     for (const side of [-1, 1]) {
         const socket = new THREE.Group();
-        socket.position.set(side * R * 0.33, R * 0.2, R * 0.72);
-        socket.rotation.y = side * -0.16;
+        socket.position.set(side * R * 0.33, R * 0.26, R * 0.84);
+        socket.rotation.y = side * -0.2;
         head.add(socket);
 
         /* A dark rim just behind the eyeball. Without it a white sclera on
            white fur has no edge at all, and Marshall ends up with two faint
            smudges where his eyes should be. */
-        const rim = ball(R * 0.31, 0x3b2f2b, "fur", 16);
-        rim.scale.set(0.9, 1.3, 0.62);
+        const rim = ball(R * 0.307, 0x4c3b33, "fur", 16);
+        rim.scale.set(0.91, 1.3, 0.64);
         rim.castShadow = false;
         socket.add(rim);
 
@@ -569,59 +628,56 @@ export function buildPupMesh(pup) {
        leans. Keeping the world transform on `group` and the animation on
        `root` means the two never fight. */
     const root = new THREE.Group();
-    root.position.y = 0.435;
+    root.position.y = 0.388;
     group.add(root);
 
     /* ---- torso ----
-       Deep and short. The chest sits forward and a shade higher than the hips,
-       which is what gives a four-legged animal its line. */
-    const chest = capsule(0.163, 0.22, look.fur, "fur", 16);
-    chest.rotation.x = Math.PI / 2;
-    chest.position.set(0, 0.015, 0.075);
-    root.add(chest);
+       One swept form: chest deepest just behind the shoulders, a waist, then
+       the hips. Five overlapping spheres gave the right outline from the side
+       and a bag of lumps from everywhere else. */
+    const torso = part(
+        revolve(
+            [
+                [-0.38, 0.01],
+                [-0.35, 0.09],
+                [-0.3, 0.145],
+                [-0.23, 0.172],
+                [-0.13, 0.166],
+                [-0.02, 0.162],
+                [0.09, 0.175],
+                [0.18, 0.168],
+                [0.26, 0.14],
+                [0.32, 0.088],
+                [0.36, 0.01],
+            ],
+            { segments: 26, squash: 1.08, widen: 0.92 }
+        ),
+        look.fur,
+        "fur"
+    );
+    root.add(torso);
 
-    const hips = ball(0.175, look.fur, "fur", 18);
-    hips.scale.set(1, 0.95, 1.14);
-    hips.position.set(0, -0.005, -0.2);
-    root.add(hips);
-
-    const belly = ball(0.15, look.belly, "fur", 14);
-    belly.scale.set(0.95, 0.66, 1.7);
-    belly.position.set(0, -0.075, -0.02);
+    /* The pale underside, as a second sweep hanging just below the first. */
+    const belly = part(
+        revolve(
+            [
+                [-0.3, 0.01],
+                [-0.24, 0.115],
+                [-0.1, 0.128],
+                [0.06, 0.132],
+                [0.2, 0.112],
+                [0.29, 0.01],
+            ],
+            { segments: 20, squash: 0.72, widen: 0.9 }
+        ),
+        look.belly,
+        "fur"
+    );
+    belly.position.y = -0.055;
     belly.castShadow = false;
     root.add(belly);
 
-    /* Shoulders and haunches. Two spheres each side, and the animal stops
-       being a barrel with sticks in it — this is where the legs visibly come
-       *from*, and its absence is why the first pass read as a lamb. */
-    for (const side of [-1, 1]) {
-        const shoulder = ball(0.105, look.fur, "fur", 12);
-        shoulder.scale.set(0.8, 1, 1.05);
-        shoulder.position.set(side * 0.12, -0.02, 0.15);
-        root.add(shoulder);
-
-        const haunch = ball(0.12, look.fur, "fur", 12);
-        haunch.scale.set(0.78, 1.05, 1.1);
-        haunch.position.set(side * 0.125, -0.015, -0.17);
-        root.add(haunch);
-    }
-
-    /* A ruff where the neck meets the chest, so the head is joined on rather
-       than balanced on top. */
-    const neckColumn = capsule(0.088, 0.07, look.fur, "fur", 12);
-    neckColumn.rotation.x = 0.5;
-    neckColumn.position.set(0, 0.115, 0.185);
-    root.add(neckColumn);
-
-    const ruff = ball(0.125, look.fur, "fur", 14);
-    ruff.scale.set(1, 0.9, 0.72);
-    ruff.position.set(0, 0.06, 0.16);
-    root.add(ruff);
-
-    /* Markings hang off their own unrotated, unscaled anchor. Putting them on
-       the chest capsule looks equivalent and is not: that capsule is rotated a
-       quarter turn to lie along Z, so every direction handed to it comes out
-       somewhere else entirely. */
+    /* Markings hang off their own unrotated anchor. */
     const hide = new THREE.Group();
     root.add(hide);
 
@@ -635,28 +691,41 @@ export function buildPupMesh(pup) {
         ].forEach(([x, y, z, r]) => {
             const spot = ball(r, look.mark, "fur", 12);
             const dir = new THREE.Vector3(x, y, z).normalize();
-            spot.position.set(dir.x * 0.195, dir.y * 0.17 - 0.01, dir.z * 0.27 - 0.05);
-            spot.scale.set(1, 0.6, 1);
+            spot.position.set(dir.x * 0.165, dir.y * 0.17 - 0.005, dir.z * 0.24 - 0.02);
+            spot.scale.set(1, 0.55, 1);
             spot.castShadow = false;
             hide.add(spot);
         });
     } else if (look.pattern === "saddle" || look.pattern === "husky") {
-        /* A darker coat over the back and shoulders, stopping short of the
-           belly. Two spheres rather than one so it follows the body's line. */
-        const back = ball(0.185, look.mark, "fur", 18);
-        back.scale.set(0.98, 0.92, 1.3);
-        back.position.set(0, 0.02, 0.02);
-        back.castShadow = false;
-        hide.add(back);
-        const rump = ball(0.184, look.mark, "fur", 16);
-        rump.scale.set(0.98, 0.92, 1.1);
-        rump.position.set(0, 0.01, -0.19);
-        rump.castShadow = false;
-        hide.add(rump);
+        /* The darker coat over the back: the same sweep, a hair larger and
+           lifted, so only the part above the flanks shows. A separate blob
+           sized by eye ends up either invisible inside the body or stuck to
+           the outside of it — both of which happened. */
+        const saddle = part(
+            revolve(
+                [
+                    [-0.34, 0.01],
+                    [-0.3, 0.147],
+                    [-0.23, 0.175],
+                    [-0.13, 0.169],
+                    [-0.02, 0.165],
+                    [0.09, 0.178],
+                    [0.18, 0.17],
+                    [0.25, 0.125],
+                    [0.3, 0.01],
+                ],
+                { segments: 24, squash: 1.08, widen: 0.92 }
+            ),
+            look.mark,
+            "fur"
+        );
+        saddle.position.y = 0.016;
+        saddle.castShadow = false;
+        hide.add(saddle);
     } else if (look.pattern === "patch") {
-        const patch = ball(0.14, look.mark, "fur", 14);
-        patch.scale.set(0.8, 0.7, 1.2);
-        patch.position.set(0.09, 0.05, -0.16);
+        const patch = ball(0.12, look.mark, "fur", 14);
+        patch.scale.set(0.8, 0.75, 1.3);
+        patch.position.set(0.075, 0.055, -0.15);
         patch.castShadow = false;
         hide.add(patch);
     }
@@ -672,65 +741,112 @@ export function buildPupMesh(pup) {
     stripe.position.set(0, 0.015, -0.01);
     root.add(stripe);
 
-    const collar = part(new THREE.TorusGeometry(0.142, 0.032, 8, 20), pup.colour, "cloth", 0, 0.085, 0.19);
+    const collar = part(new THREE.TorusGeometry(0.138, 0.03, 8, 20), pup.colour, "cloth", 0, 0.085, 0.225);
     collar.rotation.x = Math.PI / 2 - 0.42;
     root.add(collar);
 
-    const tag = part(pawGeometry(0.16, 0.03), 0xffd83d, "metal", 0, 0.015, 0.255);
+    const tag = part(pawGeometry(0.15, 0.028), 0xffd83d, "metal", 0, 0.018, 0.285);
     root.add(tag);
 
     const pack = buildPack(pup);
     pack.scale.setScalar(0.78);
-    pack.position.set(0, 0.17, -0.13);
+    pack.position.set(0, 0.175, -0.16);
     root.add(pack);
 
     /* ---- head ---- */
     const neck = new THREE.Group();
-    neck.position.set(0, 0.135, 0.2);
+    neck.position.set(0, 0.135, 0.245);
     root.add(neck);
 
     const head = buildPupHead(pup);
-    head.scale.setScalar(0.95);
-    head.position.set(0, 0.2, 0.11);
+    head.scale.setScalar(0.87);
+    head.position.set(0, 0.225, 0.12);
     neck.add(head);
 
     /* ---- legs ----
-       Three joints each. The knee matters: a leg that swings from the hip as
-       one rigid stick is the single clearest tell that an animation was done
-       in an afternoon. */
+     *
+     * Front and hind legs are not the same leg. A dog's front leg drops almost
+     * straight from the shoulder; its hind leg is a zig-zag — thigh forward,
+     * shin back to the hock, then a vertical pastern to the paw. Four
+     * identical vertical sticks is a table, and that is what the previous pass
+     * looked like from every angle.
+     *
+     * Rest angles are stored so the gait can be added on top of a pose rather
+     * than replacing it.
+     */
     const legs = [];
     const layout = [
-        { x: -0.115, z: 0.17, front: true },
-        { x: 0.115, z: 0.17, front: true },
-        { x: -0.128, z: -0.18, front: false },
-        { x: 0.128, z: -0.18, front: false },
+        { x: -0.105, z: 0.185, front: true },
+        { x: 0.105, z: 0.185, front: true },
+        { x: -0.118, z: -0.235, front: false },
+        { x: 0.118, z: -0.235, front: false },
     ];
+
+    const toes = (parent, width) => {
+        for (let i = -1; i <= 1; i += 1) {
+            const toe = ball(width * 0.2, look.paw, "fur", 8);
+            toe.scale.set(1, 0.7, 1.15);
+            toe.position.set(i * width * 0.3, -width * 0.12, width * 0.5);
+            toe.castShadow = false;
+            parent.add(toe);
+        }
+    };
+
     layout.forEach(({ x, z, front }) => {
+        const rest = front
+            ? { hip: 0.1, knee: -0.16, ankle: 0.06 }
+            : { hip: -0.3, knee: 0.6, ankle: -0.3 };
+
         const hip = new THREE.Group();
-        hip.position.set(x, -0.03, z);
+        hip.position.set(x, front ? -0.035 : -0.02, z);
+        hip.rotation.x = rest.hip;
         root.add(hip);
 
-        const upper = capsule(0.046, 0.12, look.fur, "fur", 10);
-        upper.position.y = -0.086;
+        /* The hind leg's thigh is much heavier than the front's upper arm —
+           that mass is where a dog's drive comes from and it is visible. */
+        const upper = capsule(front ? 0.048 : 0.062, front ? 0.1 : 0.11, look.fur, "fur", 12);
+        upper.position.y = front ? -0.075 : -0.08;
         hip.add(upper);
 
         const knee = new THREE.Group();
-        knee.position.y = -0.172;
+        knee.position.y = front ? -0.15 : -0.155;
+        knee.rotation.x = rest.knee;
         hip.add(knee);
 
-        const lower = capsule(0.038, 0.1, look.fur, "fur", 10);
-        lower.position.y = -0.078;
+        const lower = capsule(front ? 0.04 : 0.042, front ? 0.09 : 0.1, look.fur, "fur", 10);
+        lower.position.y = front ? -0.065 : -0.07;
         knee.add(lower);
 
         const ankle = new THREE.Group();
-        ankle.position.y = -0.156;
+        ankle.position.y = front ? -0.135 : -0.145;
+        ankle.rotation.x = rest.ankle;
         knee.add(ankle);
 
-        const paw = slab(0.104, 0.066, 0.135, look.paw, "fur", 0.03);
-        paw.position.set(0, -0.028, 0.018);
-        ankle.add(paw);
+        if (!front) {
+            const pastern = capsule(0.033, 0.03, look.fur, "fur", 10);
+            pastern.position.y = -0.028;
+            ankle.add(pastern);
+        }
 
-        legs.push({ hip, knee, ankle, front });
+        const paw = part(
+            revolve(
+                [
+                    [-0.06, 0.005],
+                    [-0.04, 0.04],
+                    [0.01, 0.052],
+                    [0.05, 0.048],
+                    [0.075, 0.02],
+                ],
+                { segments: 14, squash: 0.62, widen: 1.05 }
+            ),
+            look.paw,
+            "fur"
+        );
+        paw.position.y = front ? -0.03 : -0.052;
+        ankle.add(paw);
+        toes(paw, 0.1);
+
+        legs.push({ hip, knee, ankle, front, rest });
     });
 
     /* ---- tail ----
@@ -739,7 +855,7 @@ export function buildPupMesh(pup) {
     let parent = root;
     for (let i = 0; i < 3; i += 1) {
         const joint = new THREE.Group();
-        joint.position.set(0, i === 0 ? 0.085 : 0, i === 0 ? -0.32 : -0.085);
+        joint.position.set(0, i === 0 ? 0.105 : 0, i === 0 ? -0.36 : -0.082);
         parent.add(joint);
         const segment = capsule(0.042 - i * 0.009, 0.07, i === 2 ? look.belly : look.fur, "fur", 8);
         segment.rotation.x = Math.PI / 2;
@@ -748,7 +864,9 @@ export function buildPupMesh(pup) {
         tail.push(joint);
         parent = joint;
     }
-    tail[0].rotation.x = -0.75;
+    tail[0].rotation.x = 0.95;
+    tail[1].rotation.x = -0.22;
+    tail[2].rotation.x = -0.2;
 
     group.userData = {
         root,
@@ -949,26 +1067,35 @@ export class PupOnFoot {
             const offset = i === 0 || i === 3 ? 0 : Math.PI;
             const p = phase + offset;
 
+            const rest = leg.rest;
+
             if (!this.grounded) {
                 /* Airborne: front legs reach forward, rear legs trail, and
                    the pose eases in rather than snapping the moment the paws
                    leave the ground. */
                 const ease = Math.min(1, dt * 9);
-                leg.hip.rotation.x += ((leg.front ? -0.8 : 0.6) - leg.hip.rotation.x) * ease;
-                leg.knee.rotation.x += ((leg.front ? 0.5 : -0.7) - leg.knee.rotation.x) * ease;
-                leg.ankle.rotation.x += (0.2 - leg.ankle.rotation.x) * ease;
+                const wantHip = rest.hip + (leg.front ? -0.7 : 0.5);
+                const wantKnee = rest.knee + (leg.front ? 0.45 : -0.5);
+                leg.hip.rotation.x += (wantHip - leg.hip.rotation.x) * ease;
+                leg.knee.rotation.x += (wantKnee - leg.knee.rotation.x) * ease;
+                leg.ankle.rotation.x += (rest.ankle + 0.2 - leg.ankle.rotation.x) * ease;
                 continue;
             }
 
             const swing = Math.sin(p);
             const lift = Math.max(0, swing);
-            const amount = 0.28 + pace * 0.55;
+            const amount = (leg.front ? 0.3 : 0.26) + pace * 0.5;
+            const active = moving ? 1 : 0;
 
-            leg.hip.rotation.x = swing * amount * (moving ? 1 : 0.06);
-            /* The knee only ever bends one way. */
-            leg.knee.rotation.x = -lift * (0.4 + pace * 0.75) * (moving ? 1 : 0.1);
+            /* The gait is added to the resting pose, not substituted for it —
+               a hind leg driven to the same angles as a front leg loses its
+               hock and the dog walks like a table. */
+            leg.hip.rotation.x = rest.hip + swing * amount * (moving ? 1 : 0.06);
+            /* The knee only ever bends one way, and the two ends bend
+               opposite ways: a front knee folds back, a hock folds forward. */
+            leg.knee.rotation.x = rest.knee + (leg.front ? -1 : 1) * lift * (0.32 + pace * 0.6) * active;
             /* The paw levels out for the plant and points on the way through. */
-            leg.ankle.rotation.x = (lift * 0.5 - swing * 0.25) * (moving ? 1 : 0);
+            leg.ankle.rotation.x = rest.ankle + (lift * 0.4 - swing * 0.2) * active;
         }
 
         /* ---- body ----
@@ -1029,7 +1156,7 @@ export class PupOnFoot {
         for (let i = 0; i < tail.length; i += 1) {
             const falloff = 1 - i * 0.18;
             tail[i].rotation.y = (this.tailSwing * 0.5 + wagAmount) * falloff;
-            tail[i].rotation.x = (i === 0 ? -0.7 : 0.12) - pace * 0.18 * falloff + Math.sin(this.wag * 2) * 0.05;
+            tail[i].rotation.x = (i === 0 ? 0.95 : -0.21) + pace * 0.2 * falloff + Math.sin(this.wag * 2) * 0.05;
         }
 
         /* ---- blinking ---- */
