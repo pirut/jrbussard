@@ -14,6 +14,7 @@
 
 import * as THREE from "three";
 import { roundedBox, tyreGeometry, canopyGeometry, barGeometry, pawGeometry, wedgeGeometry } from "./geometry";
+import { buildPupHead } from "./pups";
 
 /* --------------------------------------------------------------- *
  * Shared spec defaults
@@ -483,99 +484,156 @@ function lamp(radius, colour, emissive, intensity, segments = 12) {
 function buildWheel(radius, width, rimColor) {
     const group = new THREE.Group();
 
-    const tyre = mesh(tyreGeometry(radius, width), 0x1e1e24, RUBBER);
+    const tyre = mesh(tyreGeometry(radius, width), 0x1c1c22, RUBBER);
     group.add(tyre);
 
-    /* Tread blocks. Only readable close up and when stopped, which is exactly
-       when a bare cylinder gives the game away. */
-    const tread = new THREE.Group();
-    for (let i = 0; i < 14; i += 1) {
-        const a = (i / 14) * Math.PI * 2;
-        const block = mesh(roundedBox(width * 0.82, radius * 0.1, radius * 0.22, radius * 0.03, 2), 0x15151a, RUBBER);
-        block.position.set(0, Math.cos(a) * radius * 0.99, Math.sin(a) * radius * 0.99);
-        block.rotation.x = -a;
-        tread.add(block);
-    }
-    group.add(tread);
+    /* One groove around the shoulder rather than a ring of tread blocks. The
+       blocks were correct and unreadable: at any distance the game actually
+       shows a wheel from, they alias into a black scribble. */
+    const groove = mesh(new THREE.TorusGeometry(radius * 0.99, width * 0.1, 6, 24), 0x0e0e12, RUBBER);
+    groove.rotation.y = Math.PI / 2;
+    group.add(groove);
 
-    const disc = cyl(radius * 0.56, radius * 0.56, width * 0.3, 0x6a6f76, 16, {
-        roughness: 0.35,
-        metalness: 0.85,
+    const disc = cyl(radius * 0.58, radius * 0.58, width * 0.28, 0x767b82, 16, {
+        roughness: 0.42,
+        metalness: 0.5,
+        envMapIntensity: 0.7,
     });
     disc.rotation.z = Math.PI / 2;
     group.add(disc);
 
-    const rim = cyl(radius * 0.62, radius * 0.62, width * 0.86, rimColor, 18, CHROME);
+    /* A dished rim with five spokes and a hubcap. The hub is the only part of
+       a wheel that is still legible when it is spinning, so it carries the
+       colour. */
+    const rim = cyl(radius * 0.66, radius * 0.66, width * 0.9, rimColor, 20, {
+        roughness: 0.28,
+        metalness: 0.18,
+        envMapIntensity: 0.65,
+    });
     rim.rotation.z = Math.PI / 2;
     group.add(rim);
 
-    const hub = cyl(radius * 0.2, radius * 0.24, width * 1.02, 0xf2f5f8, 12, CHROME);
-    hub.rotation.z = Math.PI / 2;
-    group.add(hub);
+    const lip = mesh(new THREE.TorusGeometry(radius * 0.68, radius * 0.06, 8, 22), 0xdfe6ee, CHROME);
+    lip.rotation.y = Math.PI / 2;
+    group.add(lip);
 
-    /* Five spokes, so a spinning wheel actually reads as spinning. */
     for (let i = 0; i < 5; i += 1) {
-        const spoke = mesh(roundedBox(width * 0.7, radius * 0.86, radius * 0.2, radius * 0.08, 2), rimColor, CHROME);
+        const spoke = mesh(roundedBox(width * 0.72, radius * 0.92, radius * 0.16, radius * 0.06, 2), rimColor, {
+            roughness: 0.26,
+            metalness: 0.18,
+            envMapIntensity: 0.65,
+        });
         spoke.rotation.x = (i / 5) * Math.PI;
         group.add(spoke);
+    }
+
+    const cap = cyl(radius * 0.26, radius * 0.3, width * 1.04, 0xf2f5f8, 14, CHROME);
+    cap.rotation.z = Math.PI / 2;
+    group.add(cap);
+
+    const nut = cyl(radius * 0.09, radius * 0.09, width * 1.1, 0x9aa1a8, 10, CHROME);
+    nut.rotation.z = Math.PI / 2;
+    group.add(nut);
+
+    return group;
+}
+
+/* The pup at the wheel.
+ *
+ * The head is the same one the character on foot wears, built in pups.js, so
+ * the face through the windscreen and the face beside the truck are the same
+ * face. Getting out used to be a downgrade.
+ */
+function buildDriver(pup) {
+    const group = new THREE.Group();
+
+    const head = buildPupHead(pup);
+    head.position.y = 0.2;
+    group.add(head);
+
+    /* Shoulders and paws on the wheel, so there is a body under the head
+       rather than a head balanced on a seat. */
+    const shoulders = mesh(roundedBox(0.62, 0.3, 0.4, 0.14, 3), pup.colour, PAINT);
+    shoulders.position.set(0, -0.16, -0.04);
+    group.add(shoulders);
+
+    for (const side of [-1, 1]) {
+        const paw = mesh(roundedBox(0.15, 0.12, 0.2, 0.05, 2), pup.trim, TRIM);
+        paw.position.set(side * 0.19, -0.14, 0.28);
+        group.add(paw);
     }
 
     return group;
 }
 
-/* Head and shoulders of the pup at the wheel. */
-function buildDriver(pup) {
-    const group = new THREE.Group();
-    const fur = pup.id === "marshall" ? 0xf7f2e8 : pup.id === "rubble" ? 0xdaa94c : 0xecdcbf;
-    const skin = { roughness: 0.78, metalness: 0, envMapIntensity: 0.5 };
+/* A number plate. Text drawn into a canvas, which is the only way to get
+   letters onto a mesh without shipping a font atlas — and a truck without a
+   plate is a shape, while a truck with one is a vehicle somebody owns. */
+const plateCache = new Map();
+function plateTexture(text) {
+    if (plateCache.has(text)) return plateCache.get(text);
+    const el = document.createElement("canvas");
+    el.width = 256;
+    el.height = 80;
+    const ctx = el.getContext("2d");
+    ctx.fillStyle = "#f4f5f0";
+    ctx.fillRect(0, 0, 256, 80);
+    ctx.strokeStyle = "#2b3138";
+    ctx.lineWidth = 5;
+    ctx.strokeRect(6, 6, 244, 68);
+    ctx.fillStyle = "#20262d";
+    ctx.font = "bold 46px 'Baloo 2', 'Segoe UI', system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text.toUpperCase().slice(0, 8), 128, 44);
+    const tex = new THREE.CanvasTexture(el);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 8;
+    plateCache.set(text, tex);
+    return tex;
+}
 
-    const head = sphere(0.34, fur, skin);
-    head.scale.set(1, 0.95, 1.06);
-    head.position.y = 0.26;
-    group.add(head);
+/*
+ * A headlight worth the name.
+ *
+ * A glowing sphere stuck on the nose reads as a sticker. A real lamp is a
+ * bright thing sitting *inside* a dark housing behind a clear cover, and the
+ * three-layer version below costs three meshes and completely changes how
+ * expensive the front of the vehicle looks — because it is the one place the
+ * eye goes first, and the one place a highlight can catch.
+ */
+function buildLampCluster(radius, colour, emissive, intensity, depth = 0.9) {
+    const cluster = new THREE.Group();
 
-    const snout = sphere(0.18, fur, skin);
-    snout.scale.set(0.92, 0.72, 1.28);
-    snout.position.set(0, 0.17, 0.3);
-    group.add(snout);
+    const housing = cyl(radius * 1.16, radius * 1.05, radius * depth, 0x24282e, 16, {
+        roughness: 0.5,
+        metalness: 0.2,
+    });
+    housing.rotation.x = Math.PI / 2;
+    cluster.add(housing);
 
-    const nose = sphere(0.075, 0x2a2320, { roughness: 0.3, metalness: 0 }, 10);
-    nose.position.set(0, 0.22, 0.44);
-    group.add(nose);
+    const reflector = cyl(radius * 1.02, radius * 0.4, radius * depth * 0.8, 0xf2f6fb, 16, CHROME);
+    reflector.rotation.x = Math.PI / 2;
+    reflector.position.z = -radius * 0.1;
+    cluster.add(reflector);
 
-    for (const side of [-1, 1]) {
-        const ear = rbox(0.11, 0.26, 0.17, pup.trim, side * 0.29, 0.32, -0.02, skin, 0.05);
-        ear.rotation.z = side * 0.34;
-        group.add(ear);
+    const bulb = lamp(radius * 0.62, colour, emissive, intensity, 12);
+    bulb.position.z = radius * 0.1;
+    cluster.add(bulb);
 
-        const eye = sphere(0.068, 0xffffff, { roughness: 0.12, metalness: 0 }, 10);
-        eye.position.set(side * 0.13, 0.31, 0.26);
-        eye.scale.set(1, 1.1, 0.6);
-        group.add(eye);
-        const pupil = sphere(0.04, 0x14141a, { roughness: 0.1, metalness: 0 }, 8);
-        pupil.position.set(side * 0.14, 0.3, 0.3);
-        group.add(pupil);
-    }
+    /* The clear cover, slightly domed. Its specular is what sells the glass. */
+    const cover = mesh(
+        new THREE.SphereGeometry(radius * 1.08, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.42),
+        0xdff2ff,
+        { ...GLASS, opacity: 0.28 }
+    );
+    cover.rotation.x = Math.PI / 2;
+    cover.position.z = radius * 0.24;
+    cover.castShadow = false;
+    cluster.add(cover);
 
-    /* Cap in the pup's colour. */
-    const cap = sphere(0.31, pup.colour, PAINT, 16);
-    cap.scale.set(1, 0.56, 1);
-    cap.position.y = 0.46;
-    group.add(cap);
-    const peak = rbox(0.44, 0.06, 0.24, pup.colour, 0, 0.42, 0.27, PAINT, 0.03);
-    group.add(peak);
-
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.055, 8, 18), mat(pup.colour, PAINT));
-    collar.rotation.x = Math.PI / 2;
-    collar.position.y = -0.02;
-    collar.castShadow = true;
-    group.add(collar);
-
-    const tag = mesh(pawGeometry(0.34, 0.05), 0xffd83d, { roughness: 0.2, metalness: 0.8, envMapIntensity: 1.4 });
-    tag.position.set(0, -0.05, 0.25);
-    group.add(tag);
-
-    return group;
+    cluster.userData.bulb = bulb;
+    return cluster;
 }
 
 /* The light bar: chrome frame with two dome lamps that flash. */
@@ -596,86 +654,220 @@ function buildLightBar(pup, width) {
     return group;
 }
 
+/*
+ * A truck.
+ *
+ * The first attempt was a slab the full width of the track with the wheels
+ * tucked underneath it, and it read as a coloured brick. What makes these
+ * vehicles read as *toys* is a specific proportion, and it is worth stating
+ * because everything below follows from it:
+ *
+ *   the body is narrower than the track, so the wheels stand proud of the
+ *   flanks and you can see all of them;
+ *
+ *   the wheels are enormous relative to the body, and the arches over them
+ *   are thick enough to be part of the silhouette rather than a hoop;
+ *
+ *   the glass is a large fraction of the height, not a slit, and there is
+ *   something behind it;
+ *
+ *   and every horizontal surface is either chrome or has a chrome edge, so
+ *   the whole thing catches light from any angle.
+ */
 function buildCar(pup) {
     const group = new THREE.Group();
     const { size } = pup.spec;
-    const w = size.x;
     const h = size.y;
     const l = size.z;
+    /* Bodywork is deliberately narrower than the track. */
+    const track = Math.max(...pup.spec.wheels.map((wheel) => Math.abs(wheel.x)));
+    const w = Math.min(size.x, track * 1.72);
+    const half = w * 0.5;
 
-    /* Lower body: a deep rounded tub. */
-    const body = rbox(w, h * 0.62, l, pup.colour, 0, -h * 0.02, 0, PAINT, Math.min(w, h) * 0.28);
+    /* ---- lower body ----
+       One deep tub, plus a slightly narrower nose section so the front is not
+       the same rectangle as the middle. */
+    const body = rbox(w, h * 0.66, l * 0.98, pup.colour, 0, -h * 0.04, 0, PAINT, Math.min(w, h) * 0.3);
     group.add(body);
 
-    /* Cab: narrower, sitting on top and set back. */
-    const cab = rbox(w * 0.84, h * 0.56, l * 0.46, pup.colour, 0, h * 0.42, -l * 0.04, PAINT, h * 0.2);
-    group.add(cab);
+    const nose = rbox(w * 0.94, h * 0.5, l * 0.3, pup.colour, 0, -h * 0.06, l * 0.34, PAINT, h * 0.2);
+    group.add(nose);
 
-    /* Wraparound bubble glass — the signature shape. */
-    const glass = mesh(canopyGeometry(w * 0.86, h * 0.74, l * 0.52), 0x16283a, GLASS);
+    /* Bonnet: a raised panel with a chrome lip, so the top of the nose is not
+       one flat plane running into the windscreen. */
+    const bonnet = rbox(w * 0.78, h * 0.1, l * 0.26, pup.colour, 0, h * 0.2, l * 0.3, PAINT, 0.05);
+    group.add(bonnet);
+    group.add(rbox(w * 0.8, 0.035, 0.05, 0xdfe6ee, 0, h * 0.25, l * 0.43, CHROME, 0.015));
+
+    /* ---- greenhouse ----
+       Dark pillars first, then the glass over them. Doing it the other way
+       round gives a bubble with nothing holding it up. */
+    const pillars = rbox(w * 0.76, h * 0.5, l * 0.44, pup.trim, 0, h * 0.4, -l * 0.05, TRIM, h * 0.16);
+    group.add(pillars);
+
+    const roof = rbox(w * 0.7, h * 0.1, l * 0.4, pup.colour, 0, h * 0.62, -l * 0.05, PAINT, h * 0.05);
+    group.add(roof);
+
+    const glass = mesh(canopyGeometry(w * 0.86, h * 0.86, l * 0.54), 0x1b334a, GLASS);
     glass.castShadow = false;
     glass.position.set(0, h * 0.3, -l * 0.02);
     group.add(glass);
 
-    /* Belt-line stripe in the accent colour. */
-    const stripe = rbox(w * 1.015, h * 0.15, l * 0.78, pup.accent, 0, h * 0.06, 0, PAINT, 0.06);
+    /* ---- interior ----
+       Only ever glimpsed, and its absence is exactly why a tinted canopy looks
+       like a tinted bubble. */
+    const cabin = rbox(w * 0.66, 0.06, l * 0.36, 0x232a33, 0, h * 0.19, -l * 0.04, TRIM, 0.02);
+    cabin.castShadow = false;
+    group.add(cabin);
+    const seat = rbox(w * 0.46, h * 0.34, 0.12, pup.trim, 0, h * 0.4, -l * 0.2, TRIM, 0.05);
+    seat.castShadow = false;
+    group.add(seat);
+    const wheelRim = new THREE.Mesh(new THREE.TorusGeometry(h * 0.13, h * 0.025, 8, 16), mat(0x1d2229, TRIM));
+    wheelRim.rotation.x = 1.15;
+    wheelRim.position.set(0, h * 0.36, l * 0.12);
+    wheelRim.castShadow = false;
+    group.add(wheelRim);
+
+    /* ---- belt line ----
+       The accent band. Slightly proud of the body so it casts its own thin
+       shadow, which is what makes it read as a decal on a surface rather than
+       as a change of colour. */
+    const stripe = rbox(w * 1.02, h * 0.14, l * 0.8, pup.accent, 0, h * 0.04, -l * 0.02, PAINT, 0.05);
     group.add(stripe);
 
-    /* Chrome bumpers with a bit of overhang. */
-    group.add(mesh(barGeometry(w * 1.02, h * 0.2, 0.3), 0xd7dde4, CHROME).translateY(-h * 0.2).translateZ(l * 0.49));
-    group.add(mesh(barGeometry(w * 1.02, h * 0.2, 0.3), 0xd7dde4, CHROME).translateY(-h * 0.2).translateZ(-l * 0.49));
+    /* ---- arches ----
+       Thick, elliptical, sitting flush with the flank, each with a dark liner
+       behind it so there is a shadowed recess for the wheel to sit in. */
+    const seenSides = new Set();
+    pup.spec.wheels.forEach((wheel) => {
+        const side = Math.sign(wheel.x);
+        const key = `${side}|${wheel.z.toFixed(2)}`;
+        if (seenSides.has(key)) return;
+        seenSides.add(key);
 
-    /* Running boards. */
+        const r = wheel.radius;
+        /* Sit the arch where the wheel *rests*, not where it is bolted: the
+           springs carry the body about three quarters of the suspension travel
+           above the hub, and an arch drawn at the mounting point floats a third
+           of a metre above the tyre it is supposed to cover. */
+        const hub = wheel.y - pup.spec.suspensionRest * 0.72;
+
+        const arch = mesh(new THREE.TorusGeometry(r * 1.2, r * 0.26, 8, 20, Math.PI), pup.colour, PAINT);
+        arch.rotation.y = Math.PI / 2;
+        arch.scale.set(1.08, 0.96, 1);
+        arch.position.set(side * (half - r * 0.06), hub, wheel.z);
+        group.add(arch);
+
+        const liner = mesh(new THREE.TorusGeometry(r * 1.06, r * 0.32, 6, 14, Math.PI), 0x191d22, {
+            roughness: 0.9,
+            metalness: 0,
+            envMapIntensity: 0.2,
+        });
+        liner.rotation.y = Math.PI / 2;
+        liner.position.set(side * (half - r * 0.36), hub, wheel.z);
+        liner.castShadow = false;
+        group.add(liner);
+    });
+
+    /* ---- sills, bumpers, grille ---- */
     for (const side of [-1, 1]) {
-        group.add(rbox(0.16, 0.12, l * 0.5, pup.trim, side * w * 0.52, -h * 0.28, 0, TRIM, 0.05));
+        group.add(rbox(0.14, 0.11, l * 0.42, pup.trim, side * (half - 0.02), -h * 0.3, 0, TRIM, 0.045));
     }
 
-    /* Grille, so the front has something to read as a face. */
-    const grille = rbox(w * 0.52, h * 0.16, 0.12, 0x2a2f36, 0, h * 0.02, l * 0.505, CHROME, 0.04);
-    group.add(grille);
+    group.add(mesh(barGeometry(w * 1.04, h * 0.19, 0.28), 0xdfe6ee, CHROME).translateY(-h * 0.24).translateZ(l * 0.47));
+    group.add(mesh(barGeometry(w * 1.04, h * 0.19, 0.28), 0xdfe6ee, CHROME).translateY(-h * 0.24).translateZ(-l * 0.47));
 
-    /* The paw badge on both doors. */
+    const grille = rbox(w * 0.56, h * 0.19, 0.1, 0x22262c, 0, h * 0.0, l * 0.49, TRIM, 0.03);
+    group.add(grille);
+    for (let i = -1; i <= 1; i += 1) {
+        const slat = rbox(w * 0.54, 0.025, 0.06, 0xcfd7df, 0, h * 0.0 + i * h * 0.06, l * 0.515, CHROME, 0.01);
+        slat.castShadow = false;
+        group.add(slat);
+    }
+
+    /* ---- door badge ----
+       A recessed disc with the paw proud of it, rather than a paw floating on
+       the paintwork. */
     for (const side of [-1, 1]) {
-        const badge = mesh(pawGeometry(0.62, 0.06), 0xffffff, { roughness: 0.3, metalness: 0.05 });
-        badge.position.set(side * (w * 0.5 + 0.02), h * 0.06, -l * 0.04);
+        const disc = cyl(0.34, 0.34, 0.03, pup.accent, 22, PAINT);
+        disc.rotation.z = Math.PI / 2;
+        disc.position.set(side * (half + 0.012), h * 0.04, -l * 0.04);
+        disc.castShadow = false;
+        group.add(disc);
+
+        const badge = mesh(pawGeometry(0.44, 0.045), pup.trim, { roughness: 0.35, metalness: 0.1 });
+        badge.position.set(side * (half + 0.035), h * 0.04, -l * 0.04);
         badge.rotation.y = side * Math.PI * 0.5;
+        badge.castShadow = false;
         group.add(badge);
     }
 
-    /* Lights. Headlights, brake lights and reversing lights are all driven at
-       runtime, so the back of the truck tells you what the driver is doing —
-       which is most of what makes traffic in front of you legible in any
-       driving game. */
+    /* ---- lights ----
+       Headlights, brake lights and reversing lights are all driven at runtime,
+       so the back of the truck tells you what the driver is doing — which is
+       most of what makes anything in front of you legible in a driving game. */
     const headlights = [];
     const brakeLights = [];
     const reverseLights = [];
     for (const side of [-1, 1]) {
-        const head = lamp(0.15, 0xfff8e0, 0xfff0c0, 0.45);
-        head.scale.set(1.25, 0.9, 0.55);
-        head.position.set(side * w * 0.31, h * 0.04, l * 0.5);
+        const head = buildLampCluster(h * 0.15, 0xfff8e0, 0xfff0c0, 0.45);
+        head.position.set(side * w * 0.34, h * 0.02, l * 0.48);
         group.add(head);
-        headlights.push(head);
+        headlights.push(head.userData.bulb);
 
-        const tail = lamp(0.12, 0xe0281b, 0xff2a1a, 0.35);
-        tail.scale.set(1.2, 0.9, 0.5);
-        tail.position.set(side * w * 0.31, h * 0.08, -l * 0.5);
+        /* An indicator beside each headlight, so the front is a cluster rather
+           than a single eye — the difference between a face and a cyclops. */
+        const indicator = lamp(h * 0.055, 0xffa53d, 0xff8a1a, 0.25, 10);
+        indicator.scale.set(1.5, 0.8, 0.5);
+        indicator.position.set(side * w * 0.48, -h * 0.06, l * 0.46);
+        group.add(indicator);
+
+        const tail = buildLampCluster(h * 0.12, 0xe0281b, 0xff2a1a, 0.35, 0.7);
+        tail.rotation.y = Math.PI;
+        tail.position.set(side * w * 0.36, h * 0.06, -l * 0.48);
         group.add(tail);
-        brakeLights.push(tail);
+        brakeLights.push(tail.userData.bulb);
 
-        const reverse = lamp(0.075, 0xf4f8ff, 0xffffff, 0.05, 10);
+        const reverse = lamp(h * 0.06, 0xf4f8ff, 0xffffff, 0.05, 10);
         reverse.scale.set(1.3, 0.9, 0.5);
-        reverse.position.set(side * w * 0.16, h * 0.02, -l * 0.5);
+        reverse.position.set(side * w * 0.16, -h * 0.06, -l * 0.49);
         group.add(reverse);
         reverseLights.push(reverse);
     }
 
+    /* ---- mirrors ---- */
+    for (const side of [-1, 1]) {
+        group.add(rbox(0.14, 0.045, 0.045, 0x3a3f47, side * (half + 0.06), h * 0.34, l * 0.2, TRIM, 0.02));
+        const glass2 = rbox(0.055, 0.15, 0.12, 0xdfe6ee, side * (half + 0.15), h * 0.36, l * 0.2, CHROME, 0.025);
+        group.add(glass2);
+    }
+
+    /* ---- plates ---- */
+    const plate = plateTexture(pup.name);
+    for (const end of [-1, 1]) {
+        const board = new THREE.Mesh(
+            new THREE.BoxGeometry(0.56, 0.18, 0.03),
+            new THREE.MeshStandardMaterial({ map: plate, roughness: 0.55, metalness: 0.05 })
+        );
+        board.position.set(0, -h * 0.34, end * (l * 0.5));
+        board.rotation.y = end > 0 ? 0 : Math.PI;
+        board.castShadow = false;
+        group.add(board);
+    }
+
+    /* ---- exhaust ---- */
+    const exhaust = cyl(0.07, 0.08, 0.22, 0xc8ced6, 10, CHROME);
+    exhaust.rotation.x = Math.PI / 2;
+    exhaust.position.set(w * 0.3, -h * 0.34, -l * 0.52);
+    group.add(exhaust);
+
     const driver = buildDriver(pup);
-    driver.position.set(0, h * 0.46, l * 0.02);
-    driver.scale.setScalar(0.92);
+    driver.position.set(0, h * 0.42, l * 0.04);
+    driver.scale.setScalar(0.88);
     group.add(driver);
 
-    const lightBar = buildLightBar(pup, w * 0.7);
-    lightBar.position.set(0, h * 0.74, -l * 0.06);
+    const lightBar = buildLightBar(pup, w * 0.66);
+    lightBar.position.set(0, h * 0.7, -l * 0.05);
     group.add(lightBar);
 
     /* --- what makes each one unmistakably whose it is --- */

@@ -278,6 +278,7 @@ export default function PupPatrol3D() {
 
     const [loading, setLoading] = useState({ progress: 0, label: "Starting engines" });
     const [ready, setReady] = useState(false);
+    const [showLoader, setShowLoader] = useState(true);
     const [error, setError] = useState("");
     const [boardOpen, setBoardOpen] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -322,6 +323,20 @@ export default function PupPatrol3D() {
     useEffect(() => {
         document.title = "Adventure Bay — Pup Patrol 3D";
     }, []);
+
+    /* Hold the loading screen on for a beat after the world is ready and fade
+       it out over the top of the opening camera move, rather than cutting from
+       a progress bar straight to gameplay. The world is already running
+       underneath, so nothing is being waited on — this is purely so the game
+       arrives instead of appearing. */
+    useEffect(() => {
+        if (!ready) {
+            setShowLoader(true);
+            return undefined;
+        }
+        const timer = setTimeout(() => setShowLoader(false), 1000);
+        return () => clearTimeout(timer);
+    }, [ready]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -471,8 +486,8 @@ export default function PupPatrol3D() {
         <main className="bay" ref={shellRef}>
             <canvas className="bay__canvas" ref={canvasRef} />
 
-            {!ready && !error && (
-                <div className="bay__loading">
+            {showLoader && !error && (
+                <div className={`bay__loading${ready ? " is-done" : ""}`}>
                     <div className="bay__badge" aria-hidden="true">
                         <span>🐾</span>
                     </div>

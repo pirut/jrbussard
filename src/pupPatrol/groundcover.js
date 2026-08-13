@@ -171,7 +171,7 @@ export class GroundCover {
 
         /* Colour: mostly value drift, with the occasional patch of something
            flowering. Cheap, and it stops a hillside reading as one texture. */
-        const value = 0.74 + hash2(gx, gz, 6) * 0.5;
+        const value = 0.86 + hash2(gx, gz, 6) * 0.42;
         const bloom = hash2(gx, gz, 7);
         if (bloom > 0.972) _colour.setRGB(value * 1.5, value * 1.05, value * 0.8);
         else if (bloom < 0.03) _colour.setRGB(value * 1.35, value * 1.3, value * 0.6);

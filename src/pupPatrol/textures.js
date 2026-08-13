@@ -173,13 +173,13 @@ export function makeGrassTuft(size = 128) {
         const h = size * (0.36 + Math.random() * 0.6);
         const lean = (Math.random() - 0.5) * size * 0.34;
         const w = size * 0.032;
-        const shade = 118 + Math.random() * 84;
+        const shade = 138 + Math.random() * 78;
         /* Darker at the root, sunlit at the tip. Not *much* darker, and pitched
            to sit on the same green as the terrain underneath: a tuft shaded
            like a real blade of grass reads as a black spike against bright
            ground, because it is two pixels wide. */
         const grad = ctx.createLinearGradient(x, size, x + lean, size - h);
-        grad.addColorStop(0, `rgb(${Math.round(shade * 0.62)},${Math.round(shade * 1.02)},${Math.round(shade * 0.44)})`);
+        grad.addColorStop(0, `rgb(${Math.round(shade * 0.68)},${Math.round(shade * 1.1)},${Math.round(shade * 0.48)})`);
         grad.addColorStop(1, `rgb(${Math.round(shade * 0.98)},${Math.round(shade * 1.42)},${Math.round(shade * 0.6)})`);
         ctx.fillStyle = grad;
         ctx.beginPath();

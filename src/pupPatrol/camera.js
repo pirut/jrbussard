@@ -86,6 +86,8 @@ export class CameraRig {
         this.look = new THREE.Vector3();
         this.velocity = new THREE.Vector3();
         this.fov = 62;
+        this.intro = 0;
+        this.introMax = 0;
         this.obstacles = null;
         this.obstacleScratch = [];
         this.heightAt = () => 0;
@@ -107,10 +109,59 @@ export class CameraRig {
         this.trauma = clamp(this.trauma + amount, 0, 1);
     }
 
+    /*
+     * The opening move: start high and wide, swing round, and settle into the
+     * chase position over a few seconds.
+     *
+     * It shows the player where they are before asking them to drive, which is
+     * the actual job — dropped straight into a chase camera on an island you
+     * have never seen, you spend the first ten seconds working out which way
+     * is which. It also happens to be the single clearest signal a game can
+     * send that somebody art-directed it.
+     *
+     * Any input at all cancels it. A cinematic you cannot skip is a cinematic
+     * that gets resented the second time.
+     */
+    introduce(seconds) {
+        this.intro = seconds;
+        this.introMax = seconds;
+    }
+
+    skipIntro() {
+        this.intro = 0;
+    }
+
+    applyIntro(dt, context, rig) {
+        this.intro = Math.max(0, this.intro - dt);
+        const t = this.introMax > 0 ? 1 - this.intro / this.introMax : 1;
+        /* Smootherstep: zero velocity *and* zero acceleration at both ends, so
+           the move has no visible start and no visible stop. */
+        const e = t * t * t * (t * (t * 6 - 15) + 10);
+        const away = 1 - e;
+
+        const spin = away * 2.4;
+        const distance = rig.distance + away * 34;
+        const height = rig.height + away * 30;
+
+        _desired.set(
+            context.position.x - Math.sin(this.yaw + spin) * distance,
+            context.position.y + height,
+            context.position.z - Math.cos(this.yaw + spin) * distance
+        );
+        const floor = Math.max(this.heightAt(_desired.x, _desired.z), this.seaLevel - 1) + 2;
+        if (_desired.y < floor) _desired.y = floor;
+
+        this.position.lerpVectors(_desired, this.position, e);
+        this.velocity.multiplyScalar(e);
+        _offset.set(context.position.x, context.position.y + 0.6, context.position.z);
+        this.look.lerpVectors(_offset, this.look, e);
+    }
+
     rig(context) {
         const mode = CAMERA_MODES[this.mode];
         if (context.onFoot) {
-            return { distance: 5.6, height: 2.5, lookAhead: 3.2, stiffness: 9, fov: 64, bonnet: false };
+            /* Sized for a knee-high character, not for a truck. */
+            return { distance: 3.5, height: 1.5, lookAhead: 2.4, stiffness: 9, fov: 60, bonnet: false };
         }
         if (context.kind === "heli") {
             return { distance: 15.5, height: 5.6, lookAhead: 9, stiffness: 4.6, fov: 62, bonnet: false };
@@ -193,6 +244,7 @@ export class CameraRig {
         this.freePitch = 0;
         this.roll = 0;
         this.trauma = 0;
+        this.velocity.set(0, 0, 0);
         this.position.set(
             context.position.x - Math.sin(this.yaw) * rig.distance,
             context.position.y + rig.height,
@@ -247,7 +299,7 @@ export class CameraRig {
 
         _target.set(
             context.position.x,
-            context.position.y + (context.onFoot ? 1.0 : context.kind === "heli" ? 0.6 : context.size.y * 0.55),
+            context.position.y + (context.onFoot ? 0.52 : context.kind === "heli" ? 0.6 : context.size.y * 0.55),
             context.position.z
         );
 
@@ -289,6 +341,8 @@ export class CameraRig {
             context.position.z + forwardZ * rig.lookAhead * (0.55 + rush * 0.45)
         );
         this.look.lerp(_offset, smoothing(rig.stiffness * 1.15, dt));
+
+        if (this.intro > 0) this.applyIntro(dt, context, rig);
 
         this.apply(dt, context, rig, rush);
     }
@@ -376,7 +430,8 @@ export class CameraRig {
            A touch more at speed. Small, but it is most of what makes fast feel
            fast, and pulling it back in under braking makes stopping feel like
            stopping. */
-        const targetFov = rig.fov + rush * rush * 13 - clamp(context.braking, 0, 1) * 3;
+        const introWide = this.introMax > 0 ? (this.intro / this.introMax) * 6 : 0;
+        const targetFov = rig.fov + rush * rush * 13 - clamp(context.braking, 0, 1) * 3 + introWide;
         this.fov += (targetFov - this.fov) * smoothing(3.2, dt);
         if (Math.abs(camera.fov - this.fov) > 0.01) {
             camera.fov = this.fov;

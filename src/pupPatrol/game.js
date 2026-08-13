@@ -213,6 +213,12 @@ export class Game {
            the first time anything new comes on screen. */
         this.renderer.compile(this.scene, this.camera);
 
+        /* The opening camera move, and the pup announcing itself the moment it
+           lands — the two things that turn "the level has loaded" into "the
+           game has started". */
+        this.rig.introduce(4.4);
+        this.introPending = true;
+
         report(1, "Ready");
         this.state.ready = true;
     }
@@ -312,6 +318,23 @@ export class Game {
 
         this.rig.snap(this.cameraContext());
         this.state.pupId = pup.id;
+
+        /* A puff, a shake and a chirp on the swap. Teleporting one vehicle out
+           and another in with no punctuation at all is the sort of thing that
+           reads, correctly, as unfinished. */
+        if (previous && this.effects) {
+            this.effects.burst(
+                this.vehicle.position.x,
+                this.vehicle.position.y - pup.spec.size.y * 0.3,
+                this.vehicle.position.z,
+                0xf2f5fb,
+                18,
+                6
+            );
+            this.rig.addTrauma(0.22);
+            this.audio.blip(760, 0.07, "triangle", 0.09);
+            this.audio.blip(1140, 0.09, "triangle", 0.07);
+        }
     }
 
     cycleVehicle(direction) {
@@ -477,7 +500,10 @@ export class Game {
             if (!this.onFoot && hit > hardestHit) hardestHit = hit;
 
             if (this.onFoot) {
-                this.pupBody.step(FIXED_DT, controls, this.rig.yaw);
+                /* The camera doubles as the thing the pup looks at when it is
+                   standing still, which is why a character standing idle in a
+                   good game never feels like a statue. */
+                this.pupBody.step(FIXED_DT, controls, this.rig.yaw, this.camera.position);
             }
 
             this.accumulator -= FIXED_DT;
@@ -551,6 +577,23 @@ export class Game {
     }
 
     handleShortcuts() {
+        /* Any input at all skips the opening move. */
+        if (this.rig.intro > 0) {
+            const raw = this.raw;
+            if (
+                Math.abs(raw.steer) > 0.1 ||
+                raw.throttle > 0.1 ||
+                raw.brake > 0.1 ||
+                raw.looking ||
+                this.input.pressed.size > 0
+            ) {
+                this.rig.skipIntro();
+            }
+        } else if (this.introPending) {
+            this.introPending = false;
+            this.pushToast({ type: "hint", text: this.pup.catchphrase, colour: this.pup.colour });
+        }
+
         if (this.input.consume("camera")) {
             const mode = this.rig.cycle();
             if (mode.bonnet && (this.onFoot || this.pup.spec.kind === "heli")) this.rig.cycle();
