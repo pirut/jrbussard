@@ -1,9 +1,44 @@
 /* ─────────────────────────────────────────────────────────────
    The world: a character grid on a phosphor screen.
+
+   Layers, back to front:
+     0  far plane      haze, drifting slower than the ground
+     1  stage          the world itself
+     2  fireflies      outdoors only
+     3  player         the @, drawn on its own so it can glide
+     4  near plane     foliage passing in front of you
+     5  crt            scanlines
+     6  tint           the current room's colour, at the edges
+     7  vignette
+     8  banner         area name on arrival
+    10  hud
+    11  touch pad
+    12  intro
+    14  panels and the map
    ───────────────────────────────────────────────────────────── */
+
+/* Registered so the room tint can cross-fade instead of snapping. */
+@property --zt-r {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 96;
+}
+@property --zt-g {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 140;
+}
+@property --zt-b {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 200;
+}
 
 .world-shell {
     --cell-font: clamp(13px, 2.05vw, 28px);
+    --zt-r: 96;
+    --zt-g: 140;
+    --zt-b: 200;
 
     position: fixed;
     inset: 0;
@@ -11,6 +46,10 @@
     background:
         radial-gradient(120% 90% at 50% 0%, #0b1120 0%, #05070d 62%, #03040a 100%);
     isolation: isolate;
+    transition:
+        --zt-r 1.4s ease,
+        --zt-g 1.4s ease,
+        --zt-b 1.4s ease;
 }
 
 .world-probe {
@@ -27,13 +66,16 @@
 }
 
 /*
- * The parallax planes share the stage's cell metrics exactly, so their grids
- * line up with the world's. The near one sits above the stage — including
- * above the player — which is what lets foliage pass in front of you.
+ * The stage and the parallax planes share the same cell metrics exactly, so
+ * their grids line up. Each is sized a little past the viewport by the
+ * renderer and slid by a fraction of a cell as the camera glides; paint
+ * containment clips them to that box.
  */
-.world-plane {
+.world-plane,
+.world-stage {
     position: absolute;
-    inset: 0;
+    top: 0;
+    left: 0;
     font-family: var(--font-mono);
     font-size: var(--cell-font);
     line-height: 1;
@@ -42,6 +84,7 @@
     pointer-events: none;
     contain: strict;
     user-select: none;
+    will-change: transform;
 }
 
 .world-plane--far {
@@ -49,30 +92,16 @@
     opacity: 0.85;
 }
 
+.world-stage {
+    z-index: 1;
+    text-shadow: 0 0 7px currentColor;
+}
+
 .world-plane--near {
-    z-index: 2;
+    z-index: 4;
     /* Out of focus, the way something close to the lens would be. */
     filter: blur(0.7px);
     text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
-}
-
-.world-plane .world__row {
-    height: 1em;
-    white-space: pre;
-}
-
-.world-stage {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    font-family: var(--font-mono);
-    font-size: var(--cell-font);
-    line-height: 1;
-    letter-spacing: 0;
-    white-space: pre;
-    text-shadow: 0 0 7px currentColor;
-    contain: strict;
-    user-select: none;
 }
 
 .world__row {
@@ -97,11 +126,98 @@
     font-variant-emoji: text;
 }
 
+/* ── You ───────────────────────────────────────────────────── */
+
+.world-player {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 3;
+    width: 1ch;
+    height: 1em;
+    font-family: var(--font-mono);
+    font-size: var(--cell-font);
+    line-height: 1;
+    text-align: center;
+    color: #fff6d5;
+    text-shadow:
+        0 0 6px rgba(255, 246, 213, 0.9),
+        0 0 18px rgba(255, 220, 150, 0.55),
+        0 0 40px rgba(255, 200, 120, 0.25);
+    pointer-events: none;
+    user-select: none;
+    will-change: transform;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+}
+
+.world-shell.is-live .world-player {
+    opacity: 1;
+}
+
+/* ── Fireflies ─────────────────────────────────────────────── */
+
+.fireflies {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 2s ease;
+}
+
+.fireflies.is-on {
+    opacity: 1;
+}
+
+.fireflies i {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+    width: var(--size);
+    height: var(--size);
+    border-radius: 50%;
+    background: #e6f7b0;
+    box-shadow:
+        0 0 6px 1px rgba(230, 247, 176, 0.7),
+        0 0 14px 3px rgba(200, 240, 140, 0.25);
+    animation:
+        firefly-drift var(--drift) ease-in-out var(--delay) infinite alternate,
+        firefly-blink var(--blink) ease-in-out var(--delay) infinite;
+}
+
+@keyframes firefly-drift {
+    from {
+        transform: translate(0, 0);
+    }
+    to {
+        transform: translate(var(--dx), var(--dy));
+    }
+}
+
+@keyframes firefly-blink {
+    0%,
+    100% {
+        opacity: 0;
+    }
+    35% {
+        opacity: 0.2;
+    }
+    50% {
+        opacity: 1;
+    }
+    65% {
+        opacity: 0.25;
+    }
+}
+
+/* ── Screen ────────────────────────────────────────────────── */
+
 /* Scanlines, bloom, and a slow phosphor drift. */
 .world-crt {
     position: absolute;
     inset: 0;
-    z-index: 3;
+    z-index: 5;
     pointer-events: none;
     background: repeating-linear-gradient(
         to bottom,
@@ -115,10 +231,24 @@
     animation: crt-drift 9s linear infinite;
 }
 
+/* The room you are in colours the edges of the screen. */
+.world-tint {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    pointer-events: none;
+    background: radial-gradient(
+        70% 60% at 50% 50%,
+        rgb(var(--zt-r) var(--zt-g) var(--zt-b) / 0) 40%,
+        rgb(var(--zt-r) var(--zt-g) var(--zt-b) / 0.11) 100%
+    );
+    mix-blend-mode: screen;
+}
+
 .world-vignette {
     position: absolute;
     inset: 0;
-    z-index: 3;
+    z-index: 7;
     pointer-events: none;
     background:
         radial-gradient(
@@ -143,13 +273,96 @@
     }
 }
 
+/* ── Area banner ───────────────────────────────────────────── */
+
+.banner {
+    position: absolute;
+    left: 50%;
+    top: 18%;
+    z-index: 8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    width: max-content;
+    max-width: 90vw;
+    padding: 0.4rem 1.6rem;
+    text-align: center;
+    pointer-events: none;
+    transform: translateX(-50%);
+    animation: banner-in 3.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.banner__name {
+    margin: 0;
+    font-size: clamp(1.1rem, 3.2vw, 2.1rem);
+    font-weight: 700;
+    letter-spacing: 0.42em;
+    text-indent: 0.42em;
+    text-transform: uppercase;
+    color: var(--gold);
+    text-shadow:
+        0 0 18px rgba(232, 195, 122, 0.55),
+        0 0 50px rgba(255, 179, 71, 0.25);
+}
+
+.banner__sub {
+    margin: 0;
+    font-size: clamp(10px, 1.15vw, 13px);
+    letter-spacing: 0.22em;
+    text-indent: 0.22em;
+    text-transform: uppercase;
+    color: var(--dim);
+}
+
+.banner__rule {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    opacity: 0.6;
+    transform: scaleX(0);
+    animation: banner-rule 3.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes banner-in {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, 8px);
+        filter: blur(3px);
+    }
+    12%,
+    72% {
+        opacity: 1;
+        transform: translate(-50%, 0);
+        filter: blur(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -6px);
+        filter: blur(2px);
+    }
+}
+
+@keyframes banner-rule {
+    0% {
+        transform: scaleX(0);
+    }
+    18%,
+    72% {
+        transform: scaleX(1);
+    }
+    100% {
+        transform: scaleX(0);
+    }
+}
+
 /* ── HUD ───────────────────────────────────────────────────── */
 
 .hud {
     position: absolute;
     left: 0;
     right: 0;
-    z-index: 3;
+    z-index: 10;
     display: flex;
     gap: clamp(0.75rem, 2vw, 2rem);
     align-items: center;
@@ -163,6 +376,13 @@
         rgba(5, 7, 13, 0.62)
     );
     backdrop-filter: blur(2px);
+    animation: hud-in 0.6s ease both;
+}
+
+@keyframes hud-in {
+    from {
+        opacity: 0;
+    }
 }
 
 .hud--top {
@@ -182,6 +402,7 @@
 
 .hud__brand {
     text-decoration: none;
+    font-weight: 700;
     color: var(--gold);
     text-shadow: 0 0 10px rgba(232, 195, 122, 0.45);
 }
@@ -194,19 +415,49 @@
 
 .hud__stat {
     color: var(--dim);
+    font-variant-numeric: tabular-nums;
 }
 
-.hud__index {
+.hud__index,
+.hud__sound {
     padding: 0.15rem 0.6rem;
     color: var(--ink);
     letter-spacing: 0.12em;
     border: 1px solid var(--edge);
-    transition: background 0.15s ease, color 0.15s ease;
+    transition:
+        background 0.15s ease,
+        color 0.15s ease,
+        border-color 0.15s ease;
 }
 
-.hud__index:hover {
+.hud__index:hover,
+.hud__sound:hover {
     color: var(--void);
     background: var(--gold);
+}
+
+.hud__sound {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: baseline;
+    color: var(--dim);
+}
+
+.hud__sound i {
+    font-style: normal;
+    font-size: 1.15em;
+}
+
+.hud__sound.is-on {
+    color: var(--mint);
+    border-color: rgba(126, 224, 192, 0.5);
+    text-shadow: 0 0 10px rgba(126, 224, 192, 0.5);
+}
+
+.hud__sound.is-on:hover {
+    color: var(--void);
+    background: var(--mint);
+    text-shadow: none;
 }
 
 .hud__prompt {
@@ -218,6 +469,14 @@
     color: var(--ink);
     text-transform: none;
     letter-spacing: 0.04em;
+    animation: prompt-in 0.25s ease both;
+}
+
+@keyframes prompt-in {
+    from {
+        opacity: 0;
+        transform: translateY(3px);
+    }
 }
 
 .hud__prompt b {
@@ -227,7 +486,7 @@
 
 @media (max-width: 620px) {
     .hud__stat--wide,
-    .hud__region {
+    .hud__sound-label {
         display: none;
     }
     .hud__region {
@@ -241,7 +500,7 @@
 .intro {
     position: absolute;
     inset: 0;
-    z-index: 6;
+    z-index: 12;
     display: flex;
     flex-direction: column;
     gap: clamp(0.75rem, 2vh, 1.75rem);
@@ -265,7 +524,18 @@
     text-shadow:
         0 0 14px rgba(232, 195, 122, 0.55),
         0 0 40px rgba(255, 179, 71, 0.25);
-    animation: glow-pulse 4.5s ease-in-out infinite;
+    animation:
+        title-in 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both,
+        glow-pulse 4.5s ease-in-out 1.1s infinite;
+}
+
+@keyframes title-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+        filter: blur(6px);
+        letter-spacing: 0.08em;
+    }
 }
 
 .intro__tag {
@@ -274,6 +544,7 @@
     letter-spacing: 0.3em;
     text-transform: uppercase;
     color: var(--dim);
+    animation: fade-in 0.8s ease 0.5s both;
 }
 
 .intro__legend {
@@ -289,6 +560,11 @@
     color: var(--dim);
 }
 
+.intro__legend li {
+    animation: fade-in 0.5s ease both;
+    animation-delay: calc(0.7s + var(--i, 0) * 0.08s);
+}
+
 .intro__legend b {
     color: var(--gold);
     font-size: 1.15em;
@@ -302,7 +578,10 @@
     color: var(--void);
     background: var(--gold);
     box-shadow: 0 0 30px rgba(232, 195, 122, 0.35);
-    transition: transform 0.15s ease, box-shadow 0.2s ease;
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.2s ease;
+    animation: fade-in 0.6s ease 1s both;
 }
 
 .intro__start:hover {
@@ -314,6 +593,7 @@
     margin: 0;
     font-size: clamp(10px, 1.05vw, 13px);
     color: var(--dim);
+    animation: fade-in 0.6s ease 1.2s both;
 }
 
 .intro__keys b {
@@ -344,7 +624,7 @@
 .panel-layer {
     position: absolute;
     inset: 0;
-    z-index: 8;
+    z-index: 14;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -355,6 +635,7 @@
 }
 
 .panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     width: min(78ch, 100%);
@@ -365,7 +646,20 @@
         0 0 0 1px rgba(5, 7, 13, 0.9),
         0 30px 90px rgba(0, 0, 0, 0.65),
         0 0 70px rgba(127, 215, 255, 0.07);
-    animation: panel-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: panel-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Faint scanlines on the panel too — it is part of the same screen. */
+.panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0) 0 3px,
+        rgba(127, 215, 255, 0.025) 3px 4px
+    );
 }
 
 .panel--map {
@@ -376,7 +670,7 @@
 @keyframes panel-in {
     from {
         opacity: 0;
-        transform: translateY(10px) scale(0.99);
+        transform: translateY(12px) scale(0.985);
     }
     to {
         opacity: 1;
@@ -429,10 +723,16 @@
     color: var(--dim);
 }
 
+.panel__glyph {
+    font-size: 1.3em;
+    letter-spacing: 0;
+    text-shadow: 0 0 10px currentColor;
+}
+
 .panel__title {
     margin: 0 0 0.9rem;
     font-size: clamp(1.15rem, 2.6vw, 1.75rem);
-    font-weight: 600;
+    font-weight: 700;
     line-height: 1.2;
     letter-spacing: 0.02em;
     color: var(--gold);
@@ -442,7 +742,7 @@
 .panel__section {
     margin: 1.8rem 0 0.6rem;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--sky);
@@ -546,12 +846,17 @@
     color: var(--void);
     text-decoration: none;
     background: var(--gold);
-    transition: background 0.15s ease, transform 0.15s ease;
+    box-shadow: 0 0 18px rgba(232, 195, 122, 0.2);
+    transition:
+        background 0.15s ease,
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
 }
 
 .panel__action:hover {
     transform: translateX(2px);
     background: var(--amber);
+    box-shadow: 0 0 28px rgba(255, 179, 71, 0.4);
 }
 
 .panel__links {
@@ -597,8 +902,8 @@
 }
 
 .panel__index span {
-    flex: 1;
-    min-width: 14ch;
+    /* Wide enough to read; drops under the title when the title is long. */
+    flex: 1 1 30ch;
     font-size: 0.82rem;
     color: var(--dim);
 }
@@ -653,6 +958,24 @@
     text-shadow: 0 0 6px currentColor;
 }
 
+.minimap__you {
+    display: inline-block;
+    font-weight: 700;
+    animation: you-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes you-pulse {
+    0%,
+    100% {
+        opacity: 1;
+        text-shadow: 0 0 6px currentColor;
+    }
+    50% {
+        opacity: 0.55;
+        text-shadow: 0 0 16px currentColor;
+    }
+}
+
 .minimap__legend {
     display: flex;
     flex-wrap: wrap;
@@ -673,10 +996,10 @@
 
 /* ── Touch controls ────────────────────────────────────────── */
 
-/* Rendered only on touch devices — see World.js. */
+/* Rendered only on touch devices — see World.jsx. */
 .touch {
     position: absolute;
-    z-index: 4;
+    z-index: 11;
     right: 0;
     bottom: 2.8rem;
     left: 0;

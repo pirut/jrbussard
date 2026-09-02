@@ -57,9 +57,11 @@ export const FAR = {
  * makes it slide at its own rate: the same screen cell maps to a different
  * source cell than the ground does, and the offset grows as you walk.
  */
-export function buildPlane({ cols, rows, camX, camY, plane, colors }) {
-    const originX = Math.round(camX * plane.factor);
-    const originY = Math.round(camY * plane.factor);
+export function buildPlane({ cols, rows, camX, camY, originX, originY, plane, colors }) {
+    /* The overworld hands in a floored origin so it can glide the fraction as
+       a pixel translate; the Commons still passes an integer camera. */
+    if (originX === undefined) originX = Math.round(camX * plane.factor);
+    if (originY === undefined) originY = Math.round(camY * plane.factor);
     const midX = (cols - 1) / 2;
     const midY = (rows - 1) / 2;
     const out = [];

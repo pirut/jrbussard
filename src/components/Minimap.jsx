@@ -35,6 +35,10 @@ const KEY = [
     { glyph: "¶", label: "signposts" },
 ];
 
+const LABEL_COLOR = "#e8c37a";
+const PLAYER_COLOR = "#fff6d5";
+const VOID_COLOR = "#05070d";
+
 function rgbToHex([r, g, b], t) {
     const mix = (c, bg) => Math.round(bg + (c - bg) * t);
     const bg = PALETTE.bg;
@@ -48,12 +52,11 @@ function buildMap(world, player) {
     const rows = Math.ceil(world.h / STEP);
     const playerCol = Math.floor(player.x / STEP);
     const playerRow = Math.floor(player.y / STEP);
-    let html = "";
 
+    /* 1. Downsample the world into cells. */
+    const cells = [];
     for (let row = 0; row < rows; row += 1) {
-        let runColor = null;
-        let runText = "";
-
+        const line = [];
         for (let col = 0; col < cols; col += 1) {
             const present = new Set();
             for (let dy = 0; dy < STEP; dy += 1) {
@@ -64,27 +67,55 @@ function buildMap(world, player) {
                     present.add(world.kinds[y * world.w + x]);
                 }
             }
-
-            const isPlayer = col === playerCol && row === playerRow;
             const pick = PRIORITY.find((entry) => present.has(entry.kind));
-            const ch = isPlayer ? "@" : pick ? pick.ch : " ";
-            const color = isPlayer
-                ? "#fff6d5"
-                : pick
-                ? rgbToHex(PALETTE[pick.kind], pick.kind === KIND.GRASS ? 0.45 : 0.95)
-                : "#05070d";
+            line.push({
+                ch: pick ? pick.ch : " ",
+                color: pick
+                    ? rgbToHex(PALETTE[pick.kind], pick.kind === KIND.GRASS ? 0.45 : 0.95)
+                    : VOID_COLOR,
+            });
+        }
+        cells.push(line);
+    }
 
-            if (color !== runColor) {
+    /* 2. Name each room, just inside its top wall, so the map reads as a
+       map rather than a texture. */
+    world.rooms.forEach((room) => {
+        const label = room.name.replace(/^THE /, "");
+        const row = Math.floor((room.y + 1) / STEP) + 1;
+        const centre = (room.x + room.w / 2) / STEP;
+        const start = Math.round(centre - label.length / 2);
+        if (row < 0 || row >= rows) return;
+        for (let i = 0; i < label.length; i += 1) {
+            const col = start + i;
+            if (col < 0 || col >= cols) continue;
+            cells[row][col] = { ch: label[i], color: LABEL_COLOR };
+        }
+    });
+
+    /* 3. You, on top of everything. */
+    if (cells[playerRow] && cells[playerRow][playerCol]) {
+        cells[playerRow][playerCol] = { ch: "@", color: PLAYER_COLOR, player: true };
+    }
+
+    /* 4. Serialise, grouping runs of one colour. */
+    let html = "";
+    cells.forEach((line) => {
+        let runColor = null;
+        let runText = "";
+        line.forEach((cell) => {
+            if (cell.color !== runColor) {
                 if (runColor !== null) html += `<span style="color:${runColor}">${runText}</span>`;
-                runColor = color;
+                runColor = cell.color;
                 runText = "";
             }
-            runText += cellMarkup(ch);
-        }
-
+            runText += cell.player
+                ? `<b class="minimap__you">${cellMarkup(cell.ch)}</b>`
+                : cellMarkup(cell.ch);
+        });
         if (runColor !== null) html += `<span style="color:${runColor}">${runText}</span>`;
         html += "\n";
-    }
+    });
 
     return html;
 }

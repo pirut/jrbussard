@@ -4,7 +4,6 @@ import { buildPlane, NEAR, FAR } from "./parallax";
 import {
     KIND,
     PALETTE,
-    PLAYER_COLOR,
     ANIMATED,
     ANIM_FRAMES,
     INTERACTIVE,
@@ -16,13 +15,20 @@ const TORCH_RADIUS = 8;
 const LEVELS = 12;
 const UNLIT = [72, 84, 108];
 /*
- * How dark a cell can actually get. Previously the floor was 0.16, which kept
- * the far field plainly legible everywhere and flattened the picture — every
- * part of the screen sat at much the same brightness. Letting distance carry
- * cells most of the way to the background is what gives the world depth.
+ * How dark a cell can actually get. Letting distance carry cells most of the
+ * way to the background is what gives the world depth.
  */
 const FLOOR_LIGHT = 0.05;
 const CEIL_LIGHT = 0.95;
+
+/*
+ * Torches do not only brighten what is near them, they warm it. Cells inside
+ * a torch's reach are pulled toward this colour in proportion to how much of
+ * its light they get, so a hearth reads as firelight rather than a spotlight.
+ */
+const TORCH_TINT = [255, 176, 84];
+const TORCH_TINT_STRENGTH = 0.55;
+const TINT_STEPS = 4;
 
 /*
  * Terrain and structure get per-cell grain. Interactive props deliberately do
@@ -47,8 +53,16 @@ function hex(rgb, t) {
     return `#${value.toString(16).padStart(6, "0")}`;
 }
 
-/* Colour lookups are pure functions of (kind, brightness level), so memoising
-   them keeps the per-frame work down to string building. */
+function mixRgb(a, b, t) {
+    return [
+        Math.round(a[0] + (b[0] - a[0]) * t),
+        Math.round(a[1] + (b[1] - a[1]) * t),
+        Math.round(a[2] + (b[2] - a[2]) * t),
+    ];
+}
+
+/* Colour lookups are pure functions of (kind, tint, brightness level), so
+   memoising them keeps the per-frame work down to string building. */
 function makeColorCache() {
     const cache = new Map();
     return (rgb, level, salt) => {
@@ -94,16 +108,7 @@ function bakeZoneColors(world) {
         const byKind = {};
         TINTABLE.forEach((kind) => {
             const base = PALETTE[kind];
-            if (!tint) {
-                byKind[kind] = base;
-                return;
-            }
-            const t = TINT_STRENGTH[kind];
-            byKind[kind] = [
-                Math.round(base[0] + (tint[0] - base[0]) * t),
-                Math.round(base[1] + (tint[1] - base[1]) * t),
-                Math.round(base[2] + (tint[2] - base[2]) * t),
-            ];
+            byKind[kind] = tint ? mixRgb(base, tint, TINT_STRENGTH[kind]) : base;
         });
         return byKind;
     });
@@ -173,13 +178,32 @@ export function createRenderer(container, world, planes = {}) {
         return limit !== undefined && marker.index >= limit;
     }
 
-    function drawPlanes(cols, camX, camY) {
+    /*
+     * The camera is a floating point. Rows are drawn from its integer part and
+     * the fraction becomes a pixel translate, so the world glides between
+     * cells instead of snapping. Each parallax plane slides at its own rate,
+     * so each gets its own fraction.
+     */
+    function scroll({ cam, cell }) {
+        const fx = cam.x - Math.floor(cam.x);
+        const fy = cam.y - Math.floor(cam.y);
+        container.style.transform = `translate3d(${(-fx * cell.width).toFixed(2)}px, ${(-fy * cell.height).toFixed(2)}px, 0)`;
+        layers.forEach((layer) => {
+            const px = cam.x * layer.plane.factor;
+            const py = cam.y * layer.plane.factor;
+            const lx = px - Math.floor(px);
+            const ly = py - Math.floor(py);
+            layer.node.style.transform = `translate3d(${(-lx * cell.width).toFixed(2)}px, ${(-ly * cell.height).toFixed(2)}px, 0)`;
+        });
+    }
+
+    function drawPlanes(cols, cam) {
         layers.forEach((layer) => {
             const built = buildPlane({
                 cols,
                 rows: layer.rows.length,
-                camX,
-                camY,
+                originX: Math.floor(cam.x * layer.plane.factor),
+                originY: Math.floor(cam.y * layer.plane.factor),
                 plane: layer.plane,
                 colors: layer.colors,
             });
@@ -191,8 +215,10 @@ export function createRenderer(container, world, planes = {}) {
         });
     }
 
-    function draw({ cols, camX, camY, player, time, counts }) {
-        drawPlanes(cols, camX, camY);
+    function draw({ cols, cam, player, time, counts }) {
+        drawPlanes(cols, cam);
+        const camX = Math.floor(cam.x);
+        const camY = Math.floor(cam.y);
         const flicker = 0.82 + 0.18 * Math.sin(time * 0.009);
         const pulse = 0.5 + 0.5 * Math.sin(time * 0.004);
         const frame = Math.floor(time / 190);
@@ -210,8 +236,10 @@ export function createRenderer(container, world, planes = {}) {
                 let rgb;
                 let unlit = false;
                 let zone = 0;
+                let torch = 0;
+                const inside = wx >= 0 && wy >= 0 && wx < world.w && wy < world.h;
 
-                if (wx < 0 || wy < 0 || wx >= world.w || wy >= world.h) {
+                if (!inside) {
                     kind = KIND.VOID;
                     ch = " ";
                     rgb = PALETTE[KIND.VOID];
@@ -219,6 +247,7 @@ export function createRenderer(container, world, planes = {}) {
                     const i = wy * world.w + wx;
                     kind = world.kinds[i];
                     zone = world.zones[i];
+                    torch = torchLight[i];
                     ch = ANIMATED.has(kind)
                         ? ANIM_FRAMES[kind][(frame + wx * 3 + wy * 5) & 3]
                         : world.chars[i];
@@ -228,11 +257,9 @@ export function createRenderer(container, world, planes = {}) {
                         : zoneColors[zone][kind] || PALETTE[kind];
                 }
 
+                /* The player is drawn as its own sprite so it can glide; the
+                   cell underneath just gets lit up. */
                 const isPlayer = wx === player.x && wy === player.y;
-                if (isPlayer) {
-                    ch = "@";
-                    rgb = PLAYER_COLOR;
-                }
 
                 let light = world.zoneAmbient[zone];
                 const d = Math.hypot(wx - player.x, wy - player.y);
@@ -242,8 +269,15 @@ export function createRenderer(container, world, planes = {}) {
                     const t = 1 - d / PLAYER_RADIUS;
                     light += PLAYER_LIGHT * t * t;
                 }
-                if (wx >= 0 && wy >= 0 && wx < world.w && wy < world.h) {
-                    light += torchLight[wy * world.w + wx] * flicker;
+                let tintStep = 0;
+                if (torch > 0) {
+                    light += torch * flicker;
+                    /* Warm what the fire reaches. Quantised so the colour
+                       cache stays small and runs stay long. */
+                    if (!unlit && kind !== KIND.TORCH && !INTERACTIVE[kind]) {
+                        tintStep = Math.round(torch * flicker * 2 * TINT_STEPS);
+                        if (tintStep > TINT_STEPS) tintStep = TINT_STEPS;
+                    }
                 }
                 if (kind === KIND.TORCH) light += 0.3 * flicker;
                 if (INTERACTIVE[kind] && !unlit) light += 0.12 + 0.2 * pulse;
@@ -252,15 +286,10 @@ export function createRenderer(container, world, planes = {}) {
                 /*
                  * Grain. Neighbouring cells of one kind sit a notch apart in
                  * brightness, so a field reads as texture instead of a
-                 * repeated glyph.
-                 *
-                 * It is applied to the light level rather than by mixing a
-                 * new colour per cell: levels are already quantised, so
-                 * neighbours often land on the same one and long runs still
-                 * collapse into a single span. Doing it in colour space
-                 * tripled the number of spans per row for the same look.
+                 * repeated glyph. Applied to the light level rather than in
+                 * colour space so long runs still collapse into one span.
                  */
-                if (!isPlayer && !unlit && GRAINED.has(kind)) {
+                if (!unlit && GRAINED.has(kind)) {
                     light += GRAIN_SPREAD[shadeAt(wx, wy)];
                 }
 
@@ -268,7 +297,10 @@ export function createRenderer(container, world, planes = {}) {
                     0,
                     Math.min(LEVELS - 1, Math.round(light * (LEVELS - 1)))
                 );
-                const salt = isPlayer ? "p" : unlit ? "u" : `${kind}:${zone}`;
+                if (tintStep) {
+                    rgb = mixRgb(rgb, TORCH_TINT, (tintStep / TINT_STEPS) * TORCH_TINT_STRENGTH);
+                }
+                const salt = unlit ? "u" : `${kind}:${zone}:${tintStep}`;
                 const color = colorOf(rgb, level, salt);
 
                 if (color !== runColor) {
@@ -291,7 +323,7 @@ export function createRenderer(container, world, planes = {}) {
         }
     }
 
-    return { setSize, draw };
+    return { setSize, scroll, draw };
 }
 
 /* Measures one character cell so the viewport can be sized in whole glyphs. */

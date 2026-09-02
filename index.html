@@ -3,33 +3,32 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-        <title>JR Bussard — operator by day, builder by night</title>
+        <title>JR Bussard — an explorable workshop</title>
         <meta
             name="description"
-            content="JR Bussard runs operations at Cornerstone Companies in West Palm Beach and builds small, useful software on the side: apps, games, and notes on making real-world systems run."
+            content="An explorable ASCII workshop by JR Bussard — walk around a library of notes, a foundry of projects, an observatory of live GitHub activity, and an arcade of small playable things."
         />
-        <meta name="color-scheme" content="dark light" />
-        <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0b0d" />
-        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f3ec" />
+        <meta name="color-scheme" content="dark" />
+        <meta name="theme-color" content="#05070d" />
         <meta name="author" content="JR Bussard" />
         <link rel="canonical" href="https://www.jrbussard.com/" />
 
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="JR Bussard" />
-        <meta property="og:title" content="JR Bussard — operator by day, builder by night" />
+        <meta property="og:title" content="JR Bussard — an explorable workshop" />
         <meta
             property="og:description"
-            content="Operations at Cornerstone Companies, small software on the side. Work, notes, a live GitHub feed and an arcade of playable projects."
+            content="Walk an ASCII world: a library of notes, a foundry of projects, an observatory of live code, an arcade of small projects."
         />
         <meta property="og:url" content="https://www.jrbussard.com/" />
         <meta property="og:image" content="https://www.jrbussard.com/og.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="JR Bussard — operator by day, builder by night" />
+        <meta name="twitter:title" content="JR Bussard — an explorable workshop" />
         <meta
             name="twitter:description"
-            content="Operations at Cornerstone Companies, small software on the side. Work, notes, a live GitHub feed and an arcade of playable projects."
+            content="Walk an ASCII world: a library of notes, a foundry of projects, an observatory of live code, an arcade of small projects."
         />
         <meta name="twitter:image" content="https://www.jrbussard.com/og.png" />
 
@@ -39,20 +38,6 @@
 
         <link rel="preconnect" href="https://api.github.com" crossorigin />
         <link rel="preconnect" href="https://8qiu273i.apicdn.sanity.io" crossorigin />
-
-        <script>
-            /* Pick the theme before first paint so there is never a flash. */
-            (function () {
-                try {
-                    var saved = localStorage.getItem("theme");
-                    var prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
-                    var theme = saved === "light" || saved === "dark" ? saved : prefersLight ? "light" : "dark";
-                    document.documentElement.setAttribute("data-theme", theme);
-                } catch (e) {
-                    document.documentElement.setAttribute("data-theme", "dark");
-                }
-            })();
-        </script>
 
         <script type="application/ld+json">
             {

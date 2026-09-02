@@ -1,24 +1,28 @@
-/* ─────────────────────────────────────────────────────────────
-   Fonts. Self-hosted latin subsets: two variable faces, four files.
-   Fraunces carries the display voice; Work Sans does the reading.
-   ───────────────────────────────────────────────────────────── */
-
+/*
+ * The one font that matters. The whole site is a character grid, and the
+ * grid only lines up while every glyph is exactly one cell wide and every
+ * symbol actually exists in the font. Shipping our own monospace — a subset
+ * of DejaVu Sans Mono with the box drawing, blocks and symbols the world is
+ * made of — means the art looks the same on a Mac, a Windows laptop and a
+ * phone, instead of depending on whatever each of them has installed.
+ */
 @font-face {
-    font-family: "Fraunces";
-    src: url("./assets/fonts/Fraunces-normal.woff2") format("woff2");
+    font-family: "Overworld Mono";
+    src: url("./assets/fonts/DejaVuSansMono.woff2") format("woff2");
     font-style: normal;
-    font-weight: 300 900;
+    font-weight: 400;
     font-display: swap;
 }
 
 @font-face {
-    font-family: "Fraunces";
-    src: url("./assets/fonts/Fraunces-italic.woff2") format("woff2");
-    font-style: italic;
-    font-weight: 300 900;
+    font-family: "Overworld Mono";
+    src: url("./assets/fonts/DejaVuSansMono-Bold.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 600 700;
     font-display: swap;
 }
 
+/* Charlie's page is a normal page and reads in a sans. */
 @font-face {
     font-family: "Work Sans";
     src: url("./assets/fonts/WorkSans-normal.woff2") format("woff2");
@@ -27,46 +31,7 @@
     font-display: swap;
 }
 
-@font-face {
-    font-family: "Work Sans";
-    src: url("./assets/fonts/WorkSans-italic.woff2") format("woff2");
-    font-style: italic;
-    font-weight: 100 900;
-    font-display: swap;
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Tokens
-   ───────────────────────────────────────────────────────────── */
-
 :root {
-    /* Type */
-    --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-    --font-sans: "Work Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono",
-        "Liberation Mono", monospace;
-
-    /* Motion */
-    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-    --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
-
-    /* Shape */
-    --radius-s: 8px;
-    --radius-m: 14px;
-    --radius-l: 22px;
-    --nav-h: 68px;
-    --container: 1200px;
-    --gutter: clamp(1.25rem, 4vw, 2.5rem);
-
-    /* Pointer parallax, written by the hero. */
-    --mx: 0;
-    --my: 0;
-
-    /*
-     * The arcade and the overworld keep their own phosphor palette. These
-     * are theirs and never change with the site theme — a CRT is dark.
-     */
     --void: #05070d;
     --ink: #d7e2f4;
     --dim: #6c7b99;
@@ -77,88 +42,41 @@
     --mint: #7ee0c0;
     --sky: #7fd7ff;
     --rose: #ff7ad9;
+    --font-mono: "Overworld Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+        "DejaVu Sans Mono", "Liberation Mono", monospace;
+
+    /* Tokens the standalone Charlie route still leans on. */
+    --bg: #0d0f0e;
+    --text: #eceee6;
+    --muted: rgba(236, 238, 230, 0.58);
+    --radius: 10px;
 }
 
-/* Dark is the default and the design's home. */
-:root,
-:root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #0a0a0c;
-    --bg-2: #111114;
-    --bg-3: #18181d;
-    --bg-glass: rgba(10, 10, 12, 0.72);
-    --fg: #f3efe7;
-    --fg-2: #b3aea4;
-    --fg-3: #77736b;
-    --line: rgba(243, 239, 231, 0.09);
-    --line-2: rgba(243, 239, 231, 0.18);
-    --brass: #d9a95b;
-    --brass-2: #f3cf85;
-    --brass-ink: #1a1207;
-    --brass-soft: rgba(217, 169, 91, 0.14);
-    --cool: #6f8fbf;
-    --ok: #7ed9a0;
-    --warn: #f0b35a;
-    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 24px 60px -30px rgba(0, 0, 0, 0.8);
-    --grain-opacity: 0.045;
-    --glow-opacity: 0.5;
-}
-
-:root[data-theme="light"] {
-    color-scheme: light;
-    --bg: #f6f3ec;
-    --bg-2: #fffdf8;
-    --bg-3: #ece7db;
-    --bg-glass: rgba(246, 243, 236, 0.78);
-    --fg: #16161a;
-    --fg-2: #56534c;
-    --fg-3: #8b867b;
-    --line: rgba(22, 22, 26, 0.09);
-    --line-2: rgba(22, 22, 26, 0.2);
-    --brass: #a3722a;
-    --brass-2: #c58f35;
-    --brass-ink: #fff8ea;
-    --brass-soft: rgba(163, 114, 42, 0.12);
-    --cool: #6d8fc0;
-    --ok: #2f9a5d;
-    --warn: #c07d1a;
-    --shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 24px 50px -30px rgba(40, 30, 10, 0.35);
-    --grain-opacity: 0.07;
-    --glow-opacity: 0.32;
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Base
-   ───────────────────────────────────────────────────────────── */
-
-*,
-*::before,
-*::after {
+* {
     box-sizing: border-box;
-}
-
-html {
-    -webkit-text-size-adjust: 100%;
-    scroll-behavior: smooth;
 }
 
 html,
 body,
 #root {
-    min-height: 100%;
+    height: 100%;
     margin: 0;
 }
 
 body {
-    color: var(--fg);
-    background: var(--bg);
-    font-family: var(--font-sans);
-    font-size: 1.0625rem;
-    line-height: 1.6;
-    font-feature-settings: "kern", "liga", "calt";
+    color: var(--ink);
+    background: var(--void);
+    font-family: var(--font-mono);
+    font-size: 16px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
+    -webkit-text-size-adjust: 100%;
+}
+
+/* The world is a fixed screen; everything else is a page that scrolls. */
+body:has(.world-shell) {
+    overflow: hidden;
 }
 
 a {
@@ -174,21 +92,14 @@ button {
     cursor: pointer;
 }
 
-img,
-svg {
-    display: block;
-    max-width: 100%;
-}
-
 :focus-visible {
-    outline: 2px solid var(--brass);
-    outline-offset: 3px;
-    border-radius: 4px;
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
 }
 
 ::selection {
-    color: var(--brass-ink);
-    background: var(--brass);
+    color: var(--void);
+    background: var(--amber);
 }
 
 .sr-only {
@@ -204,9 +115,6 @@ svg {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    html {
-        scroll-behavior: auto;
-    }
     *,
     *::before,
     *::after {
@@ -216,10 +124,36 @@ svg {
     }
 }
 
+/* While a cabinet's chunk is on its way. */
+.loading {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-size: 13px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--dim);
+    background: var(--void);
+}
+
+.loading__mark {
+    color: var(--gold);
+    animation: loading-blink 0.9s steps(2, end) infinite;
+}
+
+@keyframes loading-blink {
+    to {
+        opacity: 0;
+    }
+}
+
 /*
  * Shown for the moment between opening /adventure-bay and its Three.js chunk
  * arriving. It lives here rather than in PupPatrol3D.css because that
- * stylesheet ships *inside* the lazy chunk.
+ * stylesheet ships *inside* the lazy chunk — styling the fallback from there
+ * would mean the fallback is unstyled for exactly as long as it is on screen.
  */
 .bay-boot {
     position: fixed;

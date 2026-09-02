@@ -1,11 +1,11 @@
 {
-    "name": "JR Bussard",
+    "name": "JR Bussard — an explorable workshop",
     "short_name": "JR Bussard",
-    "description": "Operator by day, builder by night.",
+    "description": "Walk an ASCII world: notes, projects, live code, and an arcade.",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#0a0a0c",
-    "theme_color": "#0a0a0c",
+    "background_color": "#05070d",
+    "theme_color": "#05070d",
     "icons": [
         { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
         { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }

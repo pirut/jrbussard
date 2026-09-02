@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
 
 const TITLE = [
@@ -19,7 +19,7 @@ const LEGEND = [
     { glyph: "◉", label: "contact" },
 ];
 
-export function Intro({ onStart }) {
+export function Intro({ onStart, resumed, region }) {
     return (
         <div className="intro">
             <pre className="intro__title" aria-label="JR Bussard">
@@ -27,16 +27,21 @@ export function Intro({ onStart }) {
             </pre>
             <p className="intro__tag">an explorable workshop · west palm beach, fl</p>
             <ul className="intro__legend">
-                {LEGEND.map((item) => (
-                    <li key={item.label}>
+                {LEGEND.map((item, i) => (
+                    <li key={item.label} style={{ "--i": i }}>
                         <b>{item.glyph}</b> {item.label}
                     </li>
                 ))}
             </ul>
             <button type="button" className="intro__start" onClick={onStart} autoFocus>
-                ▸ enter the world
+                {resumed ? "▸ continue" : "▸ enter the world"}
             </button>
             <p className="intro__keys">
+                {resumed ? (
+                    <>
+                        you left off in <b>{region.toLowerCase()}</b> ·{" "}
+                    </>
+                ) : null}
                 move with <b>WASD</b> or <b>arrows</b> · act with <b>E</b> · map with{" "}
                 <b>M</b>
             </p>
@@ -44,10 +49,20 @@ export function Intro({ onStart }) {
     );
 }
 
-export function TopBar({ region, player, notesCount, reposCount, onIndex }) {
+export function TopBar({
+    region,
+    player,
+    notesCount,
+    reposCount,
+    onIndex,
+    soundOn,
+    onSound,
+}) {
     return (
         <header className="hud hud--top">
-            <Link className="hud__brand" to="/" title="Back to the site">JR BUSSARD</Link>
+            <Link className="hud__brand" to="/" title="JR Bussard">
+                JR BUSSARD
+            </Link>
             <span className="hud__region">{region}</span>
             <span className="hud__stat">
                 {String(player.x).padStart(3, "0")},{String(player.y).padStart(3, "0")}
@@ -55,6 +70,17 @@ export function TopBar({ region, player, notesCount, reposCount, onIndex }) {
             <span className="hud__stat hud__stat--wide">
                 ▤ {notesCount} · ★ {reposCount}
             </span>
+            <button
+                type="button"
+                className={`hud__sound ${soundOn ? "is-on" : ""}`}
+                onClick={onSound}
+                aria-pressed={soundOn}
+                aria-label={soundOn ? "Turn sound off" : "Turn sound on"}
+                title={soundOn ? "sound on" : "sound off"}
+            >
+                <i aria-hidden="true">{soundOn ? "♪" : "♪"}</i>
+                <span className="hud__sound-label">{soundOn ? "on" : "off"}</span>
+            </button>
             <button type="button" className="hud__index" onClick={onIndex}>
                 index
             </button>
@@ -75,6 +101,60 @@ export function PromptBar({ prompt }) {
                 </span>
             )}
         </footer>
+    );
+}
+
+/*
+ * The name of wherever you just walked into, shown large for a moment and
+ * then gone — the way a game announces an area.
+ */
+export function Banner({ name, sub }) {
+    return (
+        <div className="banner" aria-hidden="true">
+            <span className="banner__rule" />
+            <p className="banner__name">{name}</p>
+            {sub && <p className="banner__sub">{sub}</p>}
+            <span className="banner__rule" />
+        </div>
+    );
+}
+
+/* Fireflies over the forest. Pure CSS once placed; only shown outdoors. */
+export function Fireflies({ active, count = 18 }) {
+    const flies = useMemo(
+        () =>
+            Array.from({ length: count }, (unused, i) => ({
+                id: i,
+                x: `${4 + Math.random() * 92}%`,
+                y: `${10 + Math.random() * 78}%`,
+                dx: `${(Math.random() - 0.5) * 120}px`,
+                dy: `${(Math.random() - 0.5) * 80}px`,
+                drift: `${11 + Math.random() * 12}s`,
+                blink: `${2.2 + Math.random() * 3}s`,
+                delay: `${-Math.random() * 14}s`,
+                size: `${2 + Math.random() * 2.5}px`,
+            })),
+        [count]
+    );
+
+    return (
+        <div className={`fireflies ${active ? "is-on" : ""}`} aria-hidden="true">
+            {flies.map((fly) => (
+                <i
+                    key={fly.id}
+                    style={{
+                        "--x": fly.x,
+                        "--y": fly.y,
+                        "--dx": fly.dx,
+                        "--dy": fly.dy,
+                        "--drift": fly.drift,
+                        "--blink": fly.blink,
+                        "--delay": fly.delay,
+                        "--size": fly.size,
+                    }}
+                />
+            ))}
+        </div>
     );
 }
 

@@ -2,13 +2,13 @@ import { useState, useEffect } from "react";
 import { featuredRepos } from "../data/site";
 
 const GITHUB_USER = "pirut";
-const CACHE_KEY = "gh_cache_v4";
+const CACHE_KEY = "gh_cache_v3";
 const CACHE_TTL = 5 * 60 * 1000;
 
 /*
- * Pinned repositories come first in the order they are listed, then
- * everything else by most recent push. Forks and empty repositories never
- * take a slot.
+ * The Observatory has a fixed number of stars, so the order matters. Pinned
+ * repositories come first in the order they are listed, then everything else
+ * by most recent push. Forks and empty repositories never take a slot.
  */
 function curate(repos) {
     const rank = new Map(featuredRepos.map((name, i) => [name.toLowerCase(), i]));
@@ -21,16 +21,7 @@ function curate(repos) {
             const rb = rankOf(b);
             if (ra !== rb) return ra - rb;
             return new Date(b.pushed_at) - new Date(a.pushed_at);
-        })
-        .map((repo) => ({
-            id: repo.id,
-            name: repo.name,
-            description: repo.description || "",
-            url: repo.html_url,
-            language: repo.language || "",
-            stars: repo.stargazers_count || 0,
-            pushed: repo.pushed_at,
-        }));
+        });
 }
 
 function getCached() {
@@ -54,16 +45,17 @@ function setCache(data) {
 }
 
 async function fetchAll() {
+    /* 1. Fetch a wide window, then curate down to the good ones. */
     const reposRes = await fetch(
         `https://api.github.com/users/${GITHUB_USER}/repos?sort=pushed&per_page=100`
     );
-    if (!reposRes.ok) throw new Error(`GitHub responded ${reposRes.status}`);
+    if (!reposRes.ok) throw new Error("GitHub API error");
     const repos = curate(await reposRes.json());
 
-    /* Recent commits from the most active few. */
+    /* 2. Recent commits from the top few active repositories. */
     const commitResults = await Promise.all(
         repos.slice(0, 4).map((repo) =>
-            fetch(`https://api.github.com/repos/${GITHUB_USER}/${repo.name}/commits?per_page=6`)
+            fetch(`https://api.github.com/repos/${GITHUB_USER}/${repo.name}/commits?per_page=5`)
                 .then((r) => (r.ok ? r.json() : []))
                 .then((commits) =>
                     Array.isArray(commits)
@@ -73,6 +65,7 @@ async function fetchAll() {
                               date: c.commit?.author?.date || "",
                               repo: repo.name,
                               url: c.html_url,
+                              author: c.commit?.author?.name || "",
                           }))
                         : []
                 )
@@ -80,10 +73,11 @@ async function fetchAll() {
         )
     );
 
+    /* 3. Merge and sort by date, newest first. */
     const activity = commitResults
         .flat()
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 12);
+        .slice(0, 15);
 
     return { repos, activity };
 }
@@ -120,7 +114,12 @@ export function useGitHub() {
         load()
             .then((data) => {
                 if (!cancelled) {
-                    setState({ repos: data.repos || [], activity: data.activity || [], loading: false, error: null });
+                    setState({
+                        repos: data.repos || [],
+                        activity: data.activity || [],
+                        loading: false,
+                        error: null,
+                    });
                 }
             })
             .catch((error) => {
