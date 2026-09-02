@@ -3,6 +3,9 @@ build
 dist
 .sanity
 *.png
+# ...except the share image and touch icon, which are part of the site.
+!public/og.png
+!public/apple-touch-icon.png
 .env.local
 .env.*.local
 

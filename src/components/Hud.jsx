@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 
 const TITLE = [
     "      ██╗██████╗     ██████╗ ██╗   ██╗███████╗███████╗ █████╗ ██████╗ ██████╗ ",
@@ -46,7 +47,7 @@ export function Intro({ onStart }) {
 export function TopBar({ region, player, notesCount, reposCount, onIndex }) {
     return (
         <header className="hud hud--top">
-            <span className="hud__brand">JR BUSSARD</span>
+            <Link className="hud__brand" to="/" title="Back to the site">JR BUSSARD</Link>
             <span className="hud__region">{region}</span>
             <span className="hud__stat">
                 {String(player.x).padStart(3, "0")},{String(player.y).padStart(3, "0")}

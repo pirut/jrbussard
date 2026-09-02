@@ -181,6 +181,7 @@
 }
 
 .hud__brand {
+    text-decoration: none;
     color: var(--gold);
     text-shadow: 0 0 10px rgba(232, 195, 122, 0.45);
 }

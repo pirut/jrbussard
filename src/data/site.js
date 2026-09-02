@@ -1,9 +1,22 @@
-/* Everything the world can show you, keyed to the props you walk up to. */
+/* Everything the site says about its owner, in one place. */
+
+export const person = {
+    name: "JR Bussard",
+    role: "Chief Operating Officer",
+    company: "Cornerstone Companies",
+    companyUrl: "https://cstonefl.com",
+    location: "West Palm Beach, Florida",
+    timeZone: "America/New_York",
+    email: "scottbussardjr@gmail.com",
+    github: "https://github.com/pirut",
+    linkedin: "https://www.linkedin.com/in/jr-bussard-0937bb122/",
+    site: "https://www.jrbussard.com",
+};
 
 export const projects = [
     {
         id: "cornerstone",
-        name: "CORNERSTONE COMPANIES",
+        name: "Cornerstone Companies",
         role: "COO",
         since: "2021",
         status: "running",
@@ -20,7 +33,7 @@ export const projects = [
     },
     {
         id: "meltdown",
-        name: "MELTDOWN",
+        name: "Meltdown",
         role: "Side project",
         since: "2025",
         status: "running",
@@ -32,19 +45,17 @@ export const projects = [
             "Built in a weekend, kept alive because my family uses it.",
         ],
         tags: ["React", "Supabase", "Social"],
-        links: [
-            { label: "meltdown.jrbussard.com", href: "https://meltdown.jrbussard.com" },
-        ],
+        links: [{ label: "meltdown.jrbussard.com", href: "https://meltdown.jrbussard.com" }],
     },
     {
         id: "waves",
-        name: "MAKE WAVES",
+        name: "Make Waves",
         role: "Side project",
         since: "2025",
         status: "in progress",
         tagline: "Turn energy into action.",
         description:
-            "A lightweight platform for turning community energy into organized action — events, sign-ups, and the follow-through that usually gets lost.",
+            "A lightweight platform for turning community energy into organized action: events, sign-ups, and the follow-through that usually gets lost.",
         highlights: [
             "Events, RSVPs, and reminders without a committee.",
             "The hard part is follow-through, so that is what it optimises for.",
@@ -54,19 +65,86 @@ export const projects = [
     },
 ];
 
+/* What the "Now" card on the front page says. */
+export const now = {
+    role: { label: "COO, Cornerstone Companies", href: "https://cstonefl.com" },
+    building: { label: "Make Waves", href: "https://waves.jrbussard.com", note: "in progress" },
+    availability: "Open to interesting problems",
+};
+
+/* Three things the work keeps teaching. Shown on /work. */
+export const principles = [
+    {
+        title: "Small tools usually win.",
+        body: "The best internal tools are boring. They save a few clicks, remove a little confusion, or make a repeated task easier to finish. Platforms come later, if ever.",
+    },
+    {
+        title: "Operations is a systems problem.",
+        body: "If the path is unclear, people invent their own paths. Clear handoffs and fewer loose ends fix more than any amount of urgency does.",
+    },
+    {
+        title: "Follow-through is the product.",
+        body: "Ideas are cheap and everyone has energy on day one. What people actually need is the thing that makes the next step happen.",
+    },
+];
+
+/* Scrolls under the hero. */
+export const stack = [
+    "Operations",
+    "Scheduling",
+    "Permits & installs",
+    "Internal tools",
+    "React",
+    "Vite",
+    "Next.js",
+    "Postgres",
+    "Supabase",
+    "Convex",
+    "Three.js",
+    "Sanity",
+    "Vercel",
+    "West Palm Beach",
+];
+
 /*
- * Repositories to pin to the front of the Observatory, in this order. Anything
- * not named here fills the remaining stars by most recent push. Keeps the sky
- * from being whatever GitHub happened to return first.
+ * Repositories to pin to the front of the GitHub feed, in this order.
+ * Anything not named here fills the remaining slots by most recent push.
  */
 export const featuredRepos = ["jrbussard", "meltdown", "makewaves"];
 
 /* Arcade cabinets are the hosted small projects, registered once in
-   microfrontends/registry.js so a route and a cabinet never drift apart. */
+   microfrontends/registry.jsx so a route and a cabinet never drift apart. */
 export { microfrontends as arcade } from "../microfrontends/registry";
+
+/* The previous version of this site, kept playable. */
+export const overworld = {
+    id: "overworld",
+    name: "The Overworld",
+    route: "/world",
+    blurb:
+        "The last version of this site was a walkable ASCII map: a library of notes, a foundry of projects, an observatory of live commits, and an arcade. It still is. Walk in.",
+    tags: ["ASCII", "Explorable", "Previous site"],
+    accent: "#e8c37a",
+    glyph: "@",
+    controls: "WASD to walk, E to act, M for the map",
+};
 
 export const about = {
     title: "THE OPERATOR",
+    /* Read in full on /about. The first paragraph is the big one. */
+    bio: [
+        "I run a real-world company by day and build small software when the house is quiet.",
+        "By day I am the COO of Cornerstone Companies, an impact window and door company in South Florida. That means crews, scheduling, permits, installs, service, warranty, and the software that keeps all of it pointed in the same direction. Most of the job is removing friction nobody had time to name.",
+        "By night I build small things: tools that replace a spreadsheet, an app my family actually uses, games my kids asked for. I like tools that do one job clearly, and systems with fewer loose ends.",
+        "This site is a workshop, not a resume. The work is what I run and what I have built, the notes are what I have been thinking about, the GitHub feed is live, and the arcade is where the small things live.",
+    ],
+    facts: [
+        { label: "Based in", value: "West Palm Beach, FL" },
+        { label: "Day job", value: "COO, Cornerstone Companies" },
+        { label: "Building", value: "Make Waves, Meltdown" },
+        { label: "Kids", value: "Two, both consultants on the arcade" },
+    ],
+    /* Still read aloud by the statue in the overworld. */
     lines: [
         "JR Bussard. West Palm Beach, Florida.",
         "",
@@ -81,12 +159,18 @@ export const about = {
     ],
     links: [
         { label: "GitHub", href: "https://github.com/pirut" },
-        {
-            label: "LinkedIn",
-            href: "https://www.linkedin.com/in/jr-bussard-0937bb122/",
-        },
+        { label: "LinkedIn", href: "https://www.linkedin.com/in/jr-bussard-0937bb122/" },
     ],
 };
+
+export const colophon = [
+    { label: "Type", value: "Fraunces and Work Sans, self-hosted" },
+    { label: "Site", value: "React and Vite, static, on Vercel" },
+    { label: "Notes", value: "Sanity, fetched at read time" },
+    { label: "Commons", value: "Convex, server-authoritative" },
+    { label: "Adventure Bay", value: "Three.js, every asset generated" },
+    { label: "Source", value: "github.com/pirut/jrbussard" },
+];
 
 export const contact = {
     title: "THE BEACON",
@@ -99,7 +183,7 @@ export const contact = {
     ],
 };
 
-/* Signposts, keyed by room id then by the marker's index within that room. */
+/* Signposts inside the overworld, keyed by room id then marker index. */
 export const signs = {
     atrium: [
         {

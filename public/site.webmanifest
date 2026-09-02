@@ -1,0 +1,13 @@
+{
+    "name": "JR Bussard",
+    "short_name": "JR Bussard",
+    "description": "Operator by day, builder by night.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0a0a0c",
+    "theme_color": "#0a0a0c",
+    "icons": [
+        { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+        { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+    ]
+}

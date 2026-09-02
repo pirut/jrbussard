@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+        <title>JR Bussard — operator by day, builder by night</title>
+        <meta
+            name="description"
+            content="JR Bussard runs operations at Cornerstone Companies in West Palm Beach and builds small, useful software on the side: apps, games, and notes on making real-world systems run."
+        />
+        <meta name="color-scheme" content="dark light" />
+        <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0b0d" />
+        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f3ec" />
+        <meta name="author" content="JR Bussard" />
+        <link rel="canonical" href="https://www.jrbussard.com/" />
+
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="JR Bussard" />
+        <meta property="og:title" content="JR Bussard — operator by day, builder by night" />
+        <meta
+            property="og:description"
+            content="Operations at Cornerstone Companies, small software on the side. Work, notes, a live GitHub feed and an arcade of playable projects."
+        />
+        <meta property="og:url" content="https://www.jrbussard.com/" />
+        <meta property="og:image" content="https://www.jrbussard.com/og.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="JR Bussard — operator by day, builder by night" />
+        <meta
+            name="twitter:description"
+            content="Operations at Cornerstone Companies, small software on the side. Work, notes, a live GitHub feed and an arcade of playable projects."
+        />
+        <meta name="twitter:image" content="https://www.jrbussard.com/og.png" />
+
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="manifest" href="/site.webmanifest" />
+
+        <link rel="preconnect" href="https://api.github.com" crossorigin />
+        <link rel="preconnect" href="https://8qiu273i.apicdn.sanity.io" crossorigin />
+
+        <script>
+            /* Pick the theme before first paint so there is never a flash. */
+            (function () {
+                try {
+                    var saved = localStorage.getItem("theme");
+                    var prefersLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+                    var theme = saved === "light" || saved === "dark" ? saved : prefersLight ? "light" : "dark";
+                    document.documentElement.setAttribute("data-theme", theme);
+                } catch (e) {
+                    document.documentElement.setAttribute("data-theme", "dark");
+                }
+            })();
+        </script>
+
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "Person",
+                "name": "JR Bussard",
+                "url": "https://www.jrbussard.com/",
+                "jobTitle": "Chief Operating Officer",
+                "worksFor": { "@type": "Organization", "name": "Cornerstone Companies", "url": "https://cstonefl.com" },
+                "address": { "@type": "PostalAddress", "addressLocality": "West Palm Beach", "addressRegion": "FL", "addressCountry": "US" },
+                "sameAs": ["https://github.com/pirut", "https://www.linkedin.com/in/jr-bussard-0937bb122/"]
+            }
+        </script>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script type="module" src="/src/main.jsx"></script>
+    </body>
+</html>
