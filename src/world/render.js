@@ -184,16 +184,25 @@ export function createRenderer(container, world, planes = {}) {
      * cells instead of snapping. Each parallax plane slides at its own rate,
      * so each gets its own fraction.
      */
+    /* Only touch the DOM when a layer has actually moved; standing still
+       then costs nothing at all. */
+    function place(node, x, y) {
+        const value = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+        if (node.__placed === value) return;
+        node.__placed = value;
+        node.style.transform = value;
+    }
+
     function scroll({ cam, cell }) {
         const fx = cam.x - Math.floor(cam.x);
         const fy = cam.y - Math.floor(cam.y);
-        container.style.transform = `translate3d(${(-fx * cell.width).toFixed(2)}px, ${(-fy * cell.height).toFixed(2)}px, 0)`;
+        place(container, -fx * cell.width, -fy * cell.height);
         layers.forEach((layer) => {
             const px = cam.x * layer.plane.factor;
             const py = cam.y * layer.plane.factor;
             const lx = px - Math.floor(px);
             const ly = py - Math.floor(py);
-            layer.node.style.transform = `translate3d(${(-lx * cell.width).toFixed(2)}px, ${(-ly * cell.height).toFixed(2)}px, 0)`;
+            place(layer.node, -lx * cell.width, -ly * cell.height);
         });
     }
 
@@ -215,13 +224,29 @@ export function createRenderer(container, world, planes = {}) {
         });
     }
 
+    let lastSignature = "";
+    let lastCounts = null;
+
     function draw({ cols, cam, player, time, counts }) {
-        drawPlanes(cols, cam);
         const camX = Math.floor(cam.x);
         const camY = Math.floor(cam.y);
         const flicker = 0.82 + 0.18 * Math.sin(time * 0.009);
         const pulse = 0.5 + 0.5 * Math.sin(time * 0.004);
         const frame = Math.floor(time / 190);
+
+        /*
+         * Everything a frame depends on, quantised the way the frame itself
+         * quantises it. If none of it moved there is nothing to rebuild, so
+         * skip the string work and the DOM entirely. Standing still, this
+         * makes most frames free.
+         */
+        const signature = `${camX},${camY},${player.x},${player.y},${frame},${Math.round(flicker * 24)},${Math.round(pulse * 10)},${cols},${rows.length}`;
+        if (signature === lastSignature && counts === lastCounts) return;
+        const cameraMoved = !lastSignature.startsWith(`${camX},${camY},`);
+        lastSignature = signature;
+        lastCounts = counts;
+
+        if (cameraMoved) drawPlanes(cols, cam);
 
         for (let ry = 0; ry < rows.length; ry += 1) {
             const wy = camY + ry;

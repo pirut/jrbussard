@@ -7,9 +7,7 @@
      2  fireflies      outdoors only
      3  player         the @, drawn on its own so it can glide
      4  near plane     foliage passing in front of you
-     5  crt            scanlines
-     6  tint           the current room's colour, at the edges
-     7  vignette
+     5  overlay        scanlines, room tint and vignette, in one
      8  banner         area name on arrival
     10  hud
     11  touch pad
@@ -17,28 +15,8 @@
     14  panels and the map
    ───────────────────────────────────────────────────────────── */
 
-/* Registered so the room tint can cross-fade instead of snapping. */
-@property --zt-r {
-    syntax: "<number>";
-    inherits: true;
-    initial-value: 96;
-}
-@property --zt-g {
-    syntax: "<number>";
-    inherits: true;
-    initial-value: 140;
-}
-@property --zt-b {
-    syntax: "<number>";
-    inherits: true;
-    initial-value: 200;
-}
-
 .world-shell {
     --cell-font: clamp(13px, 2.05vw, 28px);
-    --zt-r: 96;
-    --zt-g: 140;
-    --zt-b: 200;
 
     position: fixed;
     inset: 0;
@@ -46,10 +24,6 @@
     background:
         radial-gradient(120% 90% at 50% 0%, #0b1120 0%, #05070d 62%, #03040a 100%);
     isolation: isolate;
-    transition:
-        --zt-r 1.4s ease,
-        --zt-g 1.4s ease,
-        --zt-b 1.4s ease;
 }
 
 .world-probe {
@@ -99,9 +73,16 @@
 
 .world-plane--near {
     z-index: 4;
-    /* Out of focus, the way something close to the lens would be. */
-    filter: blur(0.7px);
-    text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+    /*
+     * Out of focus, the way something close to the lens would be. Done with
+     * shadows rather than a blur filter: a filter on a moving layer is
+     * re-applied to the whole screen every frame, while a shadow is baked in
+     * when the text is drawn and then just slides.
+     */
+    text-shadow:
+        0 0 1px currentColor,
+        0 0 2px currentColor,
+        0 0 7px rgba(0, 0, 0, 0.9);
 }
 
 .world__row {
@@ -181,74 +162,50 @@
     box-shadow:
         0 0 6px 1px rgba(230, 247, 176, 0.7),
         0 0 14px 3px rgba(200, 240, 140, 0.25);
-    animation:
-        firefly-drift var(--drift) ease-in-out var(--delay) infinite alternate,
-        firefly-blink var(--blink) ease-in-out var(--delay) infinite;
-}
-
-@keyframes firefly-drift {
-    from {
-        transform: translate(0, 0);
-    }
-    to {
-        transform: translate(var(--dx), var(--dy));
-    }
-}
-
-@keyframes firefly-blink {
-    0%,
-    100% {
-        opacity: 0;
-    }
-    35% {
-        opacity: 0.2;
-    }
-    50% {
-        opacity: 1;
-    }
-    65% {
-        opacity: 0.25;
-    }
+    opacity: 0;
+    /* Drift and blink are Web Animations set from Hud.jsx: keyframes that
+       read custom properties run on the main thread, these run on the
+       compositor. */
 }
 
 /* ── Screen ────────────────────────────────────────────────── */
 
-/* Scanlines, bloom, and a slow phosphor drift. */
-.world-crt {
+/*
+ * Scanlines, the current room's colour at the edges, and the vignette — all
+ * one element, painted once. The stage underneath is a composited layer
+ * that moves every frame, so anything drawn over it has to be its own layer
+ * too; three overlays would be three full-screen textures to blend per
+ * frame, one is one. No blend modes for the same reason: darkening with
+ * black at some alpha is what multiply-blending black would do anyway.
+ *
+ * The tint colour lives in registered custom properties on this element
+ * only, so cross-fading it restyles one node rather than every span in the
+ * grid.
+ */
+@property --zt-r {
+    syntax: "<number>";
+    inherits: false;
+    initial-value: 96;
+}
+@property --zt-g {
+    syntax: "<number>";
+    inherits: false;
+    initial-value: 140;
+}
+@property --zt-b {
+    syntax: "<number>";
+    inherits: false;
+    initial-value: 200;
+}
+
+.world-overlay {
+    --zt-r: 96;
+    --zt-g: 140;
+    --zt-b: 200;
+
     position: absolute;
     inset: 0;
     z-index: 5;
-    pointer-events: none;
-    background: repeating-linear-gradient(
-        to bottom,
-        rgba(0, 0, 0, 0) 0px,
-        rgba(0, 0, 0, 0) 2px,
-        rgba(0, 0, 0, 0.28) 3px,
-        rgba(0, 0, 0, 0.28) 4px
-    );
-    mix-blend-mode: multiply;
-    opacity: 0.55;
-    animation: crt-drift 9s linear infinite;
-}
-
-/* The room you are in colours the edges of the screen. */
-.world-tint {
-    position: absolute;
-    inset: 0;
-    z-index: 6;
-    pointer-events: none;
-    background: radial-gradient(
-        70% 60% at 50% 50%,
-        rgb(var(--zt-r) var(--zt-g) var(--zt-b) / 0) 40%,
-        rgb(var(--zt-r) var(--zt-g) var(--zt-b) / 0.11) 100%
-    );
-    mix-blend-mode: screen;
-}
-
-.world-vignette {
-    position: absolute;
-    inset: 0;
-    z-index: 7;
     pointer-events: none;
     background:
         radial-gradient(
@@ -257,20 +214,27 @@
             rgba(5, 7, 13, 0.55) 78%,
             rgba(5, 7, 13, 0.92) 100%
         ),
+        radial-gradient(
+            70% 60% at 50% 50%,
+            rgb(var(--zt-r) var(--zt-g) var(--zt-b) / 0) 40%,
+            rgb(var(--zt-r) var(--zt-g) var(--zt-b) / 0.14) 100%
+        ),
         linear-gradient(
             to bottom,
             rgba(127, 215, 255, 0.05),
             rgba(255, 122, 217, 0.04)
+        ),
+        repeating-linear-gradient(
+            to bottom,
+            rgba(0, 0, 0, 0) 0px,
+            rgba(0, 0, 0, 0) 2px,
+            rgba(0, 0, 0, 0.155) 3px,
+            rgba(0, 0, 0, 0.155) 4px
         );
-}
-
-@keyframes crt-drift {
-    from {
-        background-position-y: 0;
-    }
-    to {
-        background-position-y: 40px;
-    }
+    transition:
+        --zt-r 1.4s ease,
+        --zt-g 1.4s ease,
+        --zt-b 1.4s ease;
 }
 
 /* ── Area banner ───────────────────────────────────────────── */
@@ -372,10 +336,9 @@
     text-transform: uppercase;
     background: linear-gradient(
         to bottom,
-        rgba(5, 7, 13, 0.94),
-        rgba(5, 7, 13, 0.62)
+        rgba(5, 7, 13, 0.95),
+        rgba(5, 7, 13, 0.7)
     );
-    backdrop-filter: blur(2px);
     animation: hud-in 0.6s ease both;
 }
 
@@ -394,8 +357,8 @@
     bottom: 0;
     background: linear-gradient(
         to top,
-        rgba(5, 7, 13, 0.94),
-        rgba(5, 7, 13, 0.62)
+        rgba(5, 7, 13, 0.95),
+        rgba(5, 7, 13, 0.7)
     );
     border-top: 1px solid var(--edge-soft);
 }
@@ -1025,8 +988,7 @@
     width: 44px;
     height: 44px;
     color: var(--ink);
-    background: rgba(6, 9, 17, 0.88);
-    backdrop-filter: blur(2px);
+    background: rgba(6, 9, 17, 0.92);
     border: 1px solid var(--edge);
     touch-action: none;
 }

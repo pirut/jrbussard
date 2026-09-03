@@ -24,8 +24,8 @@ const FRAME_MS = 33;
 /* Exponential easing rates, per millisecond. The player closes most of the
    gap within one step so it never lags the input; the camera trails a little
    behind so the screen glides rather than jerks. */
-const PLAYER_EASE = 0.024;
-const CAMERA_EASE = 0.0075;
+const PLAYER_EASE = 0.03;
+const CAMERA_EASE = 0.011;
 /* Extra cells drawn past the viewport so the glide never shows an edge. */
 const OVERSCAN = 2;
 const POSITION_KEY = "world_position_v1";
@@ -296,6 +296,7 @@ const World = () => {
     const origin = resumedFrom || world.spawn;
 
     const shellRef = useRef(null);
+    const tintRef = useRef(null);
     const stageRef = useRef(null);
     const nearRef = useRef(null);
     const farRef = useRef(null);
@@ -459,8 +460,18 @@ const World = () => {
         apply();
         const observer = new ResizeObserver(apply);
         observer.observe(shell);
+        /* The grid is measured in the font that is on screen. When the real
+           font arrives a moment later its cells are a different size, and
+           nothing else would notice — so measure again. */
+        const fonts = document.fonts;
+        const onFonts = () => apply();
+        if (fonts) {
+            fonts.ready.then(onFonts);
+            fonts.addEventListener("loadingdone", onFonts);
+        }
         return () => {
             observer.disconnect();
+            if (fonts) fonts.removeEventListener("loadingdone", onFonts);
             rendererRef.current = null;
         };
     }, [world]);
@@ -557,7 +568,11 @@ const World = () => {
             if (sprite) {
                 const px = (s.x - cam.x) * cell.width;
                 const py = (s.y - cam.y) * cell.height;
-                sprite.style.transform = `translate3d(${px.toFixed(2)}px, ${py.toFixed(2)}px, 0)`;
+                const value = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0)`;
+                if (sprite.__placed !== value) {
+                    sprite.__placed = value;
+                    sprite.style.transform = value;
+                }
             }
 
             if (time - lastFrame < FRAME_MS) return;
@@ -648,12 +663,12 @@ const World = () => {
     }, [region, started]);
 
     useEffect(() => {
-        const shell = shellRef.current;
-        if (!shell) return;
+        const layer = tintRef.current;
+        if (!layer) return;
         const tint = world.zoneTints[zone] || OUTDOOR_TINT;
-        shell.style.setProperty("--zt-r", tint[0]);
-        shell.style.setProperty("--zt-g", tint[1]);
-        shell.style.setProperty("--zt-b", tint[2]);
+        layer.style.setProperty("--zt-r", tint[0]);
+        layer.style.setProperty("--zt-g", tint[1]);
+        layer.style.setProperty("--zt-b", tint[2]);
     }, [world, zone]);
 
     const openIndex = useCallback(() => {
@@ -680,14 +695,12 @@ const World = () => {
                 rates, which is what makes the space read as deep. */}
             <div className="world-plane world-plane--far" ref={farRef} aria-hidden="true" />
             <div className="world-stage" ref={stageRef} aria-hidden="true" />
-            <Fireflies active={outdoors && started} />
+            <Fireflies active={outdoors && started} count={12} />
             <div className="world-player" ref={spriteRef} aria-hidden="true">
                 @
             </div>
             <div className="world-plane world-plane--near" ref={nearRef} aria-hidden="true" />
-            <div className="world-crt" aria-hidden="true" />
-            <div className="world-tint" aria-hidden="true" />
-            <div className="world-vignette" aria-hidden="true" />
+            <div className="world-overlay" ref={tintRef} aria-hidden="true" />
 
             {started && banner && !panel && !mapOpen && (
                 <Banner key={banner.id} name={banner.name} sub={banner.sub} />
@@ -726,50 +739,56 @@ const World = () => {
                 <Minimap world={world} player={player} onClose={closeAll} />
             )}
 
-            {/* Plain-text mirror of the world, for screen readers and anyone
-                who would rather not walk around. */}
-            <div className="sr-only">
-                <h1>JR Bussard — operator and builder in West Palm Beach, Florida</h1>
-                <p>{about.lines.join(" ")}</p>
-                <h2>Notes</h2>
-                <ul>
-                    {notes.map((note) => (
-                        <li key={note.slug}>
-                            <strong>{note.title}</strong> — {note.summary}
-                        </li>
-                    ))}
-                </ul>
-                <h2>Projects</h2>
-                <ul>
-                    {projects.map((project) => (
-                        <li key={project.id}>
-                            <a href={(project.links[0] || {}).href}>{project.name}</a> —{" "}
-                            {project.description}
-                        </li>
-                    ))}
-                </ul>
-                <h2>Playable projects</h2>
-                <ul>
-                    {arcade.map((app) => (
-                        <li key={app.id}>
-                            <a href={app.route}>{app.name}</a> — {app.blurb}
-                        </li>
-                    ))}
-                </ul>
-                <h2>Contact</h2>
-                <ul>
-                    <li>
-                        <a href={`mailto:${contact.email}`}>{contact.email}</a>
-                    </li>
-                    {about.links.map((link) => (
-                        <li key={link.href}>
-                            <a href={link.href}>{link.label}</a>
-                        </li>
-                    ))}
-                </ul>
-            </div>
+            <Mirror notes={notes} />
         </div>
     );
 };
+
+/* Plain-text mirror of the world, for screen readers and anyone who would
+   rather not walk around. Memoised: it only changes when the notes do. */
+const Mirror = React.memo(function Mirror({ notes }) {
+    return (
+        <div className="sr-only">
+            <h1>JR Bussard — operator and builder in West Palm Beach, Florida</h1>
+            <p>{about.lines.join(" ")}</p>
+            <h2>Notes</h2>
+            <ul>
+                {notes.map((note) => (
+                    <li key={note.slug}>
+                        <strong>{note.title}</strong> — {note.summary}
+                    </li>
+                ))}
+            </ul>
+            <h2>Projects</h2>
+            <ul>
+                {projects.map((project) => (
+                    <li key={project.id}>
+                        <a href={(project.links[0] || {}).href}>{project.name}</a> —{" "}
+                        {project.description}
+                    </li>
+                ))}
+            </ul>
+            <h2>Playable projects</h2>
+            <ul>
+                {arcade.map((app) => (
+                    <li key={app.id}>
+                        <a href={app.route}>{app.name}</a> — {app.blurb}
+                    </li>
+                ))}
+            </ul>
+            <h2>Contact</h2>
+            <ul>
+                <li>
+                    <a href={`mailto:${contact.email}`}>{contact.email}</a>
+                </li>
+                {about.links.map((link) => (
+                    <li key={link.href}>
+                        <a href={link.href}>{link.label}</a>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+});
 
 export default World;

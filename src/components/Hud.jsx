@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 
 const TITLE = [
@@ -119,40 +119,78 @@ export function Banner({ name, sub }) {
     );
 }
 
-/* Fireflies over the forest. Pure CSS once placed; only shown outdoors. */
-export function Fireflies({ active, count = 18 }) {
+/*
+ * Fireflies over the forest. Only shown outdoors. Each one drifts and blinks
+ * on its own timing via the Web Animations API — transform and opacity
+ * only, so the compositor runs them and the main thread never hears about
+ * it.
+ */
+export function Fireflies({ active, count = 12 }) {
+    const ref = useRef(null);
     const flies = useMemo(
         () =>
             Array.from({ length: count }, (unused, i) => ({
                 id: i,
                 x: `${4 + Math.random() * 92}%`,
                 y: `${10 + Math.random() * 78}%`,
-                dx: `${(Math.random() - 0.5) * 120}px`,
-                dy: `${(Math.random() - 0.5) * 80}px`,
-                drift: `${11 + Math.random() * 12}s`,
-                blink: `${2.2 + Math.random() * 3}s`,
-                delay: `${-Math.random() * 14}s`,
+                dx: (Math.random() - 0.5) * 120,
+                dy: (Math.random() - 0.5) * 80,
+                drift: 11000 + Math.random() * 12000,
+                blink: 2200 + Math.random() * 3000,
+                delay: -Math.random() * 14000,
                 size: `${2 + Math.random() * 2.5}px`,
             })),
         [count]
     );
 
+    useEffect(() => {
+        const root = ref.current;
+        if (!root || !root.firstChild || typeof root.firstChild.animate !== "function") {
+            return undefined;
+        }
+        const nodes = Array.from(root.children);
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            nodes.forEach((node) => {
+                node.style.opacity = "0.6";
+            });
+            return undefined;
+        }
+        const running = [];
+        nodes.forEach((node, i) => {
+            const fly = flies[i];
+            running.push(
+                node.animate(
+                    [
+                        { transform: "translate(0, 0)" },
+                        { transform: `translate(${fly.dx}px, ${fly.dy}px)` },
+                    ],
+                    {
+                        duration: fly.drift,
+                        delay: fly.delay,
+                        iterations: Infinity,
+                        direction: "alternate",
+                        easing: "ease-in-out",
+                    }
+                ),
+                node.animate(
+                    [
+                        { opacity: 0, offset: 0 },
+                        { opacity: 0.2, offset: 0.35 },
+                        { opacity: 1, offset: 0.5 },
+                        { opacity: 0.25, offset: 0.65 },
+                        { opacity: 0, offset: 1 },
+                    ],
+                    { duration: fly.blink, delay: fly.delay, iterations: Infinity, easing: "ease-in-out" }
+                )
+            );
+        });
+        return () => running.forEach((animation) => animation.cancel());
+    }, [flies]);
+
     return (
-        <div className={`fireflies ${active ? "is-on" : ""}`} aria-hidden="true">
+        <div className={`fireflies ${active ? "is-on" : ""}`} ref={ref} aria-hidden="true">
             {flies.map((fly) => (
-                <i
-                    key={fly.id}
-                    style={{
-                        "--x": fly.x,
-                        "--y": fly.y,
-                        "--dx": fly.dx,
-                        "--dy": fly.dy,
-                        "--drift": fly.drift,
-                        "--blink": fly.blink,
-                        "--delay": fly.delay,
-                        "--size": fly.size,
-                    }}
-                />
+                <i key={fly.id} style={{ "--x": fly.x, "--y": fly.y, "--size": fly.size }} />
             ))}
         </div>
     );
