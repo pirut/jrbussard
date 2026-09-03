@@ -428,56 +428,119 @@ export function createRenderer(container, world, planes = {}) {
             return !precious(wx, wy) && !precious(wx - 1, wy) && !precious(wx + 1, wy);
         };
 
-        for (let y = 0; y < rowCount; y += 1) {
+        /* Which cells have height: trees, mountains, and a room's outer
+           walls. Furniture — the pedestal, the pool, the cabinets — stays
+           flat, or rooms fill with blocks that follow you. */
+        const lifted = (wx, wy) => {
+            if (!inside(wx, wy)) return null;
+            const i = wy * world.w + wx;
+            const kind = world.kinds[i];
+            const spec = TALL[kind];
+            if (!spec) return null;
+            const zone = world.zones[i];
+            if (kind === KIND.WALL && zone > 0) {
+                const room = world.rooms[zone - 1];
+                const onEdge =
+                    wx === room.x ||
+                    wy === room.y ||
+                    wx === room.x + room.w - 1 ||
+                    wy === room.y + room.h - 1;
+                if (!onEdge) return null;
+            }
+            return { i, kind, spec, zone };
+        };
+
+        /* Everything about one cell's projection: where it leans, how far,
+           and what its top and face look like. */
+        const describe = (x, y, cell) => {
+            const wx = camX + x;
             const wy = camY + y;
+            const dx = (x - cx) * cell.spec.h;
+            const dy = (y - cy) * cell.spec.h;
+            const base = zoneColors[cell.zone][cell.kind] || PALETTE[cell.kind];
+            const light =
+                lightAt(wx, wy, cell.i, cell.zone, player, flicker) + GRAIN_SPREAD[shadeAt(wx, wy)];
+            const level = clampLevel(Math.round(light * (LEVELS - 1)));
+            return {
+                x,
+                y,
+                dx,
+                dy,
+                steps: Math.round(Math.max(Math.abs(dx), Math.abs(dy))),
+                kind: cell.kind,
+                side: cell.spec.side,
+                top: world.chars[cell.i],
+                topColor: colorOf(base, clampLevel(level + cell.spec.topLift), `t${cell.kind}:${cell.zone}`),
+                faceColor: colorOf(
+                    base,
+                    clampLevel(Math.min(FACE_LEVEL_MAX, level - FACE_LEVEL_DROP)),
+                    `f${cell.kind}:${cell.zone}`
+                ),
+            };
+        };
+
+        const paint = (px, py, isTop, ch, color) => {
+            if (px < 0 || py < 0 || px >= cols || py >= rowCount) return;
+            if (!clear(px, py)) return;
+            const idx = py * cols + px;
+            if (tops[idx] && !isTop) return;
+            tops[idx] = isTop ? 1 : 0;
+            chars[idx] = ch;
+            colors[idx] = color;
+        };
+
+        const at = (d, s, steps) => [
+            Math.round(d.x + (d.dx * s) / steps),
+            Math.round(d.y + (d.dy * s) / steps),
+        ];
+
+        /*
+         * Neighbouring cells lean by slightly different amounts, so every few
+         * cells their tops land two apart and leave a hole between them — a
+         * hole that drifts as you walk. Fill it with the straight piece of
+         * wall in that direction, and do the same for the faces beneath.
+         */
+        const bridge = (a, b, topGlyph) => {
+            const steps = Math.max(a.steps, b.steps);
+            if (steps < 1) return;
+            for (let s = 1; s <= steps; s += 1) {
+                const [ax, ay] = at(a, s, steps);
+                const [bx, by] = at(b, s, steps);
+                if (Math.max(Math.abs(ax - bx), Math.abs(ay - by)) < 2) continue;
+                const isTop = s === steps;
+                paint(
+                    Math.round((ax + bx) / 2),
+                    Math.round((ay + by) / 2),
+                    isTop,
+                    isTop ? topGlyph : a.side,
+                    isTop ? a.topColor : a.faceColor
+                );
+            }
+        };
+
+        const described = new Map();
+        for (let y = 0; y < rowCount; y += 1) {
             for (let x = 0; x < cols; x += 1) {
-                const wx = camX + x;
-                if (!inside(wx, wy)) continue;
-                const i = wy * world.w + wx;
-                const kind = world.kinds[i];
-                const spec = TALL[kind];
-                if (!spec) continue;
-                /* Only a room's outer walls have height. Furniture — the
-                   pedestal, the pool, the cabinets — stays flat, or the
-                   room fills with floating blocks that follow you. */
-                const zone = world.zones[i];
-                if (kind === KIND.WALL && zone > 0) {
-                    const room = world.rooms[zone - 1];
-                    const onEdge =
-                        wx === room.x ||
-                        wy === room.y ||
-                        wx === room.x + room.w - 1 ||
-                        wy === room.y + room.h - 1;
-                    if (!onEdge) continue;
-                }
-
-                const dx = (x - cx) * spec.h;
-                const dy = (y - cy) * spec.h;
-                const steps = Math.round(Math.max(Math.abs(dx), Math.abs(dy)));
-                if (steps < 1) continue;
-
-                const base = zoneColors[zone][kind] || PALETTE[kind];
-                const light = lightAt(wx, wy, i, zone, player, flicker) + GRAIN_SPREAD[shadeAt(wx, wy)];
-                const level = clampLevel(Math.round(light * (LEVELS - 1)));
-                const faceLevel = clampLevel(Math.min(FACE_LEVEL_MAX, level - FACE_LEVEL_DROP));
-
-                for (let s = 1; s <= steps; s += 1) {
-                    const px = Math.round(x + (dx * s) / steps);
-                    const py = Math.round(y + (dy * s) / steps);
-                    if (px < 0 || py < 0 || px >= cols || py >= rowCount) continue;
+                const cell = lifted(camX + x, camY + y);
+                if (!cell) continue;
+                const d = describe(x, y, cell);
+                described.set(y * cols + x, d);
+                for (let s = 1; s <= d.steps; s += 1) {
+                    const [px, py] = at(d, s, d.steps);
                     if (px === x && py === y) continue;
-                    if (!clear(px, py)) continue;
-                    const top = s === steps;
-                    const idx = py * cols + px;
-                    if (tops[idx] && !top) continue;
-                    tops[idx] = top ? 1 : 0;
-                    chars[idx] = top ? world.chars[i] : spec.side;
-                    colors[idx] = top
-                        ? colorOf(base, clampLevel(level + spec.topLift), `t${kind}:${zone}`)
-                        : colorOf(base, faceLevel, `f${kind}:${zone}`);
+                    const isTop = s === d.steps;
+                    paint(px, py, isTop, isTop ? d.top : d.side, isTop ? d.topColor : d.faceColor);
                 }
             }
         }
+
+        described.forEach((d, key) => {
+            const x = key % cols;
+            const right = x + 1 < cols ? described.get(key + 1) : null;
+            if (right) bridge(d, right, d.kind === KIND.WALL ? "═" : d.top);
+            const down = described.get(key + cols);
+            if (down) bridge(d, down, d.kind === KIND.WALL ? "║" : d.top);
+        });
 
         return { chars, colors };
     }
