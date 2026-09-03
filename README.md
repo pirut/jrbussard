@@ -37,8 +37,10 @@ and the page carries a screen-reader-only copy of the same content.
   props so depth never costs you something to read.
 - **Rooms announce themselves.** Walk into one and its name appears large for
   a moment, and the room's colour bleeds into the edges of the screen.
-- **Fire is warm.** Torches and the hearth do not only brighten what is near
-  them, they tint it toward amber.
+- **Fire is warm, and so are you.** Torches and the hearth tint what they
+  reach toward amber, the light you carry is a warm lantern, and whatever is
+  far from any light fades into a cool blue haze rather than black. Warm near,
+  cool far.
 - **The forest is alive.** Fireflies drift over the wilds at night.
 - **It remembers.** Where you were standing is kept per browser, so the
   next visit offers to continue from there.

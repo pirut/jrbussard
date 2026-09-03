@@ -34,6 +34,12 @@ const TORCH_TINT = [255, 176, 84];
 const TORCH_TINT_STRENGTH = 0.55;
 const TINT_STEPS = 4;
 
+/* The light you carry is a lantern: what is near you is warm, what is far
+   is cool. Warm near, cool far is the oldest depth cue there is. */
+const LANTERN_TINT = [255, 216, 168];
+const LANTERN_STRENGTH = 0.3;
+const LANTERN_STEPS = 3;
+
 /* Anything with height casts a little shade to its lower right. */
 const SHADOW_DEPTH = 0.1;
 
@@ -46,10 +52,13 @@ const SHADOW_DEPTH = 0.1;
  * with you. `h` is the displacement per cell of distance.
  */
 const TALL = {
-    [KIND.WALL]: { h: 0.14, side: "▓", sideDim: 3, topLift: 1 },
-    [KIND.TREE]: { h: 0.1, side: "▒", sideDim: 2, topLift: 1 },
-    [KIND.MOUNTAIN]: { h: 0.2, side: "▲", sideDim: 3, topLift: 1 },
+    [KIND.WALL]: { h: 0.14, side: "▒", topLift: 2 },
+    [KIND.TREE]: { h: 0.1, side: "▒", topLift: 2 },
+    [KIND.MOUNTAIN]: { h: 0.2, side: "▲", topLift: 2 },
 };
+/* Faces are in shadow: a fixed dark band, whatever the light on the top. */
+const FACE_LEVEL_MAX = 3;
+const FACE_LEVEL_DROP = 5;
 
 /*
  * Terrain and structure get per-cell grain. Interactive props deliberately do
@@ -66,8 +75,15 @@ const GRAINED = new Set([
     KIND.STAR,
 ]);
 
+/*
+ * Distance does not fade things to black, it fades them to haze. Cells far
+ * from any light settle toward this cool blue rather than the page
+ * background, which is what makes the far field read as air.
+ */
+const HAZE = [9, 14, 27];
+
 function hex(rgb, t) {
-    const bg = PALETTE.bg;
+    const bg = HAZE;
     const mix = (a, b) => Math.round(b + (a - b) * t);
     const value =
         (mix(rgb[0], bg[0]) << 16) | (mix(rgb[1], bg[1]) << 8) | mix(rgb[2], bg[2]);
@@ -332,10 +348,19 @@ export function createRenderer(container, world, planes = {}) {
                     const isPlayer = wx === player.x && wy === player.y;
                     let light = lightAt(wx, wy, i, zone, player, flicker);
                     let tintStep = 0;
-                    if (torch > 0 && !unlit && kind !== KIND.TORCH && !INTERACTIVE[kind]) {
+                    let warmStep = 0;
+                    const tintable = !unlit && kind !== KIND.TORCH && !INTERACTIVE[kind] && kind !== KIND.LABEL;
+                    if (torch > 0 && tintable) {
                         /* Warm what the fire reaches. Quantised so the colour
                            cache stays small and runs stay long. */
                         tintStep = Math.min(TINT_STEPS, Math.round(torch * flicker * 2 * TINT_STEPS));
+                    }
+                    if (tintable && !isPlayer) {
+                        const d = Math.hypot(wx - player.x, wy - player.y);
+                        if (d < PLAYER_RADIUS) {
+                            const t = 1 - d / PLAYER_RADIUS;
+                            warmStep = Math.round(t * t * LANTERN_STEPS);
+                        }
                     }
                     if (kind === KIND.TORCH) light += 0.3 * flicker;
                     if (INTERACTIVE[kind] && !unlit) light += 0.12 + 0.2 * pulse;
@@ -349,10 +374,13 @@ export function createRenderer(container, world, planes = {}) {
                     if (!unlit && GRAINED.has(kind)) light += GRAIN_SPREAD[shadeAt(wx, wy)];
 
                     const level = clampLevel(Math.round(light * (LEVELS - 1)));
+                    if (warmStep) {
+                        rgb = mixRgb(rgb, LANTERN_TINT, (warmStep / LANTERN_STEPS) * LANTERN_STRENGTH);
+                    }
                     if (tintStep) {
                         rgb = mixRgb(rgb, TORCH_TINT, (tintStep / TINT_STEPS) * TORCH_TINT_STRENGTH);
                     }
-                    const salt = unlit ? "u" : `${kind}:${zone}:${tintStep}`;
+                    const salt = unlit ? "u" : `${kind}:${zone}:${tintStep}:${warmStep}`;
                     color = colorOf(rgb, level, salt);
                 }
 
@@ -406,16 +434,29 @@ export function createRenderer(container, world, planes = {}) {
                 const kind = world.kinds[i];
                 const spec = TALL[kind];
                 if (!spec) continue;
+                /* Only a room's outer walls have height. Furniture — the
+                   pedestal, the pool, the cabinets — stays flat, or the
+                   room fills with floating blocks that follow you. */
+                const zone = world.zones[i];
+                if (kind === KIND.WALL && zone > 0) {
+                    const room = world.rooms[zone - 1];
+                    const onEdge =
+                        wx === room.x ||
+                        wy === room.y ||
+                        wx === room.x + room.w - 1 ||
+                        wy === room.y + room.h - 1;
+                    if (!onEdge) continue;
+                }
 
                 const dx = (x - cx) * spec.h;
                 const dy = (y - cy) * spec.h;
                 const steps = Math.round(Math.max(Math.abs(dx), Math.abs(dy)));
                 if (steps < 1) continue;
 
-                const zone = world.zones[i];
                 const base = zoneColors[zone][kind] || PALETTE[kind];
                 const light = lightAt(wx, wy, i, zone, player, flicker) + GRAIN_SPREAD[shadeAt(wx, wy)];
                 const level = clampLevel(Math.round(light * (LEVELS - 1)));
+                const faceLevel = clampLevel(Math.min(FACE_LEVEL_MAX, level - FACE_LEVEL_DROP));
 
                 for (let s = 1; s <= steps; s += 1) {
                     const px = Math.round(x + (dx * s) / steps);
@@ -430,7 +471,7 @@ export function createRenderer(container, world, planes = {}) {
                     chars[idx] = top ? world.chars[i] : spec.side;
                     colors[idx] = top
                         ? colorOf(base, clampLevel(level + spec.topLift), `t${kind}:${zone}`)
-                        : colorOf(base, clampLevel(level - spec.sideDim), `f${kind}:${zone}`);
+                        : colorOf(base, faceLevel, `f${kind}:${zone}`);
                 }
             }
         }
