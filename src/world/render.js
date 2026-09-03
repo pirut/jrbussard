@@ -417,11 +417,14 @@ export function createRenderer(container, world, planes = {}) {
             return kind === KIND.LABEL || Boolean(INTERACTIVE[kind]);
         };
         /* Never over a label (or the gap between two of its words), a prop,
-           or the cells around you. */
+           the cells around you — or anything that is itself tall. A face
+           projected at a shallow angle would otherwise land on the next
+           cell of the same wall and punch a dark hole in it. */
         const clear = (px, py) => {
             if (Math.abs(px - cx) <= 1 && Math.abs(py - cy) <= 1) return false;
             const wx = camX + px;
             const wy = camY + py;
+            if (inside(wx, wy) && TALL[world.kinds[wy * world.w + wx]]) return false;
             return !precious(wx, wy) && !precious(wx - 1, wy) && !precious(wx + 1, wy);
         };
 
