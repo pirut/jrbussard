@@ -1,6 +1,31 @@
+/*
+ * The one font that matters. The whole site is a character grid, and the
+ * grid only lines up while every glyph is exactly one cell wide and every
+ * symbol actually exists in the font. Shipping our own monospace — a subset
+ * of DejaVu Sans Mono with the box drawing, blocks and symbols the world is
+ * made of — means the art looks the same on a Mac, a Windows laptop and a
+ * phone, instead of depending on whatever each of them has installed.
+ */
+@font-face {
+    font-family: "Overworld Mono";
+    src: url("./assets/fonts/DejaVuSansMono.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Overworld Mono";
+    src: url("./assets/fonts/DejaVuSansMono-Bold.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 600 700;
+    font-display: swap;
+}
+
+/* Charlie's page is a normal page and reads in a sans. */
 @font-face {
     font-family: "Work Sans";
-    src: url("./assets/fonts/WorkSans-Variable.ttf") format("truetype");
+    src: url("./assets/fonts/WorkSans-normal.woff2") format("woff2");
     font-style: normal;
     font-weight: 100 900;
     font-display: swap;
@@ -17,7 +42,7 @@
     --mint: #7ee0c0;
     --sky: #7fd7ff;
     --rose: #ff7ad9;
-    --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    --font-mono: "Overworld Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
         "DejaVu Sans Mono", "Liberation Mono", monospace;
 
     /* Tokens the standalone Charlie route still leans on. */
@@ -39,7 +64,6 @@ body,
 }
 
 body {
-    overflow: hidden;
     color: var(--ink);
     background: var(--void);
     font-family: var(--font-mono);
@@ -50,9 +74,9 @@ body {
     -webkit-text-size-adjust: 100%;
 }
 
-/* The Charlie route is a normal scrolling page, not part of the world. */
-body:has(.charlie-patrol) {
-    overflow: auto;
+/* The world is a fixed screen; everything else is a page that scrolls. */
+body:has(.world-shell) {
+    overflow: hidden;
 }
 
 a {
@@ -97,6 +121,31 @@ button {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.001ms !important;
+    }
+}
+
+/* While a cabinet's chunk is on its way. */
+.loading {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-size: 13px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--dim);
+    background: var(--void);
+}
+
+.loading__mark {
+    color: var(--gold);
+    animation: loading-blink 0.9s steps(2, end) infinite;
+}
+
+@keyframes loading-blink {
+    to {
+        opacity: 0;
     }
 }
 

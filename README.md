@@ -18,6 +18,40 @@ anything with `ESC`. Touch devices get a thumb pad. The `index` button in the
 corner lists everything as plain links for anyone who would rather not walk,
 and the page carries a screen-reader-only copy of the same content.
 
+## How it feels
+
+- **It glides.** The camera and the `@` are floating points that ease toward
+  the cell you are logically in; rows are drawn from the integer part and the
+  fraction becomes a pixel translate, both in the same frame. The parallax
+  planes slide at their own rates, so the space reads as deep rather than
+  flat.
+- **Things have height.** The camera sits above you looking down, so the top
+  of every wall, tree and mountain is displaced away from you in proportion
+  to its height and distance: a wall beside you shows only its top, a wall at
+  the edge of the screen leans outward and shows its face, and the whole
+  picture tilts as you walk. Tall things cast a little shade to their lower
+  right. None of it is ever drawn over a label, a prop, or the cells around
+  you.
+- **Trees get in the way, but never in the way of anything.** Canopy passes
+  in front of you on the near plane, and is masked off rooms, labels and
+  props so depth never costs you something to read.
+- **Rooms announce themselves.** Walk into one and its name appears large for
+  a moment, and the room's colour bleeds into the edges of the screen.
+- **Fire is warm, and so are you.** Torches and the hearth tint what they
+  reach toward amber, the light you carry is a warm lantern, and whatever is
+  far from any light fades into a cool blue haze rather than black. Warm near,
+  cool far.
+- **The forest is alive.** Fireflies drift over the wilds at night.
+- **It remembers.** Where you were standing is kept per browser, so the
+  next visit offers to continue from there.
+- **Sound, if you want it.** The `♪` in the top bar turns on synthesised
+  footsteps and a chime when something opens. Off until asked, remembered
+  once set.
+- **Every glyph is ours.** A 17 kB subset of DejaVu Sans Mono ships with the
+  site, with the box drawing, blocks and symbols the map is made of, so the
+  art lines up the same way on every machine instead of depending on the
+  fonts it happens to have.
+
 ## The Arcade
 
 Six cabinets, all filled:
@@ -32,6 +66,7 @@ Six cabinets, all filled:
 | **CHARLIE'S PAW PATROL** | Sirens and pups, built for my kid |
 
 Snake, Breakout and the idle game keep their best scores in `localStorage`.
+Every cabinet is its own chunk, fetched the first time someone steps up to it.
 
 ## Adventure Bay (3D)
 
@@ -43,27 +78,19 @@ generated in the browser at load.
   [`src/pupPatrol/world.js`](src/pupPatrol/world.js). Roads are splines laid
   over it: a rasterisation pass stamps each into a grid of "how much road is
   here" and "what height does the road want", and the final ground is the raw
-  terrain blended toward that. The uphill side gets cut and the downhill side
-  filled for free, so the mountain road is a notch someone carved rather than a
-  stripe painted on a slope. Grades are capped at 14% and junctions are
+  terrain blended toward that. Grades are capped at 14% and junctions are
   reconciled so roads that meet agree on their height.
 - **Real vehicle physics.** A rigid body with four raycast wheels on spring
   suspension ([`physics.js`](src/pupPatrol/physics.js)). It squats under power,
   leans into corners, unloads the inside wheels, lands nose-first off a jump
-  and can be spun by braking mid-corner — all of it falling out of forces
-  applied at the contact patches, none of it scripted. Skye's helicopter is a
-  separate flight model where the collective lifts and the cyclic tilts the
-  rotor disc.
+  and can be spun by braking mid-corner. Skye's helicopter is a separate
+  flight model.
 - **Seven pups, seven feels.** Chase is quickest on tarmac, Marshall is heavy
   and the only one with water, Rubble cannot be hurried and shoves boulders,
   Zuma treats the bay as a shortcut, Everest owns the mountain, Skye ignores
   the road network entirely.
 - **Missions are generated, not authored.** Nine templates pick their own
-  locations from the road network and the terrain, decide how many of a thing
-  there are, how long you get, which pup is needed, and what it is all called.
-  Underneath they share one shape — an ordered list of objectives, each a place
-  to be and a thing to do there — which is what lets them share one update
-  loop, one marker renderer and one HUD.
+  locations from the road network and the terrain.
 - **Get out and walk.** Press `E` to hop out and run around as the pup itself.
 
 Drive with `WASD`, `Space` for the handbrake (or climb, in the helicopter),
@@ -75,31 +102,22 @@ steering pad and pedals.
 
 The only part of this site with a server. It runs on **Convex**, chosen because
 reactive queries push state to every connected client with no websocket
-plumbing — a mutation lands and everyone re-renders.
+plumbing.
 
 - **Endless world.** No map is stored. Every tile is a pure function of its
   coordinates in [`src/lib/terrain.js`](src/lib/terrain.js), imported by *both*
-  the browser and the Convex functions, so the two can never disagree and no
-  terrain crosses the wire. Roads run out from the origin along both axes
-  forever, so you can always walk home.
+  the browser and the Convex functions, so the two can never disagree.
 - **Server-authoritative.** The client asks to move, build, or gather; the
   server decides. Movement and building are rate-limited server-side.
 - **Sandbox.** Chop trees and mine rock for wood and stone, then build walls,
   paths, doors, torches and signs. Buildings persist and everyone sees them.
-  You can only demolish your own. Torches actually keep monsters back.
-- **Dynamic.** A twelve-minute day/night cycle, weather that rolls through
-  (rain, fog, storm), and harvested terrain that grows back on a timer. Nights
-  are darker, hungrier, and spawn more.
-- **Chat.** Real chat with speech bubbles over the speaker, per-name colours,
-  and `/me`, `/who`, `/where`, `/home`, `/help`.
-
-Entities are looked up by chunk (`by_chunk`) so querying one corner of an
-endless world never scans the rest. Monsters spawn in a ring around each
-player and are forgotten once everyone walks away.
+- **Dynamic.** A twelve-minute day/night cycle, weather, and harvested
+  terrain that grows back on a timer.
+- **Chat.** Speech bubbles over the speaker, and `/me`, `/who`, `/where`,
+  `/home`, `/help`.
 
 **Cost control:** the tick loop reschedules itself only while somebody is on
-the field and parks itself when the last player goes idle, so an empty world
-costs nothing.
+the field and parks itself when the last player goes idle.
 
 ### Running it
 
@@ -109,8 +127,9 @@ npm run commons     # watches convex/ and pushes to the dev deployment
 ```
 
 `.env.local` holds `CONVEX_DEPLOYMENT` and `REACT_APP_CONVEX_URL` and is not
-committed. Without `REACT_APP_CONVEX_URL` the site still builds and every other
-room works — the Commons just explains what is missing.
+committed. The build accepts both the `REACT_APP_` and `VITE_` prefixes.
+Without a Convex URL the site still builds and every other room works — the
+Commons just explains what is missing.
 
 **On a fresh clone `.env.local` does not exist, and plain `npx convex dev` will
 create a brand new Convex project instead of using this one.** Link explicitly
@@ -120,18 +139,11 @@ the first time:
 npx convex dev --configure existing --team scottbussardjr --project ascii-commons
 ```
 
-`npm install` matters too. Convex typechecks with whatever TypeScript the
-project resolves, and its shipped type definitions use TS5-only syntax, so an
-older compiler fails with ~60 `TS2792` / `TS7006` errors that say nothing
-about the real cause — usually just a `node_modules` older than the last
-`package.json` change. `npm run commons` runs a preflight that catches this
-and tells you to run `npm install` instead.
-
 ### Deploying
 
 The site is live at [www.jrbussard.com](https://www.jrbussard.com). Vercel
-builds from `main` on push, and `REACT_APP_CONVEX_URL` is set in the Vercel
-project (Production + Preview) to the Convex production deployment.
+builds from `main` on push (`vite build` → `dist/`), and `REACT_APP_CONVEX_URL`
+is set in the Vercel project to the Convex production deployment.
 
 **⚠️ A `git push` deploys the site but NOT the backend.** The two are separate:
 
@@ -140,17 +152,8 @@ git push origin main       # frontend only
 npm run commons:deploy     # backend only — after changing convex/
 ```
 
-So after editing anything under `convex/` or `src/lib/terrain.js`, run
-`npm run commons:deploy` or the live world keeps running the old rules. Terrain is
-especially important: it is shared by both sides, so changing it without
-deploying makes the browser and server disagree about what is solid.
-
-To make one push do both, set `CONVEX_DEPLOY_KEY` in Vercel (generate it from
-the Convex dashboard) and change the project's build command to:
-
-```bash
-npx convex deploy --cmd 'npm run build'
-```
+After editing anything under `convex/` or `src/lib/terrain.js`, run
+`npm run commons:deploy` or the live world keeps running the old rules.
 
 | Deployment | URL |
 | --- | --- |
@@ -158,39 +161,34 @@ npx convex deploy --cmd 'npm run build'
 | Convex dev | `agile-sardine-811.convex.cloud` |
 | Dashboard | [ascii-commons](https://dashboard.convex.dev/t/scottbussardjr/ascii-commons) |
 
-| File | What it holds |
-| --- | --- |
-| [`src/lib/terrain.js`](src/lib/terrain.js) | Terrain generation, shared by client and server |
-| [`convex/schema.ts`](convex/schema.ts) | Tables and indexes |
-| [`convex/world.ts`](convex/world.ts) | Queries and mutations — the rules |
-| [`convex/tick.ts`](convex/tick.ts) | The heartbeat: monsters, weather, regrowth |
-
 ## Adding a small project
 
 Everything about a hosted project lives in one place —
-[`src/microfrontends/registry.js`](src/microfrontends/registry.js):
+[`src/microfrontends/registry.jsx`](src/microfrontends/registry.jsx):
 
-```js
+```jsx
 {
     id: "my-thing",
     name: "MY THING",
     route: "/my-thing",
     blurb: "One line about it.",
     tags: ["React"],
-    element: <MyThing />,
+    accent: "#7ee0c0",   // the cabinet's glow in its panel
+    glyph: "◆",
+    element: lazyRoute(() => import("../pages/MyThing")),
 }
 ```
 
 That single entry registers the route, lights up the next cabinet in the
-Arcade, and adds the project to the site index. The Arcade has four cabinets;
-unused ones render dark on purpose. Add more by adding `&` markers to the
-arcade room in [`src/world/rooms.js`](src/world/rooms.js).
+Arcade, and adds the project to the site index. Add more cabinets by adding
+`&` markers to the arcade room in [`src/world/rooms.js`](src/world/rooms.js).
 
 ## Notes CMS
 
 The Library is the blog. Each shelf slot is one published `note` from Sanity
-(project `8qiu273i`, dataset `production`); shelves past the last note render
-empty. `src/content/fallbackNotes.json` is used when Sanity is unreachable.
+(project `8qiu273i`, dataset `production`), fetched over Sanity's HTTP API at
+read time; shelves past the last note render empty.
+`src/content/fallbackNotes.json` is used when Sanity is unreachable.
 
 1. `sanity login` if you are not already signed in.
 2. `npm run cms` to write posts at `http://localhost:3333`.
@@ -203,16 +201,18 @@ Normal blog updates need no code changes — the library restocks itself.
 
 | File | What it holds |
 | --- | --- |
-| [`src/world/rooms.js`](src/world/rooms.js) | Room positions, doors, and hand-drawn interiors |
+| [`src/world/rooms.js`](src/world/rooms.js) | Room positions, doors, tints, and hand-drawn interiors |
 | [`src/world/build.js`](src/world/build.js) | Stamps rooms into a tile grid, grows the forest, auto-tiles walls |
 | [`src/world/tiles.js`](src/world/tiles.js) | Tile kinds, colours, glyphs, what is solid |
-| [`src/world/render.js`](src/world/render.js) | Lighting and the character renderer |
-| [`src/pages/World.js`](src/pages/World.js) | Input, the game loop, and what each prop opens |
+| [`src/world/render.js`](src/world/render.js) | Lighting, torch tint, the glide, the height projection, and the character renderer |
+| [`src/world/parallax.js`](src/world/parallax.js) | The planes in front of and behind the world |
+| [`src/world/audio.js`](src/world/audio.js) | Footsteps and chimes, synthesised |
+| [`src/pages/World.jsx`](src/pages/World.jsx) | Input, the game loop, the camera, and what each prop opens |
+| [`src/data/site.js`](src/data/site.js) | Everything the world says: projects, about, contact, signposts |
 
 Room interiors are authored in plain ASCII (`#` wall, `.` floor, `$` book,
 `%` project, `@` repo, `&` cabinet, `¶` sign, `!` beacon, `+` statue). Walls
-auto-tile from orthogonal neighbours, so build structures out of aligned runs —
-diagonal art comes out as disconnected fragments.
+auto-tile from orthogonal neighbours, so build structures out of aligned runs.
 
 `npm test` checks that the map stays walkable: every room reachable from the
 spawn, every prop approachable, and the atrium's four lanes clear.
@@ -220,8 +220,9 @@ spawn, every prop approachable, and the atrium's four lanes clear.
 ## Commands
 
 ```bash
-npm start        # dev server
-npm test         # world layout tests
-npm run build    # production build
+npm run dev      # dev server (Vite)
+npm test         # world layout and contract tests (Vitest)
+npm run build    # production build into dist/
+npm run preview  # serve the production build
 npm run cms      # Sanity Studio
 ```

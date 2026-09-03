@@ -62,7 +62,7 @@ export const projects = [
 export const featuredRepos = ["jrbussard", "meltdown", "makewaves"];
 
 /* Arcade cabinets are the hosted small projects, registered once in
-   microfrontends/registry.js so a route and a cabinet never drift apart. */
+   microfrontends/registry.jsx so a route and a cabinet never drift apart. */
 export { microfrontends as arcade } from "../microfrontends/registry";
 
 export const about = {
@@ -115,6 +115,9 @@ export const signs = {
                 "Props glow when they are worth touching, and go cold when there",
                 "is nothing behind them. Stand next to one and the bar at the",
                 "bottom will tell you what it is.",
+                "",
+                "The note icon in the top bar turns the sound on: footsteps,",
+                "and a chime when something opens. It stays off until you ask.",
                 "",
                 "Four roads leave this crossing:",
                 "",

@@ -26,7 +26,7 @@ export const api = {
  * client is optional: without REACT_APP_CONVEX_URL the app still builds and
  * every other room works, and the Commons explains what is missing.
  */
-const url = process.env.REACT_APP_CONVEX_URL;
+const url = import.meta.env.REACT_APP_CONVEX_URL || import.meta.env.VITE_CONVEX_URL;
 
 export const convex = url ? new ConvexReactClient(url) : null;
 export const multiplayerReady = Boolean(url);

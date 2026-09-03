@@ -196,7 +196,7 @@ export default function Idle() {
     return (
         <main className="cab cab--idle">
             <header className="cab__bar">
-                <Link className="cab__back" to="/">
+                <Link className="cab__back" to="/arcade">
                     ◄ back to the arcade
                 </Link>
                 <span className="cab__title">THE NIGHT SHIFT</span>

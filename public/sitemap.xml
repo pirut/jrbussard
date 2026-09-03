@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.jrbussard.com/</loc><priority>1.0</priority></url>
+  <url><loc>https://www.jrbussard.com/adventure-bay</loc><priority>0.6</priority></url>
+  <url><loc>https://www.jrbussard.com/commons</loc><priority>0.6</priority></url>
+  <url><loc>https://www.jrbussard.com/night-shift</loc><priority>0.5</priority></url>
+  <url><loc>https://www.jrbussard.com/snake</loc><priority>0.5</priority></url>
+  <url><loc>https://www.jrbussard.com/breakout</loc><priority>0.5</priority></url>
+  <url><loc>https://www.jrbussard.com/charlie-patrol</loc><priority>0.5</priority></url>
+</urlset>

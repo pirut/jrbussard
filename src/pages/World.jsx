@@ -2,17 +2,32 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { buildWorld } from "../world/build";
 import { createRenderer, measureCell } from "../world/render";
 import { KIND, INTERACTIVE } from "../world/tiles";
+import { sound } from "../world/audio";
 import { useGitHub } from "../hooks/useGitHub";
 import { fetchNotes } from "../lib/sanity";
 import { projects, arcade, about, contact, signs } from "../data/site";
 import Panel from "../components/Panel";
 import Minimap from "../components/Minimap";
-import { Intro, TopBar, PromptBar, TouchPad } from "../components/Hud";
+import {
+    Intro,
+    TopBar,
+    PromptBar,
+    TouchPad,
+    Banner,
+    Fireflies,
+} from "../components/Hud";
 import "../styles/world.css";
 
 const STEP_MS = 105;
 const REPEAT_DELAY_MS = 190;
-const FRAME_MS = 33;
+/* Exponential easing rates, per millisecond. The player closes most of the
+   gap within one step so it never lags the input; the camera trails a little
+   behind so the screen glides rather than jerks. */
+const PLAYER_EASE = 0.03;
+const CAMERA_EASE = 0.011;
+/* Extra cells drawn past the viewport so the glide never shows an edge. */
+const OVERSCAN = 2;
+const POSITION_KEY = "world_position_v1";
 
 const VECTORS = {
     up: [0, -1],
@@ -39,6 +54,20 @@ const NEIGHBORS = [
     [1, 0],
 ];
 
+/* One line under each area's name when you walk in. */
+const TAGLINES = {
+    "THE ATRIUM": "the crossing — everything starts here",
+    "THE OBSERVATORY": "live signal · github/pirut",
+    "THE LIBRARY": "field notes, essays, marginalia",
+    "THE FOUNDRY": "what I build and run",
+    "THE ARCADE": "small projects, playable",
+    "THE BEACON": "at the water's edge",
+    "THE WILDS": "the forest between",
+};
+
+/* The sky's colour when no room is tinting the picture. */
+const OUTDOOR_TINT = [96, 140, 200];
+
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
@@ -46,6 +75,29 @@ function clamp(value, min, max) {
 function roomName(world, id) {
     const room = world.rooms.find((entry) => entry.id === id);
     return room ? room.name : "THE WILDS";
+}
+
+/* Where you were standing last time, if it is still somewhere you can stand. */
+function loadPosition(world) {
+    try {
+        const raw = window.localStorage.getItem(POSITION_KEY);
+        if (!raw) return null;
+        const { x, y } = JSON.parse(raw);
+        if (!Number.isInteger(x) || !Number.isInteger(y)) return null;
+        if (world.isSolid(x, y)) return null;
+        if (x === world.spawn.x && y === world.spawn.y) return null;
+        return { x, y };
+    } catch {
+        return null;
+    }
+}
+
+function savePosition(position) {
+    try {
+        window.localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+    } catch {
+        /* private mode */
+    }
 }
 
 /* Which prop is the player standing next to, if any. */
@@ -56,6 +108,14 @@ function findNearby(world, player) {
     }
     return null;
 }
+
+/* What the terminal in each room is called. */
+const CONSOLES = {
+    atrium: "the noticeboard",
+    library: "the card catalog",
+    observatory: "the commit log",
+    arcade: "the cabinet list",
+};
 
 /* One-line description for the prompt bar. */
 function describe(marker, data) {
@@ -89,14 +149,6 @@ function describe(marker, data) {
             return { verb, label: "something" };
     }
 }
-
-/* What the terminal in each room is called. */
-const CONSOLES = {
-    atrium: "the noticeboard",
-    library: "the card catalog",
-    observatory: "the commit log",
-    arcade: "the cabinet list",
-};
 
 /* Full panel content for a prop. */
 function resolve(world, marker, data) {
@@ -239,13 +291,22 @@ function resolve(world, marker, data) {
 
 const World = () => {
     const world = useMemo(() => buildWorld(), []);
+    const resumedFrom = useMemo(() => loadPosition(world), [world]);
+    const origin = resumedFrom || world.spawn;
+
+    const shellRef = useRef(null);
+    const tintRef = useRef(null);
     const stageRef = useRef(null);
     const nearRef = useRef(null);
     const farRef = useRef(null);
     const probeRef = useRef(null);
+    const spriteRef = useRef(null);
     const rendererRef = useRef(null);
-    const viewportRef = useRef({ cols: 0, rows: 0 });
-    const playerRef = useRef({ ...world.spawn });
+    const viewportRef = useRef({ cols: 0, rows: 0, cell: null });
+    const playerRef = useRef({ ...origin });
+    /* Where the sprite and camera actually are, in fractional cells. */
+    const smoothRef = useRef({ ...origin });
+    const camRef = useRef({ x: 0, y: 0, init: false });
     const keysRef = useRef(new Set());
     const flagsRef = useRef({ started: false, blocked: false });
     const dataRef = useRef({ notes: [], repos: [] });
@@ -253,12 +314,14 @@ const World = () => {
     const moveRef = useRef(() => false);
     const countsRef = useRef({});
 
-    const [player, setPlayer] = useState(() => ({ ...world.spawn }));
+    const [player, setPlayer] = useState(() => ({ ...origin }));
     const [started, setStarted] = useState(false);
     const [panel, setPanel] = useState(null);
     const [mapOpen, setMapOpen] = useState(false);
     const [notes, setNotes] = useState([]);
     const [touch, setTouch] = useState(false);
+    const [soundOn, setSoundOn] = useState(() => sound.preferred());
+    const [banner, setBanner] = useState(null);
 
     const { repos, activity } = useGitHub();
 
@@ -301,12 +364,54 @@ const World = () => {
         flagsRef.current = { started, blocked: Boolean(panel) || mapOpen };
     }, [started, panel, mapOpen]);
 
+    /* Panels announce themselves, quietly, if sound is on. */
+    const openPanel = useCallback((content) => {
+        sound.open();
+        setPanel(content);
+    }, []);
+
+    const closeAll = useCallback(() => {
+        setPanel((current) => {
+            if (current) sound.close();
+            return null;
+        });
+        setMapOpen((current) => {
+            if (current) sound.close();
+            return false;
+        });
+    }, []);
+
+    const openMap = useCallback(() => {
+        sound.open();
+        setMapOpen(true);
+    }, []);
+
+    const toggleSound = useCallback(() => {
+        const next = !soundOn;
+        setSoundOn(next);
+        sound.setEnabled(next).then((ok) => {
+            if (next && !ok) setSoundOn(false);
+        });
+    }, [soundOn]);
+
+    /* If sound was on last time, wake it with the first gesture. */
+    useEffect(() => {
+        if (!soundOn) return undefined;
+        const wake = () => sound.setEnabled(true);
+        window.addEventListener("pointerdown", wake, { once: true });
+        window.addEventListener("keydown", wake, { once: true });
+        return () => {
+            window.removeEventListener("pointerdown", wake);
+            window.removeEventListener("keydown", wake);
+        };
+    }, [soundOn]);
+
     const interact = useCallback(() => {
         const marker = findNearby(world, playerRef.current);
         if (!marker) return;
         const content = resolve(world, marker, dataRef.current);
-        if (content) setPanel(content);
-    }, [world]);
+        if (content) openPanel(content);
+    }, [world, openPanel]);
 
     /* A press steps once straight away, then hands off to the repeat timer, so
        a quick tap always registers. */
@@ -324,38 +429,57 @@ const World = () => {
         keysRef.current.delete(direction);
     }, []);
 
-    /* Renderer lifecycle: rebuild the row elements whenever the stage resizes. */
+    /* Renderer lifecycle: rebuild the row elements whenever the shell resizes. */
     useEffect(() => {
+        const shell = shellRef.current;
         const stage = stageRef.current;
         const probe = probeRef.current;
-        if (!stage || !probe) return undefined;
+        if (!shell || !stage || !probe) return undefined;
 
-        const renderer = createRenderer(stage, world, {
-            near: nearRef.current,
-            far: farRef.current,
-        });
+        const planes = { near: nearRef.current, far: farRef.current };
+        const renderer = createRenderer(stage, world, planes);
         rendererRef.current = renderer;
 
         const apply = () => {
             const cell = measureCell(probe);
-            const cols = Math.max(24, Math.floor(stage.clientWidth / cell.width));
-            const rows = Math.max(14, Math.floor(stage.clientHeight / cell.height));
-            viewportRef.current = renderer.setSize(cols, rows);
+            const cols = Math.max(24, Math.floor(shell.clientWidth / cell.width));
+            const rows = Math.max(14, Math.floor(shell.clientHeight / cell.height));
+            const drawCols = cols + OVERSCAN;
+            const drawRows = rows + OVERSCAN;
+            renderer.setSize(drawCols, drawRows);
+            /* The layers are sized to the overscan so the glide never
+               reveals an edge; paint containment clips them to that box. */
+            [stage, planes.near, planes.far].forEach((node) => {
+                node.style.width = `${drawCols * cell.width}px`;
+                node.style.height = `${drawRows * cell.height}px`;
+            });
+            viewportRef.current = { cols, rows, cell };
         };
 
         apply();
         const observer = new ResizeObserver(apply);
-        observer.observe(stage);
+        observer.observe(shell);
+        /* The grid is measured in the font that is on screen. When the real
+           font arrives a moment later its cells are a different size, and
+           nothing else would notice — so measure again. */
+        const fonts = document.fonts;
+        const onFonts = () => apply();
+        if (fonts) {
+            fonts.ready.then(onFonts);
+            fonts.addEventListener("loadingdone", onFonts);
+        }
         return () => {
             observer.disconnect();
+            if (fonts) fonts.removeEventListener("loadingdone", onFonts);
             rendererRef.current = null;
         };
     }, [world]);
 
-    /* Single loop: advance the player, then repaint at a steady cadence. */
+    /* Single loop: advance the player, glide the camera, hand the renderer
+       the frame. It decides what actually needs redrawing. */
     useEffect(() => {
         let raf;
-        let lastFrame = 0;
+        let lastTime = 0;
 
         const tryMove = (dx, dy) => {
             const current = playerRef.current;
@@ -366,8 +490,11 @@ const World = () => {
                 if (world.isSolid(nx, ny)) continue;
                 playerRef.current = { x: nx, y: ny };
                 setPlayer(playerRef.current);
+                savePosition(playerRef.current);
+                sound.step();
                 return true;
             }
+            sound.bump();
             return false;
         };
 
@@ -395,31 +522,63 @@ const World = () => {
             raf = window.requestAnimationFrame(tick);
             step(time);
 
-            if (time - lastFrame < FRAME_MS) return;
-            lastFrame = time;
+            const dt = lastTime ? Math.min(64, time - lastTime) : 16;
+            lastTime = time;
 
-            const { cols, rows } = viewportRef.current;
+            const { cols, rows, cell } = viewportRef.current;
             const renderer = rendererRef.current;
             if (!cols || !renderer) return;
 
-            const p = playerRef.current;
-            const camX =
-                cols >= world.w
-                    ? -Math.floor((cols - world.w) / 2)
-                    : clamp(p.x - Math.floor(cols / 2), 0, world.w - cols);
-            const camY =
-                rows >= world.h
-                    ? -Math.floor((rows - world.h) / 2)
-                    : clamp(p.y - Math.floor(rows / 2), 0, world.h - rows);
+            /* The sprite eases toward the cell the player is logically in. */
+            const target = playerRef.current;
+            const s = smoothRef.current;
+            const kp = 1 - Math.exp(-dt * PLAYER_EASE);
+            s.x += (target.x - s.x) * kp;
+            s.y += (target.y - s.y) * kp;
+            if (Math.abs(target.x - s.x) < 0.003) s.x = target.x;
+            if (Math.abs(target.y - s.y) < 0.003) s.y = target.y;
 
-            renderer.draw({
-                cols,
-                camX,
-                camY,
-                player: p,
+            /* The camera eases toward keeping the sprite centred, and stops
+               at the edge of the world. A world smaller than the screen is
+               simply centred. */
+            const wantX =
+                cols >= world.w
+                    ? -(cols - world.w) / 2
+                    : clamp(s.x + 0.5 - cols / 2, 0, world.w - cols);
+            const wantY =
+                rows >= world.h
+                    ? -(rows - world.h) / 2
+                    : clamp(s.y + 0.5 - rows / 2, 0, world.h - rows);
+            const cam = camRef.current;
+            if (!cam.init) {
+                cam.x = wantX;
+                cam.y = wantY;
+                cam.init = true;
+            } else {
+                const kc = 1 - Math.exp(-dt * CAMERA_EASE);
+                cam.x += (wantX - cam.x) * kc;
+                cam.y += (wantY - cam.y) * kc;
+            }
+
+            renderer.frame({
+                cam,
+                cell,
+                player: target,
                 time,
                 counts: countsRef.current,
             });
+
+            const sprite = spriteRef.current;
+            if (sprite) {
+                const dpr = window.devicePixelRatio || 1;
+                const px = Math.round((s.x - cam.x) * cell.width * dpr) / dpr;
+                const py = Math.round((s.y - cam.y) * cell.height * dpr) / dpr;
+                const value = `translate3d(${px.toFixed(2)}px, ${py.toFixed(2)}px, 0)`;
+                if (sprite.__placed !== value) {
+                    sprite.__placed = value;
+                    sprite.style.transform = value;
+                }
+            }
         };
 
         raf = window.requestAnimationFrame(tick);
@@ -439,8 +598,7 @@ const World = () => {
             }
 
             if (event.key === "Escape") {
-                setPanel(null);
-                setMapOpen(false);
+                closeAll();
                 return;
             }
 
@@ -461,7 +619,7 @@ const World = () => {
 
             if (event.key === "m" || event.key === "M") {
                 event.preventDefault();
-                setMapOpen(true);
+                openMap();
             }
         };
 
@@ -480,7 +638,7 @@ const World = () => {
             window.removeEventListener("keyup", onKeyUp);
             window.removeEventListener("blur", onBlur);
         };
-    }, [interact, press, release]);
+    }, [interact, press, release, closeAll, openMap]);
 
     const nearby = useMemo(() => findNearby(world, player), [world, player]);
     const prompt = useMemo(
@@ -488,31 +646,61 @@ const World = () => {
         [nearby, notes, repos]
     );
     const region = world.regionAt(player.x, player.y);
+    const zone = world.zones[player.y * world.w + player.x];
+    const outdoors = zone === 0;
+
+    /* Walking into somewhere new: announce it, and let the room colour the
+       edges of the screen. */
+    useEffect(() => {
+        if (!started) return;
+        setBanner({ id: Date.now(), name: region, sub: TAGLINES[region] || "" });
+    }, [region, started]);
+
+    useEffect(() => {
+        const layer = tintRef.current;
+        if (!layer) return;
+        const tint = world.zoneTints[zone] || OUTDOOR_TINT;
+        layer.style.setProperty("--zt-r", tint[0]);
+        layer.style.setProperty("--zt-g", tint[1]);
+        layer.style.setProperty("--zt-b", tint[2]);
+    }, [world, zone]);
 
     const openIndex = useCallback(() => {
-        setPanel({
+        openPanel({
             type: "index",
             location: "SITE INDEX",
             title: "EVERYTHING ON THE MAP",
             notes,
             repos,
         });
-    }, [notes, repos]);
+    }, [notes, repos, openPanel]);
 
     return (
-        <div className="world-shell">
+        <div
+            className={`world-shell ${outdoors ? "is-outdoors" : ""} ${started ? "is-live" : ""}`}
+            ref={shellRef}
+        >
             <span className="world-probe" ref={probeRef} aria-hidden="true">
                 MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
             </span>
 
-            {/* Three planes: haze behind, the world, then foliage that
-                passes in front of you. They slide at different rates, which
-                is what makes the space read as deep rather than flat. */}
+            {/* Layers, back to front: haze, the world (with the tops and
+                faces of everything tall composed into it), fireflies, you,
+                then foliage that passes in front of you. They slide at
+                different rates, and tall things lean away from you as you
+                walk, which together is what makes the space read as deep. */}
             <div className="world-plane world-plane--far" ref={farRef} aria-hidden="true" />
             <div className="world-stage" ref={stageRef} aria-hidden="true" />
+            <Fireflies active={outdoors && started} count={12} />
+            <div className="world-player" ref={spriteRef} aria-hidden="true">
+                @
+            </div>
             <div className="world-plane world-plane--near" ref={nearRef} aria-hidden="true" />
-            <div className="world-crt" aria-hidden="true" />
-            <div className="world-vignette" aria-hidden="true" />
+            <div className="world-overlay" ref={tintRef} aria-hidden="true" />
+
+            {started && banner && !panel && !mapOpen && (
+                <Banner key={banner.id} name={banner.name} sub={banner.sub} />
+            )}
 
             {started && (
                 <>
@@ -522,6 +710,8 @@ const World = () => {
                         notesCount={notes.length}
                         reposCount={repos.length}
                         onIndex={openIndex}
+                        soundOn={soundOn}
+                        onSound={toggleSound}
                     />
                     <PromptBar prompt={prompt} />
                     {touch && (
@@ -530,63 +720,71 @@ const World = () => {
                 </>
             )}
 
-            {!started && <Intro onStart={() => setStarted(true)} />}
-
-            {panel && (
-                <Panel
-                    content={panel}
-                    onClose={() => setPanel(null)}
-                    onSelect={setPanel}
+            {!started && (
+                <Intro
+                    onStart={() => setStarted(true)}
+                    resumed={Boolean(resumedFrom)}
+                    region={region}
                 />
             )}
+
+            {panel && (
+                <Panel content={panel} onClose={closeAll} onSelect={setPanel} />
+            )}
             {mapOpen && (
-                <Minimap world={world} player={player} onClose={() => setMapOpen(false)} />
+                <Minimap world={world} player={player} onClose={closeAll} />
             )}
 
-            {/* Plain-text mirror of the world, for screen readers and anyone
-                who would rather not walk around. */}
-            <div className="sr-only">
-                <h1>JR Bussard — operator and builder in West Palm Beach, Florida</h1>
-                <p>{about.lines.join(" ")}</p>
-                <h2>Notes</h2>
-                <ul>
-                    {notes.map((note) => (
-                        <li key={note.slug}>
-                            <strong>{note.title}</strong> — {note.summary}
-                        </li>
-                    ))}
-                </ul>
-                <h2>Projects</h2>
-                <ul>
-                    {projects.map((project) => (
-                        <li key={project.id}>
-                            <a href={(project.links[0] || {}).href}>{project.name}</a> —{" "}
-                            {project.description}
-                        </li>
-                    ))}
-                </ul>
-                <h2>Playable projects</h2>
-                <ul>
-                    {arcade.map((app) => (
-                        <li key={app.id}>
-                            <a href={app.route}>{app.name}</a> — {app.blurb}
-                        </li>
-                    ))}
-                </ul>
-                <h2>Contact</h2>
-                <ul>
-                    <li>
-                        <a href={`mailto:${contact.email}`}>{contact.email}</a>
-                    </li>
-                    {about.links.map((link) => (
-                        <li key={link.href}>
-                            <a href={link.href}>{link.label}</a>
-                        </li>
-                    ))}
-                </ul>
-            </div>
+            <Mirror notes={notes} />
         </div>
     );
 };
+
+/* Plain-text mirror of the world, for screen readers and anyone who would
+   rather not walk around. Memoised: it only changes when the notes do. */
+const Mirror = React.memo(function Mirror({ notes }) {
+    return (
+        <div className="sr-only">
+            <h1>JR Bussard — operator and builder in West Palm Beach, Florida</h1>
+            <p>{about.lines.join(" ")}</p>
+            <h2>Notes</h2>
+            <ul>
+                {notes.map((note) => (
+                    <li key={note.slug}>
+                        <strong>{note.title}</strong> — {note.summary}
+                    </li>
+                ))}
+            </ul>
+            <h2>Projects</h2>
+            <ul>
+                {projects.map((project) => (
+                    <li key={project.id}>
+                        <a href={(project.links[0] || {}).href}>{project.name}</a> —{" "}
+                        {project.description}
+                    </li>
+                ))}
+            </ul>
+            <h2>Playable projects</h2>
+            <ul>
+                {arcade.map((app) => (
+                    <li key={app.id}>
+                        <a href={app.route}>{app.name}</a> — {app.blurb}
+                    </li>
+                ))}
+            </ul>
+            <h2>Contact</h2>
+            <ul>
+                <li>
+                    <a href={`mailto:${contact.email}`}>{contact.email}</a>
+                </li>
+                {about.links.map((link) => (
+                    <li key={link.href}>
+                        <a href={link.href}>{link.label}</a>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+});
 
 export default World;

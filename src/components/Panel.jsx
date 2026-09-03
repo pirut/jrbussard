@@ -389,7 +389,13 @@ function Body({ content, onSelect }) {
         const { app } = content;
         return (
             <>
-                <p className="panel__meta">arcade cabinet</p>
+                <p className="panel__meta">
+                    arcade cabinet ·{" "}
+                    <span className="panel__glyph" style={{ color: app.accent }}>
+                        {app.glyph}
+                    </span>{" "}
+                    {app.tags[0]}
+                </p>
                 <h2 className="panel__title">{app.name}</h2>
                 <p className="panel__prose">{app.blurb}</p>
                 <Tags items={app.tags} />

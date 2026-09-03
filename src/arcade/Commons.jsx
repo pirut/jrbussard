@@ -184,11 +184,11 @@ function Plane({ view, plane, colors, className }) {
     );
 }
 
-function Offline() {
+export function Offline() {
     return (
         <main className="cab cab--commons">
             <header className="cab__bar">
-                <Link className="cab__back" to="/">
+                <Link className="cab__back" to="/arcade">
                     ◄ back to the arcade
                 </Link>
                 <span className="cab__title">THE COMMONS</span>
@@ -616,7 +616,7 @@ export default function Commons() {
         return (
             <main className="cab cab--commons">
                 <header className="cab__bar">
-                    <Link className="cab__back" to="/">
+                    <Link className="cab__back" to="/arcade">
                         ◄ back to the arcade
                     </Link>
                     <span className="cab__title">THE COMMONS</span>
@@ -637,7 +637,7 @@ export default function Commons() {
     return (
         <main className={`cab cab--commons cab--${state.phase}`}>
             <header className="cab__bar">
-                <Link className="cab__back" to="/">
+                <Link className="cab__back" to="/arcade">
                     ◄ back to the arcade
                 </Link>
                 <span className="cab__title">THE COMMONS</span>
