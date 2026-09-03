@@ -36,7 +36,7 @@ export const NEAR = {
      * reads as static or a dirty lens; sampling a noise field gives boughs
      * and gaps, which is what foliage close to the camera looks like.
      */
-    clump: { scale: 0.11, threshold: 0.56, gain: 5.5 },
+    clump: { scale: 0.11, threshold: 0.53, gain: 5.5 },
     /* How far from the player the plane stays clear, in cells. */
     clearRadius: 9,
     fade: 13,
@@ -57,7 +57,7 @@ export const FAR = {
  * makes it slide at its own rate: the same screen cell maps to a different
  * source cell than the ground does, and the offset grows as you walk.
  */
-export function buildPlane({ cols, rows, camX, camY, originX, originY, plane, colors }) {
+export function buildPlane({ cols, rows, camX, camY, originX, originY, plane, colors, blocked }) {
     /* The overworld hands in a floored origin so it can glide the fraction as
        a pixel translate; the Commons still passes an integer camera. */
     if (originX === undefined) originX = Math.round(camX * plane.factor);
@@ -85,6 +85,10 @@ export function buildPlane({ cols, rows, camX, camY, originX, originY, plane, co
                 if (d <= plane.clearRadius) allow = 0;
                 else allow = Math.min(1, (d - plane.clearRadius) / plane.fade);
             }
+
+            /* The caller can keep the plane off anything that matters
+               underneath — rooms, labels, props. */
+            if (allow > 0 && blocked && blocked(x, y)) allow = 0;
 
             if (allow > 0) {
                 const wx = originX + x;

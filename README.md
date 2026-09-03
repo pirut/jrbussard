@@ -22,8 +22,19 @@ and the page carries a screen-reader-only copy of the same content.
 
 - **It glides.** The camera and the `@` are floating points that ease toward
   the cell you are logically in; rows are drawn from the integer part and the
-  fraction becomes a pixel translate. The parallax planes slide at their own
-  rates, so the space reads as deep rather than flat.
+  fraction becomes a pixel translate, both in the same frame. The parallax
+  planes slide at their own rates, so the space reads as deep rather than
+  flat.
+- **Things have height.** The camera sits above you looking down, so the top
+  of every wall, tree and mountain is displaced away from you in proportion
+  to its height and distance: a wall beside you shows only its top, a wall at
+  the edge of the screen leans outward and shows its face, and the whole
+  picture tilts as you walk. Tall things cast a little shade to their lower
+  right. None of it is ever drawn over a label, a prop, or the cells around
+  you.
+- **Trees get in the way, but never in the way of anything.** Canopy passes
+  in front of you on the near plane, and is masked off rooms, labels and
+  props so depth never costs you something to read.
 - **Rooms announce themselves.** Walk into one and its name appears large for
   a moment, and the room's colour bleeds into the edges of the screen.
 - **Fire is warm.** Torches and the hearth do not only brighten what is near
@@ -191,7 +202,7 @@ Normal blog updates need no code changes — the library restocks itself.
 | [`src/world/rooms.js`](src/world/rooms.js) | Room positions, doors, tints, and hand-drawn interiors |
 | [`src/world/build.js`](src/world/build.js) | Stamps rooms into a tile grid, grows the forest, auto-tiles walls |
 | [`src/world/tiles.js`](src/world/tiles.js) | Tile kinds, colours, glyphs, what is solid |
-| [`src/world/render.js`](src/world/render.js) | Lighting, torch tint, the glide, and the character renderer |
+| [`src/world/render.js`](src/world/render.js) | Lighting, torch tint, the glide, the height projection, and the character renderer |
 | [`src/world/parallax.js`](src/world/parallax.js) | The planes in front of and behind the world |
 | [`src/world/audio.js`](src/world/audio.js) | Footsteps and chimes, synthesised |
 | [`src/pages/World.jsx`](src/pages/World.jsx) | Input, the game loop, the camera, and what each prop opens |

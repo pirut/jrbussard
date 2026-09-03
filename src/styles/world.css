@@ -3,7 +3,7 @@
 
    Layers, back to front:
      0  far plane      haze, drifting slower than the ground
-     1  stage          the world itself
+     1  stage          the world, tops and faces of tall things included
      2  fireflies      outdoors only
      3  player         the @, drawn on its own so it can glide
      4  near plane     foliage passing in front of you
@@ -71,6 +71,7 @@
     text-shadow: 0 0 7px currentColor;
 }
 
+
 .world-plane--near {
     z-index: 4;
     /*
@@ -80,9 +81,8 @@
      * when the text is drawn and then just slides.
      */
     text-shadow:
-        0 0 1px currentColor,
         0 0 2px currentColor,
-        0 0 7px rgba(0, 0, 0, 0.9);
+        0 0 8px rgba(0, 0, 0, 0.95);
 }
 
 .world__row {

@@ -20,7 +20,6 @@ import "../styles/world.css";
 
 const STEP_MS = 105;
 const REPEAT_DELAY_MS = 190;
-const FRAME_MS = 33;
 /* Exponential easing rates, per millisecond. The player closes most of the
    gap within one step so it never lags the input; the camera trails a little
    behind so the screen glides rather than jerks. */
@@ -476,11 +475,10 @@ const World = () => {
         };
     }, [world]);
 
-    /* Single loop: advance the player, glide the camera, repaint at a steady
-       cadence. Transforms update every frame; rows only every FRAME_MS. */
+    /* Single loop: advance the player, glide the camera, hand the renderer
+       the frame. It decides what actually needs redrawing. */
     useEffect(() => {
         let raf;
-        let lastFrame = 0;
         let lastTime = 0;
 
         const tryMove = (dx, dy) => {
@@ -562,29 +560,25 @@ const World = () => {
                 cam.y += (wantY - cam.y) * kc;
             }
 
-            renderer.scroll({ cam, cell });
+            renderer.frame({
+                cam,
+                cell,
+                player: target,
+                time,
+                counts: countsRef.current,
+            });
 
             const sprite = spriteRef.current;
             if (sprite) {
-                const px = (s.x - cam.x) * cell.width;
-                const py = (s.y - cam.y) * cell.height;
-                const value = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0)`;
+                const dpr = window.devicePixelRatio || 1;
+                const px = Math.round((s.x - cam.x) * cell.width * dpr) / dpr;
+                const py = Math.round((s.y - cam.y) * cell.height * dpr) / dpr;
+                const value = `translate3d(${px.toFixed(2)}px, ${py.toFixed(2)}px, 0)`;
                 if (sprite.__placed !== value) {
                     sprite.__placed = value;
                     sprite.style.transform = value;
                 }
             }
-
-            if (time - lastFrame < FRAME_MS) return;
-            lastFrame = time;
-
-            renderer.draw({
-                cols: cols + OVERSCAN,
-                cam,
-                player: target,
-                time,
-                counts: countsRef.current,
-            });
         };
 
         raf = window.requestAnimationFrame(tick);
@@ -690,9 +684,11 @@ const World = () => {
                 MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
             </span>
 
-            {/* Layers, back to front: haze, the world, fireflies, you, then
-                foliage that passes in front of you. They slide at different
-                rates, which is what makes the space read as deep. */}
+            {/* Layers, back to front: haze, the world (with the tops and
+                faces of everything tall composed into it), fireflies, you,
+                then foliage that passes in front of you. They slide at
+                different rates, and tall things lean away from you as you
+                walk, which together is what makes the space read as deep. */}
             <div className="world-plane world-plane--far" ref={farRef} aria-hidden="true" />
             <div className="world-stage" ref={stageRef} aria-hidden="true" />
             <Fireflies active={outdoors && started} count={12} />
