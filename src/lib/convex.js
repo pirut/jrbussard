@@ -7,6 +7,10 @@ import { makeFunctionReference } from "convex/server";
  * TypeScript into the app build; the names must match convex/world.ts.
  */
 export const api = {
+    customize: makeFunctionReference("world:customize"),
+    craft: makeFunctionReference("world:craft"),
+    eat: makeFunctionReference("world:eat"),
+    transfer: makeFunctionReference("world:transfer"),
     state: makeFunctionReference("world:state"),
     leaderboard: makeFunctionReference("world:leaderboard"),
     join: makeFunctionReference("world:join"),
@@ -35,16 +39,18 @@ export const multiplayerReady = Boolean(url);
 const SESSION_KEY = "commons_session";
 const NAME_KEY = "commons_name";
 
+let fallbackSession;
 export function getSession() {
+    if (!fallbackSession) fallbackSession = `s_${crypto.randomUUID()}`;
     try {
         let id = window.localStorage.getItem(SESSION_KEY);
-        if (!id) {
-            id = `s_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+        if (!id || id === "s_anonymous") {
+            id = fallbackSession;
             window.localStorage.setItem(SESSION_KEY, id);
         }
         return id;
     } catch {
-        return "s_anonymous";
+        return fallbackSession;
     }
 }
 

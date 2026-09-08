@@ -13,10 +13,18 @@ control an `@`, explore an overworld, and stand next to things to open them.
          THE BEACON                          contact
 ```
 
+The entrance includes a clickable atlas drawn from the actual world geometry.
+Enter to walk, choose a room on the atlas, or open the index to browse directly.
+
 Move with `WASD`/arrows, act with `E`, open the world map with `M`, close
-anything with `ESC`. Touch devices get a thumb pad. The `index` button in the
-corner lists everything as plain links for anyone who would rather not walk,
-and the page carries a screen-reader-only copy of the same content.
+anything with `ESC`. Touch devices get a thumb pad. The room strip and map
+buttons take you beside that room's content on reachable ground. Returning
+from a game brings you back to the Arcade.
+
+The index lists every note, project, game, repository, and contact link. Reading
+panels keep keyboard focus inside while open and return it when closed.
+Reduced-motion preferences stop the world's decorative shimmer. The page also
+carries a screen-reader-only copy of the same content.
 
 ## The Arcade
 
@@ -84,14 +92,40 @@ plumbing — a mutation lands and everyone re-renders.
   forever, so you can always walk home.
 - **Server-authoritative.** The client asks to move, build, or gather; the
   server decides. Movement and building are rate-limited server-side.
-- **Sandbox.** Chop trees and mine rock for wood and stone, then build walls,
-  paths, doors, torches and signs. Buildings persist and everyone sees them.
-  You can only demolish your own. Torches actually keep monsters back.
-- **Dynamic.** A twelve-minute day/night cycle, weather that rolls through
-  (rain, fog, storm), and harvested terrain that grows back on a timer. Nights
-  are darker, hungrier, and spawn more.
-- **Chat.** Real chat with speech bubbles over the speaker, per-name colours,
-  and `/me`, `/who`, `/where`, `/home`, `/help`.
+- **Survival and crafting.** Forage berries and fiber, chop trees, mine stone,
+  coal, iron and crystal, and fish with a crafted rod. Stone tools lead to iron
+  equipment and a crystal pickaxe. The 14 recipes share one rules catalog between
+  client and server; stations, ingredients and equipment upgrades are checked in
+  a single mutation.
+- **Settlements.** Ten blueprints include walls, bridges, doors, signs, torches,
+  fueled campfires, workbenches, furnaces, bedrolls and communal chests. Cook near
+  a lit fire, smelt at a furnace, and set your respawn at your own bedroll. Chest
+  transfers conserve supplies atomically; stocked chests cannot be demolished.
+- **Persistent survivors.** Characters and buildings remain when players leave.
+  Hunger and warmth advance while a player is active, with food, fire and armor
+  providing protection. Death costs 10% of gold; tools and materials stay with you.
+  Identity is saved in browser local storage, so clearing it starts a new survivor.
+- **Character creator.** Skin, hair, hairstyle, clothing and cloak palettes,
+  headwear and a world glyph are saved on the server. Live ASCII portraits and
+  tiny world figures show the look; crafted armor changes the figure and portrait.
+  Nametags support player inspection. Public player data uses IDs, never session
+  credentials. Cosmetic choices do not grant combat equipment.
+- **Dynamic wilderness.** A twelve-minute day/night cycle, rain, fog, storms,
+  resource regrowth and stronger night encounters. Torchlight and campfires hold
+  creatures back. A journal tracks the path from gathering to crystal mining.
+- **Chat.** Shared chat with speech bubbles and `/me`, `/who`, `/where`, `/home`,
+  `/help`. Keyboard, pointer and mobile movement controls use the same mutations.
+
+Controls: **WASD/arrows** move and attack adjacent creatures; **G** gathers or
+uses a station; **B** places the selected blueprint; **X** removes your structures;
+**E** eats; **Q** drinks a potion; **C/I/J** open Craft/Pack/Journal. On touchscreens,
+tap a tile to aim, then use Gather or Place. Click a nametag to inspect equipment.
+
+`npm run test:commons` runs isolated backend tests with `convex-test` (pinned to
+0.0.54 for compatibility with Convex 1.42). After cloning, run `npx convex codegen
+--typecheck disable` to create the ignored generated bindings first. The suite
+covers real public mutations for crafting, progression, ownership, shared storage,
+survival, respawning and customization. The regular CRA tests remain `npm test`.
 
 Entities are looked up by chunk (`by_chunk`) so querying one corner of an
 endless world never scans the rest. Monsters spawn in a ring around each

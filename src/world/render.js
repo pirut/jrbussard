@@ -21,7 +21,7 @@ const UNLIT = [72, 84, 108];
  * part of the screen sat at much the same brightness. Letting distance carry
  * cells most of the way to the background is what gives the world depth.
  */
-const FLOOR_LIGHT = 0.05;
+const FLOOR_LIGHT = 0.14;
 const CEIL_LIGHT = 0.95;
 
 /*
@@ -110,8 +110,8 @@ function bakeZoneColors(world) {
 }
 
 /* Silhouettes for the near plane, haze for the far one. */
-const NEAR_COLORS = ["#080b12", "#0b0f18", "#060910"];
-const FAR_COLORS = ["#141b28", "#111826", "#172032"];
+const NEAR_COLORS = ["#101a13", "#142018", "#0d160f"];
+const FAR_COLORS = ["#1b2820", "#18251e", "#203026"];
 
 export function createRenderer(container, world, planes = {}) {
     const torchLight = bakeTorchLight(world);
@@ -149,6 +149,7 @@ export function createRenderer(container, world, planes = {}) {
             for (let i = 0; i < rowCount; i += 1) {
                 const row = document.createElement("div");
                 row.className = "world__row";
+                row.setAttribute("aria-hidden", "true");
                 layer.node.appendChild(row);
                 layer.rows.push(row);
                 layer.cache.push(null);
@@ -157,6 +158,7 @@ export function createRenderer(container, world, planes = {}) {
         for (let i = 0; i < rowCount; i += 1) {
             const row = document.createElement("div");
             row.className = "world__row";
+            row.setAttribute("aria-hidden", "true");
             container.appendChild(row);
             rows.push(row);
             cache.push(null);
@@ -234,7 +236,7 @@ export function createRenderer(container, world, planes = {}) {
                     rgb = PLAYER_COLOR;
                 }
 
-                let light = world.zoneAmbient[zone];
+                let light = world.zoneAmbient[zone] + 0.12;
                 const d = Math.hypot(wx - player.x, wy - player.y);
                 if (d < PLAYER_RADIUS) {
                     /* Squared falloff rather than linear: a bright pool around

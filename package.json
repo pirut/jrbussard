@@ -22,7 +22,8 @@
         "test": "react-scripts test",
         "eject": "react-scripts eject",
         "commons": "node scripts/check-toolchain.js && convex dev",
-        "commons:deploy": "node scripts/check-toolchain.js && convex deploy"
+        "commons:deploy": "node scripts/check-toolchain.js && convex deploy",
+        "test:commons": "vitest run --config vitest.config.mjs"
     },
     "eslintConfig": {
         "extends": [
@@ -42,6 +43,8 @@
         ]
     },
     "devDependencies": {
-        "typescript": "^5.9.3"
+        "convex-test": "0.0.54",
+        "typescript": "^5.9.3",
+        "vitest": "^5.0.0"
     }
 }

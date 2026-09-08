@@ -285,7 +285,7 @@ export default function PupPatrol3D() {
                 <div className="bay__loading">
                     <h1>No signal from the Lookout</h1>
                     <p className="bay__loading-label">{error}</p>
-                    <Link className="bay__back" to="/">
+                    <Link className="bay__back" to="/" state={{ room: "arcade" }}>
                         back to the arcade
                     </Link>
                 </div>
@@ -294,7 +294,7 @@ export default function PupPatrol3D() {
             {ready && (
                 <>
                     <div className="bay__topleft">
-                        <Link className="bay__back" to="/">
+                        <Link className="bay__back" to="/" state={{ room: "arcade" }}>
                             ◄ back
                         </Link>
                         <button type="button" className="bay__icon" onClick={toggleMute} aria-pressed={!muted}>

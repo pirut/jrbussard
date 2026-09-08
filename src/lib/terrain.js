@@ -94,6 +94,7 @@ export function isSolid(x, y) {
 export const REACH = 4;
 
 export function withinReach(from, x, y) {
+    if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || Math.abs(x) > 1000000 || Math.abs(y) > 1000000) return false;
     if (from.x === x && from.y === y) return false;
     return Math.hypot(x - from.x, y - from.y) <= REACH;
 }

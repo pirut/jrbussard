@@ -1,4 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
+import useDialogFocus from "../hooks/useDialogFocus";
+import { RoomNav } from "./Hud";
 import { KIND, PALETTE } from "../world/tiles";
 import { cellMarkup } from "../lib/glyph";
 
@@ -71,31 +73,40 @@ function buildMap(world, player) {
             const color = isPlayer
                 ? "#fff6d5"
                 : pick
-                ? rgbToHex(PALETTE[pick.kind], pick.kind === KIND.GRASS ? 0.45 : 0.95)
-                : "#05070d";
+                  ? rgbToHex(
+                        PALETTE[pick.kind],
+                        pick.kind === KIND.GRASS ? 0.45 : 0.95,
+                    )
+                  : "#05070d";
 
             if (color !== runColor) {
-                if (runColor !== null) html += `<span style="color:${runColor}">${runText}</span>`;
+                if (runColor !== null)
+                    html += `<span style="color:${runColor}">${runText}</span>`;
                 runColor = color;
                 runText = "";
             }
             runText += cellMarkup(ch);
         }
 
-        if (runColor !== null) html += `<span style="color:${runColor}">${runText}</span>`;
+        if (runColor !== null)
+            html += `<span style="color:${runColor}">${runText}</span>`;
         html += "\n";
     }
 
     return html;
 }
 
-export default function Minimap({ world, player, onClose }) {
+export default function Minimap({ world, player, onClose, onTravel }) {
+    const ref = useRef(null);
+    useDialogFocus(ref);
     const html = useMemo(() => buildMap(world, player), [world, player]);
 
     return (
         <div className="panel-layer" onPointerDown={onClose}>
             <div
                 className="panel panel--map"
+                ref={ref}
+                tabIndex={-1}
                 role="dialog"
                 aria-modal="true"
                 aria-label="World map"
@@ -108,9 +119,15 @@ export default function Minimap({ world, player, onClose }) {
                     </button>
                 </header>
                 <div className="panel__scroll">
+                    <h2 className="panel__title">Choose a direction.</h2>
+                    <RoomNav
+                        region={world.regionAt(player.x, player.y)}
+                        onTravel={onTravel}
+                    />
                     {/* Generated entirely from the tile grid above. */}
                     <pre
                         className="minimap"
+                        aria-hidden="true"
                         dangerouslySetInnerHTML={{ __html: html }}
                     />
                     <ul className="minimap__legend">
