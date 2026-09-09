@@ -1,4 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
+import { useLocation } from "react-router-dom";
+import { roomArrival } from "../world/navigation";
 import { buildWorld } from "../world/build";
 import { createRenderer, measureCell } from "../world/render";
 import { KIND, INTERACTIVE } from "../world/tiles";
@@ -7,7 +15,7 @@ import { fetchNotes } from "../lib/sanity";
 import { projects, arcade, about, contact, signs } from "../data/site";
 import Panel from "../components/Panel";
 import Minimap from "../components/Minimap";
-import { Intro, TopBar, PromptBar, TouchPad } from "../components/Hud";
+import { Intro, TopBar, PromptBar, TouchPad, RoomNav } from "../components/Hud";
 import "../styles/world.css";
 
 const STEP_MS = 105;
@@ -51,7 +59,10 @@ function roomName(world, id) {
 /* Which prop is the player standing next to, if any. */
 function findNearby(world, player) {
     for (let i = 0; i < NEIGHBORS.length; i += 1) {
-        const marker = world.markerAt(player.x + NEIGHBORS[i][0], player.y + NEIGHBORS[i][1]);
+        const marker = world.markerAt(
+            player.x + NEIGHBORS[i][0],
+            player.y + NEIGHBORS[i][1],
+        );
         if (marker) return marker;
     }
     return null;
@@ -200,7 +211,7 @@ function resolve(world, marker, data) {
                 /* One row per cabinet actually standing in the room, so the
                    list can never disagree with the floor. */
                 const cabinets = world.markers.filter(
-                    (m) => m.kind === KIND.ARCADE
+                    (m) => m.kind === KIND.ARCADE,
                 ).length;
                 return {
                     ...shared,
@@ -208,7 +219,7 @@ function resolve(world, marker, data) {
                     title: "CABINET LIST",
                     slots: Array.from(
                         { length: cabinets },
-                        (unused, i) => arcade[i] || null
+                        (unused, i) => arcade[i] || null,
                     ),
                 };
             }
@@ -222,7 +233,12 @@ function resolve(world, marker, data) {
             };
         }
         case KIND.BEACON:
-            return { type: "contact", info: contact, location, title: contact.title };
+            return {
+                type: "contact",
+                info: contact,
+                location,
+                title: contact.title,
+            };
         case KIND.STATUE:
             return {
                 type: "about",
@@ -239,28 +255,44 @@ function resolve(world, marker, data) {
 
 const World = () => {
     const world = useMemo(() => buildWorld(), []);
+    const location = useLocation();
+    const arrival = useMemo(
+        () => roomArrival(world, location.state?.room || "atrium"),
+        [world, location.state?.room],
+    );
     const stageRef = useRef(null);
     const nearRef = useRef(null);
     const farRef = useRef(null);
     const probeRef = useRef(null);
     const rendererRef = useRef(null);
     const viewportRef = useRef({ cols: 0, rows: 0 });
-    const playerRef = useRef({ ...world.spawn });
+    const playerRef = useRef({ ...arrival });
     const keysRef = useRef(new Set());
     const flagsRef = useRef({ started: false, blocked: false });
     const dataRef = useRef({ notes: [], repos: [] });
     const nextStepRef = useRef(0);
+    const reducedMotionRef = useRef(false);
     const moveRef = useRef(() => false);
     const countsRef = useRef({});
 
-    const [player, setPlayer] = useState(() => ({ ...world.spawn }));
-    const [started, setStarted] = useState(false);
+    const [player, setPlayer] = useState(() => ({ ...arrival }));
+    const [started, setStarted] = useState(Boolean(location.state?.room));
     const [panel, setPanel] = useState(null);
     const [mapOpen, setMapOpen] = useState(false);
     const [notes, setNotes] = useState([]);
     const [touch, setTouch] = useState(false);
 
     const { repos, activity } = useGitHub();
+
+    useEffect(() => {
+        const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+        const update = () => {
+            reducedMotionRef.current = query.matches;
+        };
+        update();
+        query.addEventListener("change", update);
+        return () => query.removeEventListener("change", update);
+    }, []);
 
     /* Show the thumb pad for anyone actually using a finger, not just for
        narrow windows — a touch laptop counts, a small desktop window does not. */
@@ -299,9 +331,11 @@ const World = () => {
 
     useEffect(() => {
         flagsRef.current = { started, blocked: Boolean(panel) || mapOpen };
+        keysRef.current.clear();
     }, [started, panel, mapOpen]);
 
     const interact = useCallback(() => {
+        if (!flagsRef.current.started || flagsRef.current.blocked) return;
         const marker = findNearby(world, playerRef.current);
         if (!marker) return;
         const content = resolve(world, marker, dataRef.current);
@@ -338,8 +372,14 @@ const World = () => {
 
         const apply = () => {
             const cell = measureCell(probe);
-            const cols = Math.max(24, Math.floor(stage.clientWidth / cell.width));
-            const rows = Math.max(14, Math.floor(stage.clientHeight / cell.height));
+            const cols = Math.max(
+                24,
+                Math.floor(stage.clientWidth / cell.width),
+            );
+            const rows = Math.max(
+                14,
+                Math.floor(stage.clientHeight / cell.height),
+            );
             viewportRef.current = renderer.setSize(cols, rows);
         };
 
@@ -359,7 +399,14 @@ const World = () => {
 
         const tryMove = (dx, dy) => {
             const current = playerRef.current;
-            const options = dx && dy ? [[dx, dy], [dx, 0], [0, dy]] : [[dx, dy]];
+            const options =
+                dx && dy
+                    ? [
+                          [dx, dy],
+                          [dx, 0],
+                          [0, dy],
+                      ]
+                    : [[dx, dy]];
             for (let i = 0; i < options.length; i += 1) {
                 const nx = current.x + options[i][0];
                 const ny = current.y + options[i][1];
@@ -395,7 +442,8 @@ const World = () => {
             raf = window.requestAnimationFrame(tick);
             step(time);
 
-            if (time - lastFrame < FRAME_MS) return;
+            if (!flagsRef.current.started || time - lastFrame < FRAME_MS)
+                return;
             lastFrame = time;
 
             const { cols, rows } = viewportRef.current;
@@ -417,7 +465,7 @@ const World = () => {
                 camX,
                 camY,
                 player: p,
-                time,
+                time: reducedMotionRef.current ? 0 : time,
                 counts: countsRef.current,
             });
         };
@@ -431,29 +479,42 @@ const World = () => {
         const onKeyDown = (event) => {
             const flags = flagsRef.current;
 
-            if (!flags.started) {
-                if (event.key === "Tab") return;
-                event.preventDefault();
-                setStarted(true);
-                return;
-            }
-
             if (event.key === "Escape") {
                 setPanel(null);
                 setMapOpen(false);
                 return;
             }
 
-            if (flags.blocked) return;
+            if (
+                flags.blocked ||
+                event.defaultPrevented ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.altKey
+            )
+                return;
+            if (
+                event.target.closest?.(
+                    "button, a, input, textarea, select, [contenteditable=true]",
+                )
+            )
+                return;
+            if (!flags.started) return;
 
-            const direction = DIRECTIONS[event.key] || DIRECTIONS[event.key.toLowerCase()];
+            const direction =
+                DIRECTIONS[event.key] || DIRECTIONS[event.key.toLowerCase()];
             if (direction) {
                 event.preventDefault();
                 press(direction);
                 return;
             }
 
-            if (event.key === "e" || event.key === "E" || event.key === "Enter" || event.key === " ") {
+            if (
+                event.key === "e" ||
+                event.key === "E" ||
+                event.key === "Enter" ||
+                event.key === " "
+            ) {
                 event.preventDefault();
                 interact();
                 return;
@@ -466,7 +527,8 @@ const World = () => {
         };
 
         const onKeyUp = (event) => {
-            const direction = DIRECTIONS[event.key] || DIRECTIONS[event.key.toLowerCase()];
+            const direction =
+                DIRECTIONS[event.key] || DIRECTIONS[event.key.toLowerCase()];
             if (direction) release(direction);
         };
 
@@ -485,7 +547,7 @@ const World = () => {
     const nearby = useMemo(() => findNearby(world, player), [world, player]);
     const prompt = useMemo(
         () => (nearby ? describe(nearby, { notes, repos }) : null),
-        [nearby, notes, repos]
+        [nearby, notes, repos],
     );
     const region = world.regionAt(player.x, player.y);
 
@@ -493,14 +555,35 @@ const World = () => {
         setPanel({
             type: "index",
             location: "SITE INDEX",
-            title: "EVERYTHING ON THE MAP",
+            title: "Everything on the map.",
             notes,
             repos,
         });
     }, [notes, repos]);
 
+    const travel = useCallback(
+        (id) => {
+            const next = roomArrival(world, id);
+            playerRef.current = next;
+            setPlayer(next);
+            keysRef.current.clear();
+            setPanel(null);
+            setMapOpen(false);
+            setStarted(true);
+            requestAnimationFrame(() => stageRef.current?.focus());
+        },
+        [world],
+    );
+
+    const enter = () => {
+        setStarted(true);
+        requestAnimationFrame(() => stageRef.current?.focus());
+    };
+
     return (
-        <div className="world-shell">
+        <div
+            className={`world-shell${started ? " is-exploring" : " is-intro"}`}
+        >
             <span className="world-probe" ref={probeRef} aria-hidden="true">
                 MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
             </span>
@@ -508,29 +591,65 @@ const World = () => {
             {/* Three planes: haze behind, the world, then foliage that
                 passes in front of you. They slide at different rates, which
                 is what makes the space read as deep rather than flat. */}
-            <div className="world-plane world-plane--far" ref={farRef} aria-hidden="true" />
-            <div className="world-stage" ref={stageRef} aria-hidden="true" />
-            <div className="world-plane world-plane--near" ref={nearRef} aria-hidden="true" />
+            <div
+                className="world-plane world-plane--far"
+                ref={farRef}
+                aria-hidden="true"
+            />
+            <div
+                className="world-stage"
+                ref={stageRef}
+                tabIndex={started ? 0 : -1}
+                role="group"
+                aria-label="Explorable workshop. Use arrow keys or WASD to walk, E to interact, M for map."
+            />
+            <div
+                className="world-plane world-plane--near"
+                ref={nearRef}
+                aria-hidden="true"
+            />
             <div className="world-crt" aria-hidden="true" />
             <div className="world-vignette" aria-hidden="true" />
 
+            <TopBar
+                region={region}
+                started={started}
+                onIndex={openIndex}
+                onMap={() => setMapOpen(true)}
+                onHome={() => setStarted(false)}
+            />
             {started && (
                 <>
-                    <TopBar
-                        region={region}
+                    <RoomNav region={region} onTravel={travel} />
+                    <div className="world-location" aria-live="polite">
+                        <span>{region}</span>
+                        <small>
+                            Stand beside something that glows. Press E.
+                        </small>
+                    </div>
+                    <PromptBar
+                        prompt={prompt}
                         player={player}
-                        notesCount={notes.length}
-                        reposCount={repos.length}
-                        onIndex={openIndex}
+                        onAct={interact}
                     />
-                    <PromptBar prompt={prompt} />
-                    {touch && (
-                        <TouchPad onPress={press} onRelease={release} onAct={interact} />
+                    {touch && !panel && !mapOpen && (
+                        <TouchPad
+                            onPress={press}
+                            onRelease={release}
+                            onAct={interact}
+                        />
                     )}
                 </>
             )}
 
-            {!started && <Intro onStart={() => setStarted(true)} />}
+            {!started && (
+                <Intro
+                    world={world}
+                    onStart={enter}
+                    onIndex={openIndex}
+                    onTravel={travel}
+                />
+            )}
 
             {panel && (
                 <Panel
@@ -540,13 +659,21 @@ const World = () => {
                 />
             )}
             {mapOpen && (
-                <Minimap world={world} player={player} onClose={() => setMapOpen(false)} />
+                <Minimap
+                    world={world}
+                    player={player}
+                    onTravel={travel}
+                    onClose={() => setMapOpen(false)}
+                />
             )}
 
             {/* Plain-text mirror of the world, for screen readers and anyone
                 who would rather not walk around. */}
             <div className="sr-only">
-                <h1>JR Bussard — operator and builder in West Palm Beach, Florida</h1>
+                <h1>
+                    JR Bussard — operator and builder in West Palm Beach,
+                    Florida
+                </h1>
                 <p>{about.lines.join(" ")}</p>
                 <h2>Notes</h2>
                 <ul>
@@ -560,8 +687,10 @@ const World = () => {
                 <ul>
                     {projects.map((project) => (
                         <li key={project.id}>
-                            <a href={(project.links[0] || {}).href}>{project.name}</a> —{" "}
-                            {project.description}
+                            <a href={(project.links[0] || {}).href}>
+                                {project.name}
+                            </a>{" "}
+                            — {project.description}
                         </li>
                     ))}
                 </ul>

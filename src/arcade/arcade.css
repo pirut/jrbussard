@@ -9,8 +9,12 @@
     align-items: center;
     min-height: 100vh;
     padding: 1rem clamp(0.75rem, 3vw, 2rem) 2.5rem;
-    background:
-        radial-gradient(120% 80% at 50% 0%, #0d1424 0%, #05070d 60%, #03040a 100%);
+    background: radial-gradient(
+        120% 80% at 50% 0%,
+        #0d1424 0%,
+        #05070d 60%,
+        #03040a 100%
+    );
     color: var(--ink);
 }
 
@@ -764,5 +768,177 @@
     .commons__place {
         grid-area: 3 / 3;
         color: var(--amber) !important;
+    }
+}
+
+/* Workshop cabinet trim. Each game keeps its own playfield and rules. */
+.cab {
+    --void: #101713;
+    --ink: #f1eee2;
+    --dim: #a5afa3;
+    --gold: #dea974;
+    --amber: #e9b985;
+    --mint: #aabea5;
+    --sky: #b2c8ba;
+    --edge: #536052;
+    --edge-soft: #354135;
+    background: var(--void);
+    padding: 0 32px 36px;
+    gap: 24px;
+}
+body:has(.cab) {
+    overflow: auto;
+    background: #101713;
+}
+.cab__bar {
+    align-items: center;
+    min-height: 82px;
+    padding: 16px 0;
+    border-color: var(--edge);
+    letter-spacing: 0.06em;
+}
+.cab__back {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--dim);
+    font-size: 11px;
+}
+.cab__title {
+    font:
+        500 18px/1.3 "Work Sans",
+        sans-serif;
+    letter-spacing: 0.02em;
+    text-shadow: none;
+    color: var(--ink);
+}
+.cab__tagline {
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.cab__stats {
+    gap: 32px;
+    padding: 8px 0;
+    letter-spacing: 0.06em;
+}
+.cab__stage {
+    border: 1px solid var(--edge);
+    background: #131c16;
+    padding: 20px;
+    box-shadow: 0 24px 80px #0004;
+}
+.cab__overlay {
+    background: #101713f0;
+    backdrop-filter: blur(5px);
+    gap: 18px;
+}
+.cab__status {
+    font:
+        450 clamp(28px, 4vw, 52px)/1.1 "Work Sans",
+        sans-serif;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    text-shadow: none;
+}
+.cab__hint {
+    line-height: 1.8;
+}
+.cab__start {
+    white-space: nowrap;
+    min-height: 50px;
+    padding: 14px 24px;
+    box-shadow: none;
+    letter-spacing: 0.04em;
+    text-transform: none;
+}
+.cab__screen {
+    font-size: min(23px, calc((100vw - 80px) / 28));
+}
+.cab__controls {
+    max-width: 68ch;
+    line-height: 1.8;
+    letter-spacing: 0.01em;
+}
+.idle__count {
+    font-family: "Work Sans", sans-serif;
+    letter-spacing: -0.07em;
+    text-shadow: none;
+    font-size: clamp(64px, 10vw, 100px);
+}
+.idle__rate {
+    text-transform: none;
+    letter-spacing: 0.02em;
+}
+.idle__headline {
+    padding: 14px 0;
+}
+.idle__dispatch {
+    letter-spacing: 0.03em;
+    text-transform: none;
+}
+.idle__list {
+    gap: 0;
+    border-top: 1px solid var(--edge);
+}
+.idle__row {
+    padding: 22px 8px;
+    border: 0;
+    border-bottom: 1px solid var(--edge-soft);
+    background: none;
+}
+.idle__name {
+    font-family: "Work Sans", sans-serif;
+    font-size: 16px;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.idle__buttons button {
+    min-height: 44px;
+}
+.idle__buttons button:disabled {
+    color: #849180;
+}
+@media (max-width: 700px) {
+    .cab {
+        padding: 0 18px 28px;
+        gap: 20px;
+    }
+    .cab__bar {
+        min-height: 72px;
+        gap: 8px 16px;
+        padding: 10px 0;
+    }
+    .cab__title {
+        font-size: 15px;
+    }
+    .cab__tagline {
+        flex-basis: 100%;
+        text-align: center;
+    }
+    .cab__stage {
+        padding: 10px;
+        max-width: 100%;
+    }
+    .cab__stats {
+        gap: 20px;
+    }
+    .cab__screen {
+        font-size: min(17px, calc((100vw - 64px) / 28));
+    }
+    .cab__overlay {
+        gap: 14px;
+    }
+    .cab__hint {
+        font-size: 11px;
+    }
+    .idle__row {
+        padding: 18px 0;
+    }
+    .idle__buttons {
+        margin-left: 0;
+    }
+    .idle__name {
+        min-width: 12ch;
     }
 }

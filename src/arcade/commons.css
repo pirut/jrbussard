@@ -1,0 +1,1508 @@
+/* The Commons: an ASCII field manual, with the world at its center. */
+.commons-survival.cab {
+  --ink: #e8e6d3;
+  --dim: #a4ad97;
+  --gold: #d8b67c;
+  --edge: #46523f;
+  --edge-soft: #2e3b2d;
+  --panel: #121b13;
+  --void: #0d150f;
+  background: #0d150f;
+  color: var(--ink);
+  padding: 24px 30px 32px;
+  gap: 0;
+  font:
+    13px/1.5 "Work Sans",
+    sans-serif;
+  min-height: 100vh;
+}
+.commons-survival button,
+.commons-survival input {
+  font: inherit;
+}
+.commons-survival button {
+  cursor: pointer;
+}
+.commons-survival button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.commons-survival button:focus-visible,
+.commons-survival a:focus-visible,
+.commons-survival summary:focus-visible,
+.commons-survival input:focus-visible,
+.commons__stage:focus-visible {
+  outline: 2px solid #e2c895;
+  outline-offset: 3px;
+}
+.survival-header {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  border-bottom: 1px solid #7a8064;
+  padding: 0 0 23px;
+}
+.survival-back {
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 23px;
+  padding: 6px;
+}
+.survival-brand {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+}
+.survival-brand > span {
+  font: 36px/1 var(--font-mono);
+  color: #9cb78b;
+}
+.survival-brand h1 {
+  margin: 0;
+  font:
+    normal clamp(25px, 2.7vw, 38px)/1.1 Georgia,
+    serif;
+  letter-spacing: -0.03em;
+}
+.survival-brand p {
+  margin: 7px 0 0;
+  color: var(--dim);
+  font-size: 12px;
+}
+.survival-world-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.world-weather {
+  color: #d4b276;
+  font-size: 33px;
+}
+.survival-world-status b {
+  display: block;
+  font: 11px/1.8 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: normal;
+}
+.survival-world-status small {
+  display: block;
+  color: var(--dim);
+  font-size: 11px;
+}
+.survival-world-status i {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #a6bd8c;
+  margin-right: 5px;
+}
+.survival-customize {
+  border: 1px solid var(--edge);
+  padding: 11px 13px;
+  color: var(--ink);
+  background: transparent;
+}
+.survival-customize span {
+  margin-left: 15px;
+  color: var(--gold);
+}
+.survival-workspace {
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr) 302px;
+  gap: 24px;
+  width: 100%;
+  max-width: 1750px;
+  margin: 0 auto;
+}
+.survival-rail {
+  padding-top: 24px;
+}
+.survival-avatar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 26px;
+  min-width: 0;
+}
+.survival-avatar > span {
+  font: 30px var(--font-mono);
+  color: #d8c98f;
+}
+.survival-avatar b {
+  font-weight: 500;
+  display: block;
+  overflow-wrap: anywhere;
+}
+.survival-avatar small {
+  font: 8px var(--font-mono);
+  letter-spacing: 0.07em;
+  color: var(--dim);
+}
+.survival-meter {
+  margin-bottom: 17px;
+}
+.survival-meter > div {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  font-size: 11px;
+}
+.survival-meter span {
+  font: 11px var(--font-mono);
+}
+.survival-meter small {
+  color: var(--dim);
+  font-size: 9px;
+}
+.survival-meter meter {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 5px;
+  border: 0;
+  background: #243021;
+}
+.survival-meter meter::-webkit-meter-bar {
+  background: #243021;
+  border: 0;
+  border-radius: 0;
+}
+.survival-meter meter::-webkit-meter-optimum-value {
+  background: var(--meter-color);
+}
+.survival-meter meter::-moz-meter-bar {
+  background: var(--meter-color);
+}
+.survival-meter--health {
+  --meter-color: #cb8d79;
+}
+.survival-meter--hunger {
+  --meter-color: #a2b47f;
+}
+.survival-meter--warmth {
+  --meter-color: #d4b274;
+}
+.survival-condition {
+  border-bottom: 1px solid var(--edge-soft);
+  padding: 0 0 22px;
+  margin: 0 0 22px;
+  color: #c3cca8;
+  font-size: 11px;
+}
+.survival-equipment h2,
+.survival-chat h2 {
+  font: 10px var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  font-weight: normal;
+  margin: 0 0 17px;
+}
+.survival-equipment > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: #bdc4b2;
+  font-size: 11px;
+}
+.survival-equipment > div > span:first-child {
+  width: 24px;
+  font: 23px var(--font-mono);
+  color: #b5ac8d;
+  text-align: center;
+}
+.survival-xp {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--dim);
+  margin-top: 26px;
+}
+.survival-xp progress {
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  margin-top: 9px;
+  border: 0;
+  background: #283223;
+}
+.survival-xp progress::-webkit-progress-bar {
+  background: #283223;
+}
+.survival-xp progress::-webkit-progress-value {
+  background: #a5b486;
+}
+.survival-xp progress::-moz-progress-bar {
+  background: #a5b486;
+}
+.survival-memento {
+  font:
+    italic 15px/1.6 Georgia,
+    serif;
+  color: #8c9a7e;
+  margin: 33px 0;
+}
+.survival-map {
+  border-top: 1px solid var(--edge);
+  padding-top: 12px;
+  font-size: 10px;
+}
+.survival-map summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  color: #c6cbb8;
+}
+.survival-map summary span {
+  color: var(--dim);
+  font-size: 9px;
+}
+.survival-map-grid {
+  font: 9px/1.1 var(--font-mono);
+  white-space: pre;
+  margin: 16px 0 6px;
+}
+.survival-map p {
+  color: var(--dim);
+  font-size: 10px;
+}
+.survival-play {
+  min-width: 0;
+  padding-top: 17px;
+}
+.survival-location {
+  display: flex;
+  justify-content: space-between;
+  font: 10px var(--font-mono);
+  text-transform: uppercase;
+  color: var(--dim);
+  padding-bottom: 14px;
+  letter-spacing: 0.06em;
+}
+.survival-location b {
+  margin-left: 20px;
+  font-weight: normal;
+  color: #d8c18e;
+}
+.commons-survival .commons__stage {
+  container-type: inline-size;
+  padding: 0;
+  border: 1px solid #384932;
+  background: #101b12;
+  width: 100%;
+  box-sizing: border-box;
+  box-shadow: none;
+  overflow: hidden;
+}
+.commons-survival .commons__field {
+  width: 100%;
+  font-family: "Courier New", monospace;
+  font-size: calc(100cqw / 36.61);
+  line-height: 1.08;
+  text-shadow: none;
+  letter-spacing: 0;
+  cursor: crosshair;
+}
+.commons-survival .cab__row {
+  height: 1.08em;
+}
+.commons-nametags {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.commons-nametag {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+  text-align: center;
+}
+.commons-nametag button {
+  pointer-events: auto;
+  background: #0b140deb;
+  border: 1px solid #60705070;
+  padding: 3px 6px;
+  color: inherit;
+  box-shadow: 0 3px 12px #0006;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  max-width: 150px;
+}
+.commons-nametag b {
+  font: 10px var(--font-mono);
+  font-weight: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.commons-nametag small {
+  color: #b5bfa4;
+  font: 7px var(--font-mono);
+}
+.commons-nametag.is-self button {
+  border-color: #bba67380;
+}
+.commons-speech {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: normal;
+  width: max-content;
+  max-width: 180px;
+  padding: 6px 9px;
+  background: #111e16;
+  border: 1px solid #55634a;
+  color: #e6e5cd;
+  font: 11px/1.4 var(--font-mono);
+}
+.survival-target {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 66px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--edge);
+}
+.target-glyph {
+  width: 32px;
+  height: 32px;
+  background: #182218;
+  border: 1px solid var(--edge);
+  text-align: center;
+  font: 23px/30px var(--font-mono);
+  color: var(--gold);
+}
+.survival-target > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.survival-target b {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.survival-target div span {
+  color: var(--dim);
+  font-size: 10px;
+}
+.survival-reach {
+  margin-left: auto;
+  color: #939e85;
+  font: 9px var(--font-mono);
+  white-space: nowrap;
+}
+.survival-hotbar {
+  display: grid;
+  grid-template-columns: 1.5fr 1.5fr 1fr 1fr 1fr 1fr;
+  gap: 6px;
+  padding: 14px 0 0;
+}
+.survival-hotbar button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-height: 66px;
+  background: #141e15;
+  border: 1px solid #36442f;
+  color: #aeb8a0;
+  padding: 9px 10px;
+  text-align: left;
+  font-size: 10px;
+}
+.survival-hotbar button[aria-pressed="true"] {
+  border-color: #b69761;
+  background: #26291c;
+  color: #ead8b0;
+}
+.survival-hotbar kbd {
+  font: 9px var(--font-mono);
+  color: #8a977e;
+  background: none;
+}
+.survival-hotbar small {
+  font-size: 8px;
+  color: #adb897;
+}
+.hotbar-glyph {
+  font: 12px var(--font-mono);
+}
+.survival-notice {
+  min-height: 18px;
+  font: 10px/1.6 var(--font-mono);
+  color: #98a18c;
+  margin: 11px 0 19px;
+}
+.survival-notice.has-notice {
+  color: #edc688;
+}
+.survival-bottom {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  border-top: 1px solid var(--edge);
+  padding-top: 18px;
+  gap: 24px;
+}
+.survival-chat {
+  min-width: 0;
+}
+.survival-chat h2 {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.survival-chat h2 span {
+  font-size: 8px;
+  color: #8b987c;
+  letter-spacing: 0;
+}
+.survival-chat ol {
+  height: 82px;
+  overflow: auto;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  font: 10px/1.8 var(--font-mono);
+  display: flex;
+  flex-direction: column;
+}
+.survival-chat li {
+  overflow-wrap: anywhere;
+}
+.survival-chat li:first-child {
+  margin-top: auto;
+}
+.survival-chat .chat-system,
+.survival-chat .chat-weather {
+  color: #9caa8c;
+}
+.survival-chat .chat-kill {
+  color: #d7b487;
+}
+.survival-chat .chat-death {
+  color: #db9f8a;
+}
+.survival-chat form {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--edge);
+  align-items: center;
+}
+.survival-chat form > span {
+  color: #bfb185;
+}
+.survival-chat input {
+  width: 0;
+  flex: 1;
+  color: #e1e2ca;
+  background: none;
+  border: 0;
+  padding: 8px 0;
+  font-size: 11px;
+}
+.survival-chat input::placeholder {
+  color: #9ba88d;
+}
+.survival-chat form button {
+  font-size: 10px;
+  background: none;
+  border: 0;
+  color: #cbbb8f;
+  padding: 8px 0;
+}
+.survival-objective {
+  border-left: 1px solid var(--edge-soft);
+  padding-left: 24px;
+}
+.survival-objective > span {
+  font: 8px var(--font-mono);
+  letter-spacing: 0.1em;
+  color: #a7b390;
+}
+.survival-objective h2 {
+  font:
+    normal 20px/1.3 Georgia,
+    serif;
+  margin: 9px 0;
+}
+.survival-objective p {
+  color: #a9b09b;
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 0 0 9px;
+}
+.survival-objective button {
+  color: var(--gold);
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 10px;
+}
+.fieldcraft {
+  border-left: 1px solid var(--edge);
+  padding: 23px 0 0 24px;
+  min-width: 0;
+}
+.fieldcraft-title > span {
+  font: 8px var(--font-mono);
+  letter-spacing: 0.12em;
+  color: #95a184;
+}
+.fieldcraft-title h2 {
+  font:
+    normal 28px/1.1 Georgia,
+    serif;
+  margin: 6px 0 22px;
+}
+.fieldcraft-title h2 span {
+  float: right;
+  color: #6e7d60;
+  font-size: 23px;
+}
+.fieldcraft-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--edge);
+  margin-bottom: 14px;
+}
+.fieldcraft-tabs button {
+  flex: 1;
+  padding: 9px 0 12px;
+  color: var(--dim);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-size: 12px;
+}
+.fieldcraft-tabs button[aria-selected="true"] {
+  color: #ebd3a5;
+  border-color: #c5a875;
+}
+.fieldcraft-content {
+  max-height: calc(100vh - 260px);
+  min-height: 380px;
+  overflow: auto;
+  padding-right: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #4d5b41 transparent;
+}
+.craft-categories {
+  display: flex;
+  gap: 7px;
+}
+.craft-categories button {
+  border: 0;
+  padding: 4px 8px;
+  color: #a6b295;
+  background: none;
+  font-size: 10px;
+}
+.craft-categories button[aria-pressed="true"] {
+  background: #283222;
+  color: #e6dfc5;
+}
+.station-status {
+  color: #a5af95;
+  font-size: 10px;
+  line-height: 1.7;
+  margin: 12px 0 14px;
+}
+.recipe {
+  border-bottom: 1px solid var(--edge-soft);
+  padding: 15px 0 17px;
+}
+.recipe:first-of-type {
+  padding-top: 7px;
+}
+.recipe-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.recipe-glyph {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 36px;
+  color: #ccc9a5;
+  font: 25px var(--font-mono);
+  background: #1b2619;
+  border: 1px solid #43513a;
+}
+.recipe h3 {
+  font:
+    normal 16px/1.25 Georgia,
+    serif;
+  margin: 0;
+}
+.recipe-title > small {
+  color: #a9b291;
+  margin-left: auto;
+  font: 10px var(--font-mono);
+}
+.recipe > p {
+  color: #b2bba2;
+  font-size: 11px;
+  margin: 10px 0;
+  line-height: 1.6;
+}
+.recipe-cost {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin: 9px 0 12px;
+  font: 9px/1.8 var(--font-mono);
+  color: #c7a58a;
+}
+.recipe-cost .is-enough {
+  color: #afbd95;
+}
+.recipe-cost small {
+  color: #aab397;
+  font: inherit;
+}
+.recipe-action {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid #687448;
+  color: #ded6ae;
+  background: #28301c;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.recipe-action:disabled {
+  opacity: 1 !important;
+  color: #929f81;
+  background: transparent;
+  border-color: #3c4a34;
+}
+.recipe--owned .recipe-glyph {
+  border-color: #768257;
+}
+.blueprint {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  border: 1px solid transparent;
+  border-bottom-color: var(--edge-soft);
+  padding: 12px 6px;
+  background: none;
+  color: var(--ink);
+  width: 100%;
+  text-align: left;
+}
+.blueprint > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.blueprint b {
+  font:
+    normal 15px Georgia,
+    serif;
+  display: block;
+  margin-bottom: 5px;
+}
+.blueprint small {
+  font-size: 10px;
+  color: #afba9e;
+  display: block;
+  line-height: 1.55;
+}
+.blueprint em {
+  display: block;
+  margin-top: 6px;
+  font: 9px var(--font-mono);
+  color: #c7b48a;
+}
+.blueprint kbd {
+  color: #929f83;
+  font: 9px var(--font-mono);
+}
+.blueprint.is-active {
+  background: #242d1e;
+  border-color: #9b885c;
+}
+.pack-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.pack-heading h3,
+.shared-chest h3 {
+  font:
+    normal 18px Georgia,
+    serif;
+  margin: 4px 0;
+}
+.pack-heading > span {
+  color: #d0ba8b;
+  font-size: 11px;
+}
+.pack-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  border-bottom: 1px solid var(--edge-soft);
+}
+.pack-row > span {
+  font: 20px var(--font-mono);
+  width: 28px;
+}
+.pack-row b {
+  font-weight: normal;
+  flex: 1;
+  font-size: 12px;
+}
+.pack-row strong {
+  font: 11px var(--font-mono);
+}
+.pack-row button,
+.shared-chest button {
+  background: none;
+  color: #d4c398;
+  border: 1px solid #566345;
+  font-size: 10px;
+  padding: 4px 8px;
+}
+.pack-tip,
+.shared-chest p {
+  color: #a7b294;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.shared-chest {
+  margin-top: 24px;
+}
+.shared-chest h3 small {
+  font: 10px var(--font-mono);
+  color: var(--dim);
+}
+.shared-chest > div {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 5px 0;
+}
+.shared-chest > div > span {
+  flex: 1;
+  font-size: 11px;
+}
+.journal-heading {
+  font:
+    normal 23px/1.25 Georgia,
+    serif;
+  margin: 18px 0 4px;
+}
+.survival-journey {
+  list-style: none;
+  margin: 20px 0;
+  padding: 0;
+}
+.survival-journey li {
+  display: flex;
+  gap: 13px;
+  border-bottom: 1px solid var(--edge-soft);
+  padding: 15px 0;
+}
+.survival-journey li > span {
+  font: 13px var(--font-mono);
+  color: #b9a783;
+}
+.survival-journey b {
+  font-weight: 500;
+  font-size: 12px;
+}
+.survival-journey p {
+  font-size: 11px;
+  color: var(--dim);
+  margin: 5px 0 0;
+}
+.survival-journey .is-done {
+  color: #b9c699;
+}
+.survival-guide h3 {
+  font:
+    normal 18px Georgia,
+    serif;
+}
+.survival-guide p {
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.survival-pad {
+  display: none;
+}
+.survivor-inspect {
+  position: fixed;
+  bottom: 25px;
+  right: 30px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: #1a271a;
+  border: 1px solid #738261;
+  padding: 18px 28px 18px 18px;
+  z-index: 9;
+  box-shadow: 0 10px 50px #0008;
+}
+.survivor-inspect > button {
+  position: absolute;
+  right: 5px;
+  top: 3px;
+  background: none;
+  border: 0;
+  color: #d8d5b8;
+  font-size: 21px;
+}
+.survivor-inspect > div:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+}
+.character-portrait {
+  font:
+    28px/1.07 "Courier New",
+    monospace;
+  white-space: pre;
+  user-select: none;
+}
+.character-portrait--small {
+  font-size: 12px;
+}
+.character-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #050b08df;
+  backdrop-filter: blur(9px);
+  overflow: auto;
+}
+.character-creator {
+  width: min(830px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  background: #121d14;
+  border: 1px solid #70815d;
+  box-shadow: 0 30px 100px #0008;
+  padding: 30px;
+}
+.character-creator > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid #45553b;
+  padding-bottom: 22px;
+  margin-bottom: 25px;
+}
+.character-creator > header span {
+  font: 9px var(--font-mono);
+  letter-spacing: 0.15em;
+  color: #a0b38a;
+}
+.character-creator h2 {
+  font:
+    normal 33px/1.2 Georgia,
+    serif;
+  margin: 7px 0 0;
+}
+.character-creator > header button {
+  color: #d8d5b9;
+  border: 0;
+  background: none;
+  font-size: 28px;
+}
+.character-creator form {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  column-gap: 38px;
+}
+.character-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 22px;
+}
+.portrait-frame {
+  padding: 24px 20px;
+  border: 1px solid #485c3c;
+  background: #0c160e;
+  margin-bottom: 23px;
+  position: relative;
+}
+.character-preview > strong {
+  font: 18px var(--font-mono);
+  font-weight: normal;
+}
+.character-preview > span {
+  font: 9px var(--font-mono);
+  color: #a3b18f;
+  margin-top: 7px;
+  text-transform: uppercase;
+}
+.character-preview > p {
+  font:
+    italic 16px/1.6 Georgia,
+    serif;
+  color: #a3b294;
+  text-align: center;
+  margin: 21px 0;
+}
+.character-gear {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-self: stretch;
+  border-top: 1px solid #36462e;
+  padding-top: 15px;
+  color: #b0bb9e;
+  font-size: 11px;
+}
+.character-gear b {
+  color: #dedcc0;
+  font-weight: normal;
+  margin-bottom: 4px;
+}
+.character-name {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #c4cdb4;
+  font-size: 11px;
+}
+.character-name input {
+  border: 1px solid #556549;
+  border-radius: 0;
+  padding: 10px 12px;
+  color: #ece6c9;
+  background: #0c160e;
+  width: 100%;
+  box-sizing: border-box;
+}
+.character-options fieldset {
+  padding: 0;
+  border: 0;
+  margin: 15px 0 0;
+}
+.character-options legend {
+  padding: 0;
+  text-transform: capitalize;
+  color: #bfcaae;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.character-swatches {
+  display: flex;
+  gap: 9px;
+}
+.character-swatches button {
+  width: 34px;
+  height: 31px;
+  padding: 3px;
+  background: none;
+  border: 1px solid transparent;
+}
+.character-swatches button span {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--swatch);
+  color: #0a110c;
+  font-size: 16px;
+}
+.character-swatches button[aria-pressed="true"] {
+  border-color: #e1d2a3;
+}
+.character-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.character-choices button {
+  min-width: 44px;
+  background: #1c2a1b;
+  border: 1px solid #394c31;
+  color: #b9c6a5;
+  padding: 5px 10px;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.character-choices button[aria-pressed="true"] {
+  border-color: #c0ab74;
+  color: #e8d7af;
+  background: #30321f;
+}
+.character-creator footer {
+  grid-column: 1/-1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid #45553b;
+  margin-top: 25px;
+  padding-top: 22px;
+}
+.character-creator footer p {
+  font-size: 11px;
+  color: #adb69e;
+}
+.character-creator footer button {
+  background: #d3bc88;
+  color: #142015;
+  padding: 12px 20px;
+  border: 0;
+  white-space: nowrap;
+}
+@media (min-width: 1750px) {
+  .commons-survival.cab {
+    padding-inline: 5vw;
+  }
+}
+@media (max-width: 1200px) {
+  .survival-workspace {
+    grid-template-columns: 125px minmax(0, 1fr) 270px;
+    gap: 18px;
+  }
+  .fieldcraft {
+    padding-left: 18px;
+  }
+  .commons-survival.cab {
+    padding: 20px;
+  }
+  .survival-avatar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .survival-bottom {
+    grid-template-columns: 1fr;
+    gap: 17px;
+  }
+  .survival-objective {
+    border-left: 0;
+    border-top: 1px solid var(--edge-soft);
+    padding: 13px 0;
+  }
+  .survival-objective h2 {
+    font-size: 17px;
+  }
+  .survival-map-grid {
+    font-size: 7px;
+  }
+}
+@media (max-width: 980px) {
+  .survival-workspace {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 20px;
+  }
+  .survival-rail {
+    grid-column: 1/-1;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    padding: 20px 0 0;
+  }
+  .survival-vitals {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+  }
+  .survival-avatar {
+    flex-direction: row;
+    width: 100%;
+    margin: 0;
+    gap: 10px;
+  }
+  .survival-meter {
+    flex: 1;
+    min-width: 75px;
+    margin: 0;
+  }
+  .survival-condition {
+    padding: 0;
+    margin: 0;
+    border: 0;
+    width: 100%;
+  }
+  .survival-equipment,
+  .survival-xp,
+  .survival-memento {
+    display: none;
+  }
+  .survival-map {
+    width: 130px;
+  }
+  .survival-play {
+    padding-top: 0;
+  }
+  .fieldcraft {
+    padding-top: 0;
+  }
+  .fieldcraft-content {
+    max-height: 720px;
+  }
+  .survival-brand p {
+    display: none;
+  }
+  .survival-header {
+    gap: 14px;
+  }
+  .survival-brand {
+    gap: 9px;
+  }
+  .survival-world-status {
+    gap: 8px;
+  }
+  .world-weather {
+    font-size: 25px;
+  }
+  .survival-customize {
+    font-size: 11px !important;
+  }
+}
+@media (max-width: 700px) {
+  .commons-survival.cab {
+    padding: 15px;
+  }
+  .survival-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-bottom: 15px;
+  }
+  .survival-back {
+    padding: 0;
+    font-size: 19px;
+  }
+  .survival-brand h1 {
+    font-size: 27px;
+  }
+  .survival-brand > span {
+    font-size: 25px;
+  }
+  .survival-world-status {
+    gap: 8px;
+  }
+  .survival-world-status b {
+    font-size: 8px;
+  }
+  .survival-world-status small {
+    font-size: 9px;
+  }
+  .world-weather {
+    display: none;
+  }
+  .survival-customize {
+    padding: 7px 10px;
+    margin-left: auto;
+  }
+  .survival-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .survival-rail {
+    padding-top: 17px;
+    gap: 16px;
+  }
+  .survival-map {
+    width: 100px;
+  }
+  .survival-map summary {
+    display: block;
+    line-height: 1.8;
+  }
+  .survival-map summary span {
+    display: block;
+  }
+  .survival-map-grid {
+    font-size: 6px;
+  }
+  .survival-avatar small {
+    font-size: 8px;
+  }
+  .survival-condition {
+    font-size: 9px;
+  }
+  .survival-meter > div {
+    font-size: 10px;
+  }
+  .survival-play {
+    width: 100%;
+  }
+  .survival-location {
+    font-size: 9px;
+    padding-bottom: 10px;
+  }
+  .commons-nametag b {
+    font-size: 8px;
+  }
+  .commons-nametag small {
+    font-size: 6px;
+  }
+  .commons-nametag button {
+    padding: 2px 4px;
+    gap: 4px;
+    max-width: 105px;
+  }
+  .survival-target {
+    min-height: 57px;
+    gap: 9px;
+  }
+  .survival-reach {
+    display: none;
+  }
+  .survival-target div span {
+    font-size: 9px;
+  }
+  .survival-hotbar {
+    gap: 5px;
+  }
+  .survival-hotbar button {
+    min-height: 57px;
+    padding: 6px;
+    font-size: 9px;
+  }
+  .survival-hotbar small {
+    display: none;
+  }
+  .survival-pad {
+    display: flex;
+    justify-content: center;
+    gap: 9px;
+    padding-top: 13px;
+  }
+  .survival-pad button {
+    width: 48px;
+    height: 44px;
+    background: #1b281a;
+    border: 1px solid #526543;
+    color: #d7d7b7;
+    font-size: 20px;
+    touch-action: manipulation;
+  }
+  .survival-notice {
+    margin-bottom: 13px;
+  }
+  .survival-bottom {
+    grid-template-columns: 1fr;
+  }
+  .survival-chat ol {
+    height: 66px;
+  }
+  .fieldcraft {
+    border-left: 0;
+    border-top: 1px solid var(--edge);
+    padding: 20px 0 0;
+  }
+  .fieldcraft-title h2 {
+    font-size: 27px;
+    margin-bottom: 12px;
+  }
+  .fieldcraft-content {
+    max-height: 530px;
+    min-height: 300px;
+  }
+  .recipe-action {
+    min-height: 40px;
+  }
+  .fieldcraft-tabs button {
+    min-height: 44px;
+  }
+  .blueprint {
+    padding-block: 15px;
+  }
+  .survivor-inspect {
+    right: 15px;
+    bottom: 15px;
+    max-width: calc(100vw - 30px);
+  }
+  .character-backdrop {
+    padding: 12px;
+  }
+  .character-creator {
+    padding: 18px;
+    max-height: calc(100dvh - 24px);
+  }
+  .character-creator h2 {
+    font-size: 25px;
+  }
+  .character-creator > header {
+    margin-bottom: 15px;
+    padding-bottom: 14px;
+  }
+  .character-creator form {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .character-preview {
+    padding: 0;
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    column-gap: 20px;
+    align-items: start;
+  }
+  .portrait-frame {
+    grid-row: 1/5;
+    margin: 0;
+    padding: 14px 8px;
+  }
+  .character-portrait {
+    font-size: 18px;
+  }
+  .character-preview > strong {
+    font-size: 13px;
+    align-self: end;
+    margin-top: 13px;
+  }
+  .character-preview > span {
+    font-size: 8px;
+  }
+  .character-preview > p {
+    font-size: 13px;
+    text-align: left;
+    margin: 12px 0 0;
+  }
+  .character-gear {
+    display: none;
+  }
+  .character-options fieldset {
+    margin-top: 17px;
+  }
+  .character-swatches button {
+    width: 37px;
+    height: 35px;
+  }
+  .character-choices button {
+    min-height: 38px;
+  }
+  .character-creator footer {
+    margin-top: 0;
+    padding-top: 15px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .character-creator footer p {
+    margin: 0 0 10px;
+  }
+  .character-creator footer button {
+    width: 100%;
+  }
+  .character-portrait--small {
+    font-size: 12px;
+  }
+}
+@media (pointer: coarse) {
+  .survival-pad {
+    display: flex;
+    justify-content: center;
+    gap: 9px;
+    padding-top: 13px;
+  }
+  .survival-pad button {
+    width: 48px;
+    min-height: 44px;
+    background: #1b281a;
+    border: 1px solid #526543;
+    color: #d7d7b7;
+    font-size: 20px;
+    touch-action: manipulation;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .commons-survival *,
+  .commons-survival *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.commons-survival .commons__rain {
+  opacity: 0.12;
+  pointer-events: none;
+}
+.commons-survival .commons__fog {
+  opacity: 0.18;
+  pointer-events: none;
+}
+.world-character {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translate(-50%, -2px);
+  white-space: pre;
+  font:
+    10px/1 "Courier New",
+    monospace;
+  background: #101b12e8;
+  padding: 0 1px;
+  pointer-events: none;
+  z-index: -1;
+}
+.commons-nametag.is-self .world-character {
+  filter: drop-shadow(0 0 3px #dbce8a45);
+}
+@media (max-width: 700px) {
+  .world-character {
+    font-size: 7px;
+  }
+}
+@media (max-height: 800px) and (min-width: 701px) {
+  .character-creator {
+    padding: 20px 26px;
+  }
+  .character-creator > header {
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+  }
+  .character-creator h2 {
+    font-size: 28px;
+  }
+  .character-options fieldset {
+    margin-top: 10px;
+  }
+  .character-options legend {
+    margin-bottom: 5px;
+  }
+  .character-creator footer {
+    margin-top: 18px;
+    padding-top: 14px;
+  }
+  .character-portrait {
+    font-size: 24px;
+  }
+  .character-portrait--small {
+    font-size: 12px;
+  }
+}
+/* Keep the action bar in view on wide screens without shrinking the glyphs. */
+@media (min-width: 981px) and (min-height: 640px) {
+  .commons-survival .commons__field {
+    line-height: min(1.08em, calc((100dvh - 360px) / 29));
+  }
+  .commons-survival .commons__field .cab__row {
+    height: min(1.08em, calc((100dvh - 360px) / 29));
+  }
+}

@@ -221,7 +221,7 @@ function CharliePawPatrol() {
 
             <div className="charlie-patrol__content">
                 <header className="charlie-patrol__topbar">
-                    <Link className="charlie-patrol__backlink" to="/">
+                    <Link className="charlie-patrol__backlink" to="/" state={{ room: "arcade" }}>
                         Back to JR&apos;s site
                     </Link>
                     <div className="charlie-patrol__utility-group">

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import useDialogFocus from "../hooks/useDialogFocus";
 import { projects, arcade, about, contact } from "../data/site";
 
 function formatDate(value) {
@@ -445,15 +446,18 @@ function Body({ content, onSelect }) {
 
 export default function Panel({ content, onClose, onSelect }) {
     const ref = useRef(null);
+    const scrollRef = useRef(null);
+    useDialogFocus(ref);
 
     useEffect(() => {
         ref.current?.focus();
+        if (scrollRef.current) scrollRef.current.scrollTop = 0;
     }, [content]);
 
     return (
         <div className="panel-layer" onPointerDown={onClose}>
             <div
-                className="panel"
+                className={`panel panel--${content.type}`}
                 role="dialog"
                 aria-modal="true"
                 aria-label={content.title || "detail"}
@@ -467,7 +471,7 @@ export default function Panel({ content, onClose, onSelect }) {
                         [esc] close
                     </button>
                 </header>
-                <div className="panel__scroll">
+                <div className="panel__scroll" ref={scrollRef}>
                     <Body content={content} onSelect={onSelect} />
                 </div>
             </div>
