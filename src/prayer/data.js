@@ -1,4 +1,5 @@
 import { anyApi } from 'convex/server';
+import { prayerHome } from './location';
 export const prayerApi = anyApi.prayer;
 
 export async function copyText(text) {
@@ -6,5 +7,5 @@ export async function copyText(text) {
   await navigator.clipboard.writeText(text);
 }
 export function prayerLink(path = '') {
-  return `${window.location.origin}/prayer${path}`;
+  return `${prayerHome()}${path}`;
 }

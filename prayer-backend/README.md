@@ -1,6 +1,6 @@
 # Together backend
 
-This directory is an **isolated Convex project** for `https://jrbussard.com/prayer`. The repository's root `convex/` directory belongs to The Commons and must not receive these functions or environment variables.
+This directory is an **isolated Convex project** for `https://prayer.jrbussard.com`. The repository's root `convex/` directory belongs to The Commons and must not receive these functions or environment variables.
 
 ## Local verification
 
@@ -17,7 +17,7 @@ The authorization suite uses Convex Test and registers the real rate-limiter com
 ## Configure and deploy
 
 1. Authenticate with the user's Convex account and link the existing `together-prayer` project. From **this directory**, run `npx convex dev --configure existing --team scottbussardjr --project together-prayer --once`. Do not select `ascii-commons`. This creates the project-specific `.env.local`.
-2. Configure Convex Auth for this deployment with `npx @convex-dev/auth --skip-git-check --web-server-url https://jrbussard.com/prayer`. Confirm `JWT_PRIVATE_KEY`, `JWKS`, and `SITE_URL` are present. Auth configuration uses the deployment's `CONVEX_SITE_URL` automatically.
+2. Configure Convex Auth for this deployment with `npx @convex-dev/auth --skip-git-check --web-server-url https://prayer.jrbussard.com`. Confirm `JWT_PRIVATE_KEY`, `JWKS`, and `SITE_URL` are present. Auth configuration uses the deployment's `CONVEX_SITE_URL` automatically.
 3. Set `TOGETHER_OWNER_EMAIL` to JR's actual email address. Ownership requires this exact email and successful email-code verification. The first visitor can never claim ownership.
 4. Set `AUTH_RESEND_KEY` to a Resend API key authorized to send transactional email from a **verified domain**, and `TOGETHER_EMAIL_FROM` to an approved sender, for example `Together <prayer@prayer.jrbussard.com>`. A sender address is an example, not confirmation that the domain has been verified. No prayer text appears in authentication email.
 5. Deploy with `npx convex deploy`. Repeat the Auth environment configuration on **production**; development keys do not carry to production.
@@ -61,4 +61,4 @@ Requests are scrubbed and tombstoned immediately on deletion. A bounded schedule
 
 ## Production verification gate
 
-Local tests do not establish that email, keys, production deployment or DNS work. Before calling the website live, verify owner OTP sign-in, member invite redemption, leader/private boundaries, removal, two-device reactive updates, check-in links, and direct `/prayer` refresh using the actual deployed frontend and backend. Keep test accounts/content out of the real Bible study after testing.
+Local tests do not establish that email, keys, production deployment or DNS work. Before calling the website live, verify owner OTP sign-in, member invite redemption, leader/private boundaries, removal, two-device reactive updates, check-in links, and direct `https://prayer.jrbussard.com/` refresh using the actual deployed frontend and backend. Keep test accounts/content out of the real Bible study after testing.

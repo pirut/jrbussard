@@ -4,6 +4,7 @@ import { ConvexAuthProvider, useAuthActions } from '@convex-dev/auth/react';
 import { useSearchParams } from 'react-router-dom';
 import { ArrowRight, LockKeyhole, ArrowLeft, Mail } from 'lucide-react';
 import { prayerApi } from './data';
+import { prayerHome } from './location';
 import { Button, Field, ErrorNotice, Loading, errorMessage } from './ui';
 import PrayerApp from './PrayerApp';
 import olive from './olive.webp';
@@ -18,7 +19,7 @@ class PrayerBoundary extends React.Component {
   render() { return this.state.failed ? <div className="tg-surface tg-recovery"><h1>Let’s reconnect.</h1><p>Your prayer board couldn’t load. Your saved requests are safe.</p><Button onClick={() => window.location.reload()}>Try again</Button></div> : this.props.children; }
 }
 export function WelcomeFrame({ children }) {
-  return <div className="tg-surface tg-welcome"><a className="tg-brand" href="/prayer">Together<span className="tg-brand-dot">.</span></a><div className="tg-welcome-grid"><section className="tg-welcome-copy"><h1>Carry one<br />another.</h1><span className="tg-gold-rule" /><p>A place to share, pray, and see God at work.</p><img src={olive} alt="" className="tg-welcome-olive" /><div className="tg-welcome-note"><LockKeyhole size={18} /><span>A private space for our Bible study.<br />Shared with care. Held in prayer.</span></div></section><section className="tg-signin">{children}</section></div><footer className="tg-welcome-footer">A little closer, even between gatherings.</footer></div>;
+  return <div className="tg-surface tg-welcome"><a className="tg-brand" href={prayerHome()}>Together<span className="tg-brand-dot">.</span></a><div className="tg-welcome-grid"><section className="tg-welcome-copy"><h1>Carry one<br />another.</h1><span className="tg-gold-rule" /><p>A place to share, pray, and see God at work.</p><img src={olive} alt="" className="tg-welcome-olive" /><div className="tg-welcome-note"><LockKeyhole size={18} /><span>A private space for our Bible study.<br />Shared with care. Held in prayer.</span></div></section><section className="tg-signin">{children}</section></div><footer className="tg-welcome-footer">A little closer, even between gatherings.</footer></div>;
 }
 function SignIn() {
   const { signIn } = useAuthActions();
