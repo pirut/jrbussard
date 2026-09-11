@@ -4,7 +4,7 @@ This directory is an **isolated Convex project** for `https://jrbussard.com/pray
 
 ## Local verification
 
-From the repository root, run `npm ci`, then:
+Use Node 24 (`nvm use` from the repository root), run `npm ci`, then:
 
 ```sh
 cd prayer-backend
@@ -16,7 +16,7 @@ The authorization suite uses Convex Test and registers the real rate-limiter com
 
 ## Configure and deploy
 
-1. Authenticate with the user's Convex account and create a separate `together-prayer` project. From **this directory**, run `npx convex dev --once` and select that project. Do not select `ascii-commons`. This creates the project-specific `.env.local`.
+1. Authenticate with the user's Convex account and link the existing `together-prayer` project. From **this directory**, run `npx convex dev --configure existing --team scottbussardjr --project together-prayer --once`. Do not select `ascii-commons`. This creates the project-specific `.env.local`.
 2. Configure Convex Auth for this deployment with `npx @convex-dev/auth --skip-git-check --web-server-url https://jrbussard.com/prayer`. Confirm `JWT_PRIVATE_KEY`, `JWKS`, and `SITE_URL` are present. Auth configuration uses the deployment's `CONVEX_SITE_URL` automatically.
 3. Set `TOGETHER_OWNER_EMAIL` to JR's actual email address. Ownership requires this exact email and successful email-code verification. The first visitor can never claim ownership.
 4. Set `AUTH_RESEND_KEY` to a Resend API key authorized to send transactional email from a **verified domain**, and `TOGETHER_EMAIL_FROM` to an approved sender, for example `Together <prayer@prayer.jrbussard.com>`. A sender address is an example, not confirmation that the domain has been verified. No prayer text appears in authentication email.
@@ -25,6 +25,19 @@ The authorization suite uses Convex Test and registers the real rate-limiter com
 7. Deploy the Vercel site and sign in as the configured owner. Call `prayer.initialize` through the UI; create an invite and share it deliberately. No production member, prayer, or invitation is seeded by deployment.
 
 Use separate deployment keys for development and production CI. Run `convex deploy` **from prayer-backend**, or use a step with that working directory. A frontend-only Vercel build does not deploy this backend. Do not copy auth secrets into `REACT_APP_*` variables; only the public Convex URL belongs there.
+
+### Deployment targets
+
+| Environment | Together backend | Vercel environment |
+| --- | --- | --- |
+| Production | `https://posh-porpoise-872.convex.cloud` | Production |
+| Development | `https://grandiose-goldfish-378.convex.cloud` | Preview and Development |
+
+The sender is `Together <prayer@prayer.jrbussard.com>`. The owner email and authentication secrets are stored only in Convex environment variables. Development and production have separate signing keys. Read names without exposing values with `npx convex env list --names-only` (add `--prod` for production).
+
+For frontend testing, link Vercel with `npx vercel link --project jrbussard --scope piruts-projects`, then run `npx vercel env pull .env.local --environment=development` from the repository root. This pulls the development Together URL. Do not replace `prayer-backend/.env.local` with the frontend environment file.
+
+GitHub Actions runs the Together authorization tests, backend typecheck, frontend tests, and production build on PRs and pushes to `main`. These checks require no production credentials and do not deploy either backend.
 
 ## Auth and API
 

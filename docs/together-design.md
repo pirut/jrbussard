@@ -8,7 +8,7 @@ The prayer route owns its styles, client, auth storage namespace, and lazy chunk
 
 ## Deployment configuration
 
-Install root dependencies with `npm ci --legacy-peer-deps`. `npm run build` runs the ordinary site build until prayer credentials are configured. The public prayer welcome page then says the private group is being prepared, and does not imply that posting or sign-in is live.
+Use Node 24 and install root dependencies with `npm ci`. `npm run build` runs the ordinary site build unless `PRAYER_CONVEX_DEPLOY_KEY` is configured. Without `REACT_APP_PRAYER_CONVEX_URL`, the public prayer welcome page says the private group is being prepared and does not imply that posting or sign-in is live.
 
 Vercel project `jrbussard`:
 
