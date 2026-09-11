@@ -2,9 +2,19 @@
     "name": "jr-bussard-portfolio",
     "version": "1.0.0",
     "private": true,
+    "engines": {
+        "node": "24.x"
+    },
     "dependencies": {
+        "@auth/core": "^0.41.3",
+        "@convex-dev/auth": "^0.0.95",
+        "@convex-dev/rate-limiter": "^0.3.2",
+        "@radix-ui/react-dialog": "^1.1.23",
+        "@radix-ui/react-dropdown-menu": "^2.1.24",
         "@sanity/client": "^7.22.0",
         "convex": "^1.42.3",
+        "convex-helpers": "^0.1.124",
+        "lucide-react": "^1.44.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
         "react-markdown": "^10.1.0",
@@ -18,12 +28,16 @@
         "cms": "npm run dev --prefix studio-jrbussard",
         "cms:deploy": "npm run deploy --prefix studio-jrbussard",
         "cms:import": "npm run import --prefix studio-jrbussard",
-        "build": "react-scripts build",
+        "build": "node scripts/build-site.cjs",
         "test": "react-scripts test",
         "eject": "react-scripts eject",
         "commons": "node scripts/check-toolchain.js && convex dev",
         "commons:deploy": "node scripts/check-toolchain.js && convex deploy",
-        "test:commons": "vitest run --config vitest.config.mjs"
+        "test:commons": "vitest run --config vitest.config.mjs",
+        "build:frontend": "react-scripts build",
+        "prayer:check": "npm --prefix prayer-backend run check",
+        "prayer:test": "npm --prefix prayer-backend test",
+        "prayer:deploy": "npm --prefix prayer-backend run deploy"
     },
     "eslintConfig": {
         "extends": [
@@ -45,6 +59,7 @@
     "devDependencies": {
         "convex-test": "0.0.54",
         "typescript": "^5.9.3",
+        "vite": "^7.3.6",
         "vitest": "^5.0.0"
     }
 }

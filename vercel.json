@@ -2,6 +2,20 @@
     "framework": "create-react-app",
     "buildCommand": "npm run build",
     "outputDirectory": "build",
+    "redirects": [
+        {
+            "source": "/prayer/:path*",
+            "has": [{ "type": "host", "value": "www.jrbussard.com" }],
+            "destination": "https://prayer.jrbussard.com/:path*",
+            "permanent": false
+        },
+        {
+            "source": "/prayer/:path*",
+            "has": [{ "type": "host", "value": "jrbussard.com" }],
+            "destination": "https://prayer.jrbussard.com/:path*",
+            "permanent": false
+        }
+    ],
     "rewrites": [
         {
             "source": "/(.*)",
