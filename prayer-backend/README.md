@@ -33,7 +33,9 @@ Use separate deployment keys for development and production CI. Run `convex depl
 | Production | `https://posh-porpoise-872.convex.cloud` | Production |
 | Development | `https://grandiose-goldfish-378.convex.cloud` | Preview and Development |
 
-The sender is `Together <prayer@prayer.jrbussard.com>`. The owner email and authentication secrets are stored only in Convex environment variables. Development and production have separate signing keys. Read names without exposing values with `npx convex env list --names-only` (add `--prod` for production).
+The verified sender is `Together <prayer@mail.prayer.jrbussard.com>`, using the Resend domain `mail.prayer.jrbussard.com` in `eu-west-1`. Its sending-only API key is restricted to that domain. Both Together deployments use this sender; the website remains at `https://prayer.jrbussard.com`. The original `prayer.jrbussard.com` sending domain stalled during verification and is not used for delivery.
+
+The owner email and authentication secrets are configured in Convex environment variables and never committed. Development and production have separate signing keys. Read names without exposing values with `npx convex env list --names-only` (add `--prod` for production).
 
 For frontend testing, link Vercel with `npx vercel link --project jrbussard --scope piruts-projects`, then run `npx vercel env pull .env.local --environment=development` from the repository root. This pulls the development Together URL. Do not replace `prayer-backend/.env.local` with the frontend environment file.
 
