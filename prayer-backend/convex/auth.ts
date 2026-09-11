@@ -19,7 +19,13 @@ export const {auth,signIn,signOut,store,isAuthenticated}=convexAuth({
    const key=process.env.AUTH_RESEND_KEY;const from=process.env.TOGETHER_EMAIL_FROM;
    if(!key||!from)throw new Error('Email sign-in is not configured. Please contact the group leader.');
    const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({from,to:identifier,subject:'Your Together sign-in code',text:`Your Together sign-in code is ${token}. It expires in 10 minutes. If you did not request it, you can ignore this email.`})});
-   if(!response.ok)throw new Error('Could not send your sign-in code. Please try again shortly.');
+   if(!response.ok){
+    // Redact request secrets and addresses from provider diagnostics.
+    const detail=await response.json().catch(()=>null);
+    const message=typeof detail?.message==='string'?detail.message.replaceAll(identifier,'[email]').replaceAll(token,'[code]').replaceAll(key,'[key]').slice(0,300):'unknown';
+    console.error('Together sign-in email rejected by Resend:',response.status,typeof detail?.name==='string'?detail.name:'unknown',message);
+    throw new Error('Could not send your sign-in code. Please try again shortly.');
+   }
   }
  })]
 });
