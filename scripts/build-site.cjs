@@ -12,7 +12,7 @@ if (prayerKey) {
   result = spawnSync(executable, [
     path.join(root, 'node_modules/convex/bin/main.js'), 'deploy',
     '--cmd', 'npm --prefix .. run build:frontend',
-    '--cmd-url-env-var', 'REACT_APP_PRAYER_CONVEX_URL',
+    '--cmd-url-env-var-name', 'REACT_APP_PRAYER_CONVEX_URL',
   ], { cwd: path.join(root, 'prayer-backend'), env, stdio: 'inherit' });
 } else {
   result = spawnSync(executable, [path.join(root, 'node_modules/react-scripts/bin/react-scripts.js'), 'build'], {
