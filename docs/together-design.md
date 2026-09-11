@@ -1,6 +1,6 @@
 # Together prayer board
 
-Approved direction: private Bible study at `/prayer`, warm ivory #faf8f3, forest green #284f43, muted gold #ba963d. Georgia editorial headings and the site's existing Work Sans body font. Desktop header and feed with check-in rail; mobile single column and persistent bottom navigation. Icons use Lucide outline with 1.3–2px stroke. No photographic overlay. Botanical art is a separate generated transparent WebP, optimized from the approved watercolor sprig.
+Approved direction: private Bible study at `https://prayer.jrbussard.com` (with `/prayer` retained for local and preview testing), warm ivory #faf8f3, forest green #284f43, muted gold #ba963d. Georgia editorial headings and the site's existing Work Sans body font. Desktop header and feed with check-in rail; mobile single column and persistent bottom navigation. Icons use Lucide outline with 1.3–2px stroke. No photographic overlay. Botanical art is a separate generated transparent WebP, optimized from the approved watercolor sprig.
 
 Primary workflows: invite and email code → group membership → request → author updates and encouragement → answered or archive. Members acknowledge prayer and follow requests. Leaders post check-ins and create invitations. Owner controls roles and removal. Presentation queries explicitly exclude leaders-only requests.
 
@@ -21,4 +21,4 @@ Set up a verified personal-domain transactional sender for sign-in codes. The co
 
 Commands: `npm run prayer:check`, `npm run prayer:test`, `npm run prayer:deploy`, `npm run build`.
 
-Before production: provision the isolated Convex project, configure auth and verified sender, run the backend tests and production build, validate invite redemption/sign-in and two-device updates against a preview deployment, then merge and verify `/prayer` on the real domain.
+Before production: provision the isolated Convex project, configure auth and verified sender, run the backend tests and production build, validate invite redemption/sign-in and two-device updates against a preview deployment, then merge and verify the root of `prayer.jrbussard.com`. Old `/prayer` links on the personal site redirect to the new subdomain with their query parameters intact.
