@@ -33,7 +33,7 @@ Six cabinets, all filled:
 | Cabinet | What it is |
 | --- | --- |
 | **ADVENTURE BAY** | A 3D open world for the rescue pups — see below |
-| **THE COMMONS** | A real multiplayer ASCII sandbox — see below |
+| **THE COMMONS** | A real multiplayer survival world, modelled in 3D and drawn in ASCII — see below |
 | **THE NIGHT SHIFT** | Idle operations game; time away still counts, up to 8 hours |
 | **SNAKE** | The one you know. Pink apples are worth five |
 | **BREAKOUT** | The edge of the paddle cuts the angle |
@@ -80,6 +80,24 @@ over, `C` for the camera, `M` for the mission board. Touchscreens get a
 steering pad and pedals.
 
 ## The Commons (multiplayer)
+
+The world is a Three.js scene drawn entirely in characters
+([`src/arcade/ascii3d/`](src/arcade/ascii3d/)). Terrain is terraced from the
+same elevation noise the tile kinds are cut from; trees, rocks, buildings,
+survivors and creatures are low-poly models built in code, and people and
+animals are jointed rigs that walk between the tiles the server reports.
+
+Each frame renders into a small offscreen target (two texels per character
+cell), then a full-screen shader picks one character per cell: depth jumps
+become line characters oriented along the edge, brightness picks a glyph from
+a ramp, and every material writes a code into alpha choosing its own ramp, so
+water still draws in `~`, leaves in `&` and grass in `,`. Press `V` to see the
+plain render behind the glyphs, `[` `]` to turn the camera, scroll or `+` `−`
+to zoom.
+
+Builds without `REACT_APP_CONVEX_URL` show a local stand-in camp
+([`demo.js`](src/arcade/ascii3d/demo.js)) that you can walk around, instead of
+an empty cabinet. Nothing there is saved.
 
 The only part of this site with a server. It runs on **Convex**, chosen because
 reactive queries push state to every connected client with no websocket
@@ -144,7 +162,7 @@ npm run commons     # watches convex/ and pushes to the dev deployment
 
 `.env.local` holds `CONVEX_DEPLOYMENT` and `REACT_APP_CONVEX_URL` and is not
 committed. Without `REACT_APP_CONVEX_URL` the site still builds and every other
-room works — the Commons just explains what is missing.
+room works — the Commons shows an offline stand-in and explains what is missing.
 
 **On a fresh clone `.env.local` does not exist, and plain `npx convex dev` will
 create a brand new Convex project instead of using this one.** Link explicitly

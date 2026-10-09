@@ -1111,3 +1111,16 @@
         min-height: 550px;
     }
 }
+
+/* Keyboard hints mean nothing on a phone; touch gets its own line. */
+.only-touch {
+    display: none;
+}
+@media (hover: none) and (pointer: coarse) {
+    .only-keys {
+        display: none;
+    }
+    .only-touch {
+        display: block;
+    }
+}

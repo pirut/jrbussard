@@ -44,9 +44,13 @@ export function Intro({ world, onStart, onIndex, onTravel }) {
                         Or browse the index
                     </button>
                 </div>
-                <p className="intro__keys">
+                <p className="intro__keys only-keys">
                     <kbd>WASD</kbd> to wander <span>·</span> <kbd>E</kbd> to
                     interact
+                </p>
+                <p className="intro__keys only-touch">
+                    Tap a room on the map to go there <span>·</span> thumb pad
+                    to walk
                 </p>
             </div>
             <div className="intro__world">
@@ -140,7 +144,7 @@ export function PromptBar({ prompt, player, onAct }) {
                     <span aria-hidden="true">↗</span>
                 </button>
             ) : (
-                <span className="hud__prompt">
+                <span className="hud__prompt only-keys">
                     <kbd>WASD</kbd> / arrows to walk <span>·</span> <kbd>E</kbd>{" "}
                     to interact
                 </span>

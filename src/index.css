@@ -118,3 +118,48 @@ button {
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
+
+/* Off the map: the page for paths the router does not know. */
+.lost {
+    min-height: 100vh;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 1rem;
+    padding: 2rem 1rem;
+    background: #101713;
+    color: #e8e6d3;
+    font-family: var(--font-mono);
+    text-align: center;
+}
+.lost__art {
+    margin: 0 0 0.5rem;
+    color: #6f9a5c;
+    font-size: clamp(12px, 3vw, 16px);
+    line-height: 1.15;
+}
+.lost h1 {
+    margin: 0;
+    font-size: clamp(1.4rem, 5vw, 2rem);
+    font-weight: 500;
+    color: #dea974;
+}
+.lost p {
+    margin: 0;
+    color: #a4ad97;
+}
+.lost code {
+    color: #e8c37a;
+    word-break: break-all;
+}
+.lost__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    justify-content: center;
+    margin-top: 1rem;
+}
+.lost__links a {
+    color: #e8c37a;
+    text-underline-offset: 5px;
+}
