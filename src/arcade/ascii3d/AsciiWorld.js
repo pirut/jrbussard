@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { CHUNK, WATER, tileAt } from "../../lib/terrain";
 import { buildAtlas, createAsciiMaterial, glyphCode } from "./asciiPass";
-import { buildChunk, createWater, rippleWater, groundHeight, standHeight, WATER_LEVEL } from "./terrainMesh";
+import { buildChunk, createWater, rippleWater, groundHeight, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
 import {
     buildSurvivor,
     buildCreature,
@@ -28,19 +28,23 @@ import { disposeMaterials } from "./materials";
  * there.
  */
 
-/* Camera distance at each zoom step. */
-export const ZOOMS = [6, 8.5, 12, 17];
-const PITCH = 0.74;
+/*
+ * Camera distance and pitch at each zoom step. Close in, the camera drops
+ * low behind you like a third-person game and the horizon comes into view;
+ * pulled out, it rises toward a map.
+ */
+export const ZOOMS = [5, 7.5, 11, 16];
+const PITCHES = [0.32, 0.46, 0.68, 0.92];
 const FOV = 38;
 const SAMPLES = 2;
 const MAX_LIGHTS = 6;
 
 /* Sky, sun and fill for each part of the day. Colours are sRGB hex. */
 const PHASES = {
-    dawn: { sun: 1.5, sunColor: "#ffc796", hemi: 0.75, sky: "#c9c4e0", ground: "#4f4a3a", bg: "#0e1210", angle: 0.5 },
-    day: { sun: 2.1, sunColor: "#fff0d8", hemi: 1.0, sky: "#d3e6ff", ground: "#4a5a3a", bg: "#0b120d", angle: 1.0 },
-    dusk: { sun: 1.2, sunColor: "#ff9d6a", hemi: 0.6, sky: "#c49cb0", ground: "#4a3a32", bg: "#100d0e", angle: 0.4 },
-    night: { sun: 0.45, sunColor: "#8fa7ff", hemi: 0.3, sky: "#56659c", ground: "#20242c", bg: "#06090c", angle: 0.8 },
+    dawn: { sun: 1.3, sunColor: "#ffc796", hemi: 0.6, sky: "#a9b0d8", ground: "#3a3a36", bg: "#0d1020", angle: 0.5 },
+    day: { sun: 1.7, sunColor: "#f6efe0", hemi: 0.8, sky: "#b9cdf0", ground: "#34443a", bg: "#0c1322", angle: 1.0 },
+    dusk: { sun: 1.0, sunColor: "#ff9d6a", hemi: 0.5, sky: "#a68cb0", ground: "#3a3030", bg: "#110d1c", angle: 0.4 },
+    night: { sun: 0.4, sunColor: "#8fa7ff", hemi: 0.26, sky: "#4f5c95", ground: "#1a1e2a", bg: "#070a16", angle: 0.8 },
 };
 const WEATHER_DIM = { clear: 1, rain: 0.72, storm: 0.55, fog: 0.82 };
 
@@ -128,8 +132,15 @@ export default class AsciiWorld {
         this.cursor.visible = false;
         this.scene.add(this.cursor);
 
+        /* Rain is drawn over the characters, at full resolution, so the
+           streaks stay crisp lines instead of becoming glyphs. */
         this.rain = this.createRain();
-        this.scene.add(this.rain);
+        this.overlay = new THREE.Scene();
+        this.overlay.add(this.rain);
+        this.splashes = this.createSplashes();
+        this.scene.add(this.splashes);
+        this.embers = this.createEmbers();
+        this.scene.add(this.embers);
 
         /* The ASCII pass: a full-screen triangle reading the offscreen render. */
         this.postScene = new THREE.Scene();
@@ -472,16 +483,88 @@ export default class AsciiWorld {
         geometry.userData.seeds = seeds;
         const lines = new THREE.LineSegments(
             geometry,
-            new THREE.LineBasicMaterial({ color: 0x9fc8e8, blending: THREE.NoBlending, transparent: false, opacity: glyphCode(1) }),
+            new THREE.LineBasicMaterial({ color: 0xb8d4f0, transparent: true, opacity: 0.55, depthTest: false }),
         );
         lines.frustumCulled = false;
         lines.visible = false;
         return lines;
     }
 
+    /* Little rings where drops land; they come out as o and * on the ground. */
+    createSplashes() {
+        const count = 60;
+        const mesh = new THREE.InstancedMesh(
+            new THREE.TorusGeometry(0.06, 0.02, 3, 8).rotateX(Math.PI / 2),
+            new THREE.MeshBasicMaterial({ color: 0x6f86ad, blending: THREE.NoBlending, transparent: false, opacity: glyphCode(2) }),
+            count,
+        );
+        mesh.userData.life = new Float32Array(count);
+        mesh.frustumCulled = false;
+        mesh.visible = false;
+        return mesh;
+    }
+
+    updateSplashes(dt, on) {
+        const mesh = this.splashes;
+        mesh.visible = on;
+        if (!on) return;
+        const life = mesh.userData.life;
+        const m = new THREE.Matrix4();
+        for (let i = 0; i < life.length; i += 1) {
+            life[i] -= dt * 2.5;
+            if (life[i] <= 0) {
+                life[i] = 0.4 + Math.random() * 0.6;
+                const x = Math.round(this.focus.x + (Math.random() - 0.5) * 22);
+                const z = Math.round(this.focus.z + (Math.random() - 0.5) * 22);
+                mesh.userData[i] = [x + Math.random() - 0.5, Math.max(WATER_LEVEL, groundHeight(x, z)) + 0.04, z + Math.random() - 0.5];
+            }
+            const [x, y, z] = mesh.userData[i];
+            const grow = 1.2 - life[i] * 0.6;
+            m.makeScale(grow, 1, grow).setPosition(x, y, z);
+            mesh.setMatrixAt(i, m);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+    }
+
+    /* Sparks rising off every lit fire. */
+    createEmbers() {
+        const count = 48;
+        const mesh = new THREE.InstancedMesh(
+            new THREE.BoxGeometry(0.07, 0.07, 0.07),
+            new THREE.MeshBasicMaterial({ color: 0xffb35c, blending: THREE.NoBlending, transparent: false, opacity: glyphCode(4) }),
+            count,
+        );
+        mesh.userData.seeds = Array.from({ length: count }, () => [Math.random(), Math.random(), Math.random()]);
+        mesh.frustumCulled = false;
+        return mesh;
+    }
+
+    updateEmbers() {
+        const fires = [];
+        this.structures.forEach((s) => {
+            if (s.group.userData.light && s.kind !== "furnace") fires.push(s.group.position.clone().setY(s.group.position.y + s.group.userData.light.y - 0.3));
+        });
+        const mesh = this.embers;
+        mesh.visible = fires.length > 0 && !this.reducedMotion;
+        if (!mesh.visible) return;
+        fires.sort((a, b) => a.distanceTo(this.focus) - b.distanceTo(this.focus));
+        const m = new THREE.Matrix4();
+        mesh.userData.seeds.forEach(([a, b, c], i) => {
+            const fire = fires[i % Math.min(fires.length, 6)];
+            const t = (this.time * (0.5 + b * 0.5) + a) % 1;
+            const x = fire.x + Math.sin(a * 40 + this.time * 2) * 0.25 * t + (c - 0.5) * 0.3;
+            const z = fire.z + Math.cos(b * 40 + this.time * 1.7) * 0.25 * t;
+            const size = 1 - t;
+            m.makeScale(size, size, size).setPosition(x, fire.y + t * 1.6, z);
+            mesh.setMatrixAt(i, m);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+    }
+
     updateRain(dt) {
         const on = (this.weather === "rain" || this.weather === "storm") && !this.reducedMotion;
         this.rain.visible = on;
+        this.updateSplashes(dt, on);
         if (!on) return;
         const seeds = this.rain.geometry.userData.seeds;
         const arr = this.rain.geometry.attributes.position.array;
@@ -492,7 +575,7 @@ export default class AsciiWorld {
             const x = this.focus.x + (seeds[i * 3] - 0.5) * span;
             const z = this.focus.z + (seeds[i * 3 + 2] - 0.5) * span;
             const y = this.focus.y + 12 - seeds[i * 3 + 1] * 14;
-            arr.set([x, y, z, x - 0.12, y - 0.55, z + 0.06], i * 6);
+            arr.set([x, y, z, x - 0.18, y - 0.9, z + 0.08], i * 6);
         }
         this.rain.geometry.attributes.position.needsUpdate = true;
     }
@@ -524,7 +607,8 @@ export default class AsciiWorld {
     }
 
     updateChunks() {
-        const radius = this.distance * 2.2 + 10;
+        /* Low cameras see to the horizon, so build out to where the fog ends. */
+        const radius = this.scene.fog.far + 4;
         const cx = Math.floor(this.focus.x / CHUNK);
         const cy = Math.floor(this.focus.z / CHUNK);
         const reach = Math.ceil(radius / CHUNK);
@@ -605,9 +689,9 @@ export default class AsciiWorld {
         this.hemi.intensity = p.hemi + flash;
         this.hemi.color.copy(p.sky);
         this.hemi.groundColor.copy(p.ground);
-        const fogFar = this.weather === "fog" ? this.distance * 1.6 + 6 : this.distance * 2.4 + 12;
+        const fogFar = this.weather === "fog" ? this.distance * 1.6 + 8 : this.distance * 2.2 + 22;
         this.scene.fog.color.copy(p.bg);
-        this.scene.fog.near = this.distance * (this.weather === "fog" ? 0.5 : 1.1);
+        this.scene.fog.near = this.distance * (this.weather === "fog" ? 0.4 : 0.9);
         this.scene.fog.far = fogFar;
         this.renderer.setClearColor(this.scene.fog.color, glyphCode(0));
         /* Colours live in linear space; the ASCII pass writes sRGB. */
@@ -667,15 +751,19 @@ export default class AsciiWorld {
         if (this.orbit) this.turnAngle = (this.turnAngle ?? 0) + dt * 0.08;
         const goalYaw = this.orbit ? this.turnAngle : (this.turn * Math.PI) / 2;
         this.yaw = this.orbit ? goalYaw : lerpAngle(this.yaw, goalYaw, Math.min(1, dt * 7));
-        this.distance += (ZOOMS[this.zoom] - this.distance) * Math.min(1, dt * 6);
+        const ease = Math.min(1, dt * 6);
+        this.distance += (ZOOMS[this.zoom] - this.distance) * ease;
+        this.pitch = (this.pitch ?? PITCHES[this.zoom]) + (PITCHES[this.zoom] - (this.pitch ?? PITCHES[this.zoom])) * ease;
 
-        /* Camera sits behind screen-down, looking toward screen-up. */
-        const back = this.distance * Math.cos(PITCH);
-        const up = this.distance * Math.sin(PITCH);
+        /* Camera sits behind screen-down, looking toward screen-up. Close in
+           it aims above your head, so you stand in the lower third. */
+        const back = this.distance * Math.cos(this.pitch);
+        const up = this.distance * Math.sin(this.pitch);
+        const lift = 0.6 + (1 - this.pitch) * 1.2;
         const sx = -Math.sin(this.yaw);
         const sz = Math.cos(this.yaw);
-        this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + 0.6, this.focus.z + sz * back);
-        this.camera.lookAt(this.focus.x, this.focus.y + 0.6, this.focus.z);
+        this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + lift, this.focus.z + sz * back);
+        this.camera.lookAt(this.focus.x, this.focus.y + lift, this.focus.z);
 
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
@@ -730,6 +818,8 @@ export default class AsciiWorld {
         this.updateChunks();
         this.updateLighting(dt);
         this.updateRain(dt);
+        this.updateEmbers();
+        wind.uTime.value = this.reducedMotion ? 0 : this.time;
         this.updateCursor();
 
         this.structures.forEach((s) => {
@@ -750,6 +840,14 @@ export default class AsciiWorld {
         this.renderer.render(this.scene, this.camera);
         this.renderer.setRenderTarget(null);
         this.renderer.render(this.postScene, this.postCamera);
+        if (this.rain.visible) {
+            const g = this.grid;
+            this.renderer.autoClear = false;
+            this.renderer.setViewport(g.offX, g.offY, g.cols * g.cellW, g.rows * g.cellH);
+            this.renderer.render(this.overlay, this.camera);
+            this.renderer.setViewport(0, 0, g.width, g.height);
+            this.renderer.autoClear = true;
+        }
         this.updateLabels();
     }
 

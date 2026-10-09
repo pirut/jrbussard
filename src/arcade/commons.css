@@ -328,28 +328,30 @@
 }
 .commons-nametag button {
   pointer-events: auto;
-  background: #0b140deb;
-  border: 1px solid #60705070;
-  padding: 3px 6px;
-  color: inherit;
-  box-shadow: 0 3px 12px #0006;
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  color: #eef0f6;
+  text-shadow:
+    0 0 3px #000,
+    0 1px 2px #000;
   display: flex;
-  gap: 7px;
-  align-items: center;
+  gap: 6px;
+  align-items: baseline;
   max-width: 150px;
 }
 .commons-nametag b {
   font: 10px var(--font-mono);
-  font-weight: normal;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .commons-nametag small {
-  color: #b5bfa4;
-  font: 7px var(--font-mono);
+  color: #b9c0cf;
+  font: 8px var(--font-mono);
 }
-.commons-nametag.is-self button {
-  border-color: #bba67380;
+.commons-nametag.is-self b {
+  color: #f3e6bd;
 }
 .commons-speech {
   position: absolute;

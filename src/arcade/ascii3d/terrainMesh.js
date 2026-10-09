@@ -3,6 +3,46 @@ import { tileAt, elevationAt, GRASS, TREE, WATER, ROCK, ROAD, SAND, CHUNK } from
 import { resourceAt } from "../../lib/survival";
 import { shadeAt } from "../../lib/shade";
 import { material } from "./materials";
+import { glyphCode, GLYPH_SETS } from "./asciiPass";
+
+/* Shared clock for everything that moves in the wind. */
+export const wind = { uTime: { value: 0 } };
+
+/*
+ * Grass blades bend in the vertex shader: each vertex carries how far up the
+ * blade it is, and the tip swings on a wave that rolls across the field.
+ */
+let windMaterial = null;
+function grassMaterial() {
+    if (windMaterial) return windMaterial;
+    windMaterial = new THREE.MeshLambertMaterial({
+        vertexColors: true,
+        flatShading: true,
+        side: THREE.DoubleSide,
+        blending: THREE.NoBlending,
+        transparent: false,
+        opacity: glyphCode(GLYPH_SETS.grass),
+    });
+    windMaterial.onBeforeCompile = (shader) => {
+        shader.uniforms.uTime = wind.uTime;
+        shader.vertexShader = shader.vertexShader
+            .replace(
+                "#include <common>",
+                "#include <common>\nattribute float sway;\nuniform float uTime;",
+            )
+            .replace(
+                "#include <begin_vertex>",
+                `vec3 transformed = vec3(position);
+                float gust = sin(uTime * 1.6 + position.x * 0.35 + position.z * 0.22);
+                float flutter = sin(uTime * 4.3 + position.x * 2.1 + position.z * 1.7);
+                transformed.x += sway * (0.16 + gust * 0.14 + flutter * 0.04);
+                transformed.z += sway * (gust * 0.05 + flutter * 0.03);
+                transformed.y -= sway * abs(gust) * 0.05;`,
+            );
+    };
+    windMaterial.customProgramCacheKey = () => "commons-grass";
+    return windMaterial;
+}
 
 /*
  * The landscape, in 3D.
@@ -38,11 +78,11 @@ export function standHeight(x, y, bridged) {
 }
 
 const GROUND_COLOR = {
-    [GRASS]: "#5a8248",
-    [TREE]: "#466b3a",
-    [ROCK]: "#7a7f76",
-    [ROAD]: "#9c8f68",
-    [SAND]: "#b9a26c",
+    [GRASS]: "#3d5f36",
+    [TREE]: "#33502d",
+    [ROCK]: "#6f7684",
+    [ROAD]: "#7d7560",
+    [SAND]: "#9c8c66",
 };
 const GROUND_SET = {
     [GRASS]: "grass",
@@ -84,7 +124,7 @@ class Batch {
     }
 
     bucket(key) {
-        if (!this.parts.has(key)) this.parts.set(key, { pos: [], col: [] });
+        if (!this.parts.has(key)) this.parts.set(key, { pos: [], col: [], sway: [] });
         return this.parts.get(key);
     }
 
@@ -96,13 +136,27 @@ class Batch {
             v.set(src[i], src[i + 1], src[i + 2]).applyMatrix4(matrix);
             b.pos.push(v.x, v.y, v.z);
             b.col.push(color.r, color.g, color.b);
+            b.sway.push(0);
         }
+    }
+
+    /* One grass blade: a triangle rooted at (x, h, z) leaning toward (lx, lz). */
+    blade(x, h, z, yaw, width, height, lx, lz, root, tip) {
+        const b = this.bucket("wind");
+        const cx = Math.cos(yaw) * width * 0.5;
+        const cz = Math.sin(yaw) * width * 0.5;
+        b.pos.push(x - cx, h, z - cz, x + cx, h, z + cz, x + lx, h + height, z + lz);
+        b.col.push(root.r, root.g, root.b, root.r, root.g, root.b, tip.r, tip.g, tip.b);
+        b.sway.push(0, 0, 1);
     }
 
     quad(key, a, b2, c, d, color) {
         const b = this.bucket(key);
         b.pos.push(...a, ...b2, ...c, ...a, ...c, ...d);
-        for (let i = 0; i < 6; i += 1) b.col.push(color.r, color.g, color.b);
+        for (let i = 0; i < 6; i += 1) {
+            b.col.push(color.r, color.g, color.b);
+            b.sway.push(0);
+        }
     }
 
     meshes() {
@@ -113,10 +167,19 @@ class Batch {
             const g = new THREE.BufferGeometry();
             g.setAttribute("position", new THREE.Float32BufferAttribute(data.pos, 3));
             g.setAttribute("color", new THREE.Float32BufferAttribute(data.col, 3));
-            g.computeVertexNormals();
-            const mesh = new THREE.Mesh(g, material(0xffffff, set, { vertexColors: true, unlit: unlit === "glow" }));
+            const mesh =
+                key === "wind"
+                    ? new THREE.Mesh(g, grassMaterial())
+                    : new THREE.Mesh(g, material(0xffffff, set, { vertexColors: true, unlit: unlit === "glow" }));
+            if (key === "wind") {
+                g.setAttribute("sway", new THREE.Float32BufferAttribute(data.sway, 1));
+                /* Blades sway outside their resting bounds. */
+                mesh.frustumCulled = false;
+            } else {
+                g.computeVertexNormals();
+            }
             mesh.receiveShadow = true;
-            mesh.castShadow = set === "leaves" || set === "rock" || set === "timber";
+            mesh.castShadow = key !== "wind" && (set === "leaves" || set === "rock" || set === "timber");
             mesh.matrixAutoUpdate = false;
             out.push(mesh);
         });
@@ -191,12 +254,27 @@ function addPlant(batch, x, y, h, resource) {
             const lean = 0.2 + hash(x, y, 60 + i) * 0.3;
             batch.shape("grass", P.blade(), place(ox + Math.cos(a) * 0.12, h + 0.3, oz + Math.sin(a) * 0.12, 1.2, 0.6, 1.2, a, lean), tint("#b6cf86", 1));
         }
-    } else if (hash(x, y, 70) < 0.3) {
-        /* Plain grass gets the odd tuft, so a meadow has some tooth. */
-        for (let i = 0; i < 3; i += 1) {
-            const a = hash(x, y, 71 + i) * Math.PI * 2;
-            batch.shape("grass", P.blade(), place(ox + Math.cos(a) * 0.15, h + 0.12, oz + Math.sin(a) * 0.15, 0.9, 0.25, 0.9, a, 0.3), tint("#88b26a", 0.9 + hash(x, y, 75) * 0.2));
-        }
+    }
+}
+
+const ROOT = new THREE.Color();
+const TIP = new THREE.Color();
+
+/*
+ * A meadow: thin blades, rooted dark and lit at the tips, leaning with the
+ * wind. Up close these are what the ASCII pass turns into strokes.
+ */
+function addBlades(batch, x, y, h, count, tall) {
+    for (let i = 0; i < count; i += 1) {
+        const r = hash(x, y, 100 + i);
+        const bx = x - 0.5 + hash(x, y, 200 + i);
+        const bz = y - 0.5 + hash(x, y, 300 + i);
+        const height = (0.22 + r * 0.38) * tall;
+        const lean = hash(x, y, 400 + i) * Math.PI * 2;
+        const reach = height * 0.35;
+        ROOT.set("#24402a");
+        TIP.set(r < 0.15 ? "#b9d08a" : "#79b46a").multiplyScalar(0.8 + hash(x, y, 500 + i) * 0.5);
+        batch.blade(bx, h, bz, r * 6.28, 0.05 + r * 0.03, height, Math.cos(lean) * reach, Math.sin(lean) * reach, ROOT, TIP);
     }
 }
 
@@ -241,6 +319,9 @@ export function buildChunk(cx, cy, cleared) {
 
             if (cleared.has(`${x},${y}`)) continue;
             const resource = resourceAt(x, y);
+            if (tile === GRASS) addBlades(batch, x, y, h, 14, 1);
+            else if (tile === TREE) addBlades(batch, x, y, h, 6, 0.8);
+            else if (tile === SAND) addBlades(batch, x, y, h, 1, 0.6);
             if (tile === TREE) addTree(batch, x, y, h);
             else if (tile === ROCK) addRock(batch, x, y, h, resource);
             else if (tile === GRASS) addPlant(batch, x, y, h, resource);

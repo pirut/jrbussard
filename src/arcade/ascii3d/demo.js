@@ -20,7 +20,7 @@ const LOOKS = [
 ];
 const NAMES = ["salt_gull", "pale_ember", "low_kettle", "grey_wire"];
 const LINES = ["anyone seen iron?", "fire's lit at camp", "watch the wolves past the ridge", "/me waves", "bridge is done"];
-const PHASES = ["dawn", "day", "day", "dusk", "night"];
+const PHASES = ["dusk", "night", "dawn", "day", "day"];
 
 function rng(seed) {
     let s = seed >>> 0;
@@ -173,7 +173,7 @@ export function createDemo() {
         return {
             now,
             phase,
-            weather: clock % 400 > 330 ? "rain" : "clear",
+            weather: phase === "night" ? "storm" : clock % 400 > 300 ? "rain" : "clear",
             region: "the crossroads",
             view: { x: players[0].x - 30, y: players[0].y - 14, w: 61, h: 29 },
             online: players.length,
