@@ -1559,8 +1559,7 @@
   border: 1px solid #384932;
   color: #b5bfa4;
   font: 11px/1.4 var(--font-mono);
-  white-space: nowrap;
+  width: max-content;
   max-width: calc(100% - 20px);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: center;
 }

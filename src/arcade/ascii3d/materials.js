@@ -48,7 +48,41 @@ export function ownMaterial(color, set = "solid", options = {}) {
         : new THREE.MeshLambertMaterial({ ...common, flatShading: true, emissive });
 }
 
+/*
+ * Every plain part of a person or creature moves to the figure set, which the
+ * ASCII pass draws brighter and rings with empty space. Parts that already
+ * chose a set (a glowing eye, a timber spear) keep it.
+ */
+const figures = new Map();
+export function asFigure(mat) {
+    if (mat.opacity !== glyphCode(GLYPH_SETS.solid)) return mat;
+    if (!figures.has(mat.uuid)) {
+        const made = mat.clone();
+        made.opacity = glyphCode(GLYPH_SETS.figure);
+        figures.set(mat.uuid, made);
+    }
+    return figures.get(mat.uuid);
+}
+
+/* What a figure turns into for the instant it is hit: solid white. */
+let flashMaterial = null;
+export function hitFlash() {
+    if (!flashMaterial) {
+        flashMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            blending: THREE.NoBlending,
+            transparent: false,
+            opacity: glyphCode(GLYPH_SETS.figure),
+        });
+    }
+    return flashMaterial;
+}
+
 export function disposeMaterials() {
     cache.forEach((m) => m.dispose());
     cache.clear();
+    figures.forEach((m) => m.dispose());
+    figures.clear();
+    if (flashMaterial) flashMaterial.dispose();
+    flashMaterial = null;
 }

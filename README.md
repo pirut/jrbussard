@@ -91,13 +91,18 @@ Each frame renders into a small offscreen target (two texels per character
 cell), then a full-screen shader picks one character per cell: depth jumps
 become line characters oriented along the edge, brightness picks a glyph from
 a ramp, and every material writes a code into alpha choosing its own ramp, so
-water still draws in `~`, leaves in `&` and grass in `,`. Press `V` to see the
+water still draws in `~`, leaves in `&` and grass in `,`. People and creatures
+draw brighter and are ringed in empty cells so they read against anything
+behind them, and rain, stars and cloud are drawn straight onto the character
+grid. Rigs bend at the knee and elbow, wind up and strike when they attack,
+flash on a hit and topple when they fall. Press `V` to see the
 plain render behind the glyphs, `[` `]` to turn the camera, scroll or `+` `−`
 to zoom.
 
 Builds without `REACT_APP_CONVEX_URL` show a local stand-in camp
 ([`demo.js`](src/arcade/ascii3d/demo.js)) that you can walk around, instead of
-an empty cabinet. Nothing there is saved.
+an empty cabinet. Nothing there is saved. Add `?phase=night` (or `dusk`,
+`dawn`, `day`) to pin the time of day there.
 
 The only part of this site with a server. It runs on **Convex**, chosen because
 reactive queries push state to every connected client with no websocket

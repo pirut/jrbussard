@@ -1,13 +1,13 @@
 import * as THREE from "three";
-import { material, ownMaterial } from "./materials";
+import { material, ownMaterial, asFigure, hitFlash } from "./materials";
 import { PALETTES, appearanceOf } from "../../lib/appearance";
 
 /*
  * The people, creatures and buildings of the Commons, as real low-poly models.
  *
  * Everything is built from boxes, cones and spheres at load. Each figure is a
- * hierarchy of pivots — hips, shoulders, neck — so walking is a matter of
- * swinging limbs about their joints, not swapping sprites. Proportions are
+ * hierarchy of pivots — hips, knees, shoulders, elbows, neck — so walking is a
+ * matter of bending limbs about their joints, not swapping sprites. Proportions are
  * chunky on purpose: at a few characters per limb, a thin arm vanishes.
  *
  * Coordinates: one tile is one unit, x runs east, z runs south, y is up.
@@ -33,13 +33,27 @@ function box(w, h, d, color, set, x, y, z, options) {
     return part(boxGeo(w, h, d), material(color, set, options), x, y, z);
 }
 
-/* A joint: a group placed at the pivot, with the limb hanging below it. */
-function limb(parent, x, y, z, w, h, d, color, set = "solid") {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, y, z);
-    pivot.add(box(w, h, d, color, set, 0, -h / 2, 0));
-    parent.add(pivot);
-    return pivot;
+/* A two-part limb: the upper half hangs from the hip or shoulder, the lower
+   from the knee or elbow, so a stride can lift a foot instead of swinging a
+   stilt. */
+function jointed(parent, x, y, z, w, upper, lower, d, color, lowerColor = color) {
+    const top = new THREE.Group();
+    top.position.set(x, y, z);
+    top.add(box(w, upper + 0.02, d, color, "solid", 0, -upper / 2, 0));
+    const joint = new THREE.Group();
+    joint.position.y = -upper;
+    joint.add(box(w * 0.92, lower, d * 0.92, lowerColor, "solid", 0, -lower / 2, 0));
+    top.add(joint);
+    parent.add(top);
+    return { top, joint };
+}
+
+/* People and creatures draw in the figure set; see asciiPass.js. */
+function figurize(root) {
+    root.traverse((node) => {
+        if (node.isMesh) node.material = asFigure(node.material);
+    });
+    return root;
 }
 
 function darker(hex, amount = 0.72) {
@@ -53,11 +67,11 @@ function buildHumanoid(look) {
     const body = new THREE.Group();
     root.add(body);
 
-    const legL = limb(body, -0.11, 0.62, 0, 0.17, 0.6, 0.2, look.legs);
-    const legR = limb(body, 0.11, 0.62, 0, 0.17, 0.6, 0.2, look.legs);
+    const legL = jointed(body, -0.11, 0.62, 0, 0.17, 0.31, 0.31, 0.2, look.legs);
+    const legR = jointed(body, 0.11, 0.62, 0, 0.17, 0.31, 0.31, 0.2, look.legs);
     /* Boots, so the stride shows where the feet are. */
-    legL.add(box(0.19, 0.12, 0.26, look.boots, "solid", 0, -0.56, 0.03));
-    legR.add(box(0.19, 0.12, 0.26, look.boots, "solid", 0, -0.56, 0.03));
+    legL.joint.add(box(0.19, 0.12, 0.26, look.boots, "solid", 0, -0.25, 0.03));
+    legR.joint.add(box(0.19, 0.12, 0.26, look.boots, "solid", 0, -0.25, 0.03));
 
     const torso = new THREE.Group();
     torso.position.y = 0.62;
@@ -72,10 +86,10 @@ function buildHumanoid(look) {
         torso.add(box(0.5, 0.36, 0.3, look.coat, "grass", 0, 0.3, 0));
     }
 
-    const armL = limb(torso, -0.31, 0.5, 0, 0.14, 0.5, 0.16, look.sleeves);
-    const armR = limb(torso, 0.31, 0.5, 0, 0.14, 0.5, 0.16, look.sleeves);
-    armL.add(box(0.13, 0.11, 0.13, look.skin, "solid", 0, -0.53, 0));
-    armR.add(box(0.13, 0.11, 0.13, look.skin, "solid", 0, -0.53, 0));
+    const armL = jointed(torso, -0.31, 0.5, 0, 0.14, 0.25, 0.25, 0.16, look.sleeves);
+    const armR = jointed(torso, 0.31, 0.5, 0, 0.14, 0.25, 0.25, 0.16, look.sleeves);
+    armL.joint.add(box(0.13, 0.11, 0.13, look.skin, "solid", 0, -0.28, 0));
+    armR.joint.add(box(0.13, 0.11, 0.13, look.skin, "solid", 0, -0.28, 0));
 
     if (look.cloak) {
         const cape = new THREE.Group();
@@ -99,7 +113,7 @@ function buildHumanoid(look) {
 
     if (look.weapon) {
         const held = new THREE.Group();
-        held.position.set(0, -0.55, 0.04);
+        held.position.set(0, -0.3, 0.04);
         held.rotation.x = Math.PI / 2.4;
         if (look.weapon >= 2) {
             held.add(box(0.06, 0.62, 0.03, 0xd8dcd6, "solid", 0, 0.38, 0));
@@ -108,10 +122,10 @@ function buildHumanoid(look) {
             held.add(box(0.05, 1.0, 0.05, 0x9c7a4d, "timber", 0, 0.32, 0));
             held.add(part(geo("tip", () => new THREE.ConeGeometry(0.06, 0.18, 4)), material(0xb0b9b2, "rock"), 0, 0.9, 0));
         }
-        armR.add(held);
+        armR.joint.add(held);
     }
 
-    root.userData.rig = { body, torso, legL, legR, armL, armR, head };
+    root.userData.rig = { body, torso, legL, legR, armL, armR, neck, head };
     return root;
 }
 
@@ -188,7 +202,7 @@ export function lookKey(player) {
 }
 
 export function buildSurvivor(player) {
-    const model = buildHumanoid(survivorLook(player));
+    const model = figurize(buildHumanoid(survivorLook(player)));
     model.userData.kind = "survivor";
     return model;
 }
@@ -205,8 +219,9 @@ function buildQuadruped({ length, height, color, belly, head, tail, ears }) {
     const legs = [];
     const lx = length * 0.15;
     const lz = length * 0.36;
+    /* Front left, front right, back left, back right. */
     [[-lx, lz], [lx, lz], [-lx, -lz], [lx, -lz]].forEach(([x, z]) => {
-        legs.push(limb(body, x, legH + 0.04, z, length * 0.11, legH + 0.04, length * 0.11, darker(color, 0.8)));
+        legs.push(jointed(body, x, legH + 0.04, z, length * 0.11, (legH + 0.04) * 0.52, (legH + 0.04) * 0.5, length * 0.11, darker(color, 0.8), darker(color, 0.62)));
     });
     const neck = new THREE.Group();
     neck.position.set(0, legH + height * 0.32, length / 2);
@@ -289,65 +304,204 @@ const CREATURES = {
             weapon: 0,
         });
         model.scale.setScalar(1.45);
-        const { armR, torso, head } = model.userData.rig;
-        torso.rotation.x = 0.25;
+        const { armR, head } = model.userData.rig;
+        model.userData.hunch = 0.25;
         head.add(box(0.14, 0.16, 0.12, "#a68ad1", "solid", 0, -0.04, 0.18));
         const club = new THREE.Group();
-        club.position.set(0, -0.55, 0.05);
+        club.position.set(0, -0.3, 0.05);
         club.rotation.x = Math.PI / 2.6;
         club.add(box(0.08, 0.5, 0.08, 0x7b5a3a, "timber", 0, 0.2, 0));
         club.add(box(0.18, 0.26, 0.18, 0x8a6a46, "timber", 0, 0.52, 0));
-        armR.add(club);
+        armR.joint.add(club);
         return model;
     },
 };
 
 export function buildCreature(kind) {
     const make = CREATURES[kind] || CREATURES.rat;
-    const model = make();
+    const model = figurize(make());
     model.userData.kind = kind;
     return model;
 }
 
 /* ── Animation ──────────────────────────────────────────────────────────── */
 
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+const smooth = (v) => {
+    const x = clamp01(v);
+    return x * x * (3 - 2 * x);
+};
+
+/*
+ * An attack in three beats, from `k` running 0 to 1 over the swing: draw back,
+ * strike, settle. Returns how far into the wind-up and the strike it is, and
+ * how much of the pose the attack owns (it hands back to walking as it ends).
+ */
+function attackBeats(k) {
+    if (k < 0 || k >= 1) return null;
+    return {
+        wind: smooth(k / 0.32),
+        strike: smooth((k - 0.32) / 0.2),
+        weight: Math.min(smooth(k / 0.1), 1 - smooth((k - 0.6) / 0.4)),
+    };
+}
+
+const mix = (a, b, t) => a + (b - a) * t;
+
+function poseHumanoid(model, rig, { stride, moving: a, t, attack, hurt }) {
+    const s = Math.sin(stride);
+    const c = Math.cos(stride);
+    const idle = 1 - a;
+    const breath = Math.sin(t * 2.1);
+
+    /* Legs: the leg swinging forward bends at the knee and lifts its foot. */
+    rig.legL.top.rotation.x = -s * 0.62 * a;
+    rig.legR.top.rotation.x = s * 0.62 * a;
+    rig.legL.joint.rotation.x = Math.max(0, c) * 1.1 * a + 0.04;
+    rig.legR.joint.rotation.x = Math.max(0, -c) * 1.1 * a + 0.04;
+
+    /* The body rides highest as the legs pass, sways over the planted foot,
+       leans into the walk and breathes when it stops. */
+    rig.body.position.set(s * 0.03 * a, (Math.abs(c) * 0.07 - 0.02) * a + breath * 0.006 * idle, 0);
+    rig.body.rotation.z = Math.sin(t * 0.55) * 0.02 * idle;
+    let twist = s * 0.16 * a;
+    let lean = 0.1 * a + (model.userData.hunch || 0) + breath * 0.015 * idle;
+    rig.torso.rotation.z = -s * 0.03 * a;
+
+    /* Arms swing against the legs, elbows softly bent. */
+    let shoulderL = s * 0.55 * a;
+    let shoulderR = -s * 0.55 * a;
+    let elbowL = -(0.15 + a * (0.2 + 0.4 * Math.max(0, -s)));
+    let elbowR = -(0.15 + a * (0.2 + 0.4 * Math.max(0, s)));
+    rig.armL.top.rotation.z = -0.07 - breath * 0.015 * idle;
+    rig.armR.top.rotation.z = 0.07 + breath * 0.015 * idle;
+
+    let lunge = 0;
+    const beats = attackBeats(attack);
+    if (beats) {
+        /* Right arm up and back over the shoulder, then down through the
+           target with the hips behind it. */
+        const raised = mix(-0.4, -3.3, beats.wind);
+        const struck = mix(raised, -0.7, beats.strike);
+        const w = beats.weight;
+        shoulderR = mix(shoulderR, struck, w);
+        elbowR = mix(elbowR, mix(-0.9, -0.1, beats.strike), w);
+        shoulderL = mix(shoulderL, -0.55, w);
+        elbowL = mix(elbowL, -0.9, w);
+        twist = mix(twist, mix(-0.4, 0.35, beats.strike), w);
+        lean = mix(lean, mix(-0.12, 0.28, beats.strike), w);
+        lunge = mix(-0.05, 0.16, beats.strike) * w;
+        rig.legL.top.rotation.x = mix(rig.legL.top.rotation.x, -0.45 * beats.strike, w);
+        rig.legL.joint.rotation.x = mix(rig.legL.joint.rotation.x, 0.3 * beats.strike, w);
+        rig.legR.top.rotation.x = mix(rig.legR.top.rotation.x, 0.3 * beats.strike, w);
+    }
+
+    /* Taking a hit: rock back, head snapping after. */
+    lean -= hurt * 0.4;
+    lunge -= hurt * 0.1;
+
+    rig.torso.rotation.x = lean;
+    rig.torso.rotation.y = twist;
+    rig.body.position.z = lunge;
+    rig.armL.top.rotation.x = shoulderL;
+    rig.armR.top.rotation.x = shoulderR;
+    rig.armL.joint.rotation.x = elbowL;
+    rig.armR.joint.rotation.x = elbowR;
+
+    /* The head keeps level through the walk and looks about when idle. */
+    rig.neck.rotation.x = -lean * 0.6 - hurt * 0.35;
+    rig.neck.rotation.y = -twist * 0.7 + (Math.sin(t * 0.37) + Math.sin(t * 0.71 + 1.3)) * 0.2 * idle;
+
+    const cape = model.userData.cape;
+    if (cape) cape.rotation.x = 0.12 + a * 0.4 + Math.abs(s) * 0.1 * a + Math.sin(t * 3) * 0.04 + hurt * 0.3;
+}
+
+function poseQuadruped(rig, { stride, moving: a, t, attack, hurt }) {
+    const p = stride * 2;
+    const s = Math.sin(p);
+    const c = Math.cos(p);
+    const idle = 1 - a;
+    const [fl, fr, bl, br] = rig.legs;
+
+    /* A trot: diagonal pairs move together, each knee folding as its foot
+       comes forward. Hind legs bend the other way, at the hock. */
+    fl.top.rotation.x = s * 0.6 * a;
+    br.top.rotation.x = s * 0.6 * a;
+    fr.top.rotation.x = -s * 0.6 * a;
+    bl.top.rotation.x = -s * 0.6 * a;
+    const liftA = Math.max(0, -c) * 1.0 * a;
+    const liftB = Math.max(0, c) * 1.0 * a;
+    fl.joint.rotation.x = liftA;
+    fr.joint.rotation.x = liftB;
+    br.joint.rotation.x = -liftA;
+    bl.joint.rotation.x = -liftB;
+
+    const breath = Math.sin(t * 3.2);
+    rig.body.position.y = Math.abs(c) * 0.05 * a + breath * 0.006 * idle;
+    rig.body.rotation.x = c * 0.04 * a;
+
+    /* Head bobs against the gait; standing still it sniffs the ground and
+       looks around. */
+    const sniff = Math.pow(Math.max(0, Math.sin(t * 0.45)), 6) * 0.45 * idle;
+    let neckX = -c * 0.08 * a + sniff + Math.sin(t * 2) * 0.03;
+    let neckY = Math.sin(t * 0.6 + 0.8) * 0.35 * idle;
+    let lunge = 0;
+
+    const beats = attackBeats(attack);
+    if (beats) {
+        /* Rear back, then snap forward and bite down. */
+        const w = beats.weight;
+        neckX = mix(neckX, mix(-0.45, 0.45, beats.strike), w);
+        neckY *= 1 - w;
+        lunge = mix(-0.1, 0.3, beats.strike) * w;
+        rig.body.rotation.x = mix(rig.body.rotation.x, mix(-0.12, 0.08, beats.strike), w);
+    }
+    lunge -= hurt * 0.12;
+
+    rig.body.position.z = lunge;
+    rig.neck.rotation.x = neckX - hurt * 0.3;
+    rig.neck.rotation.y = neckY;
+    rig.tail.rotation.x = -0.9 - 0.35 * a;
+    rig.tail.rotation.z = a > 0.5 ? Math.sin(t * 13) * 0.3 : Math.sin(t * 3) * 0.35;
+}
+
 /*
  * One pose function for every rig. `stride` is a running phase advanced by
  * distance walked, so feet keep pace with the ground instead of a clock.
+ * `attack` runs 0 to 1 through a swing (negative when not swinging), `down`
+ * 0 to 1 as a figure falls, `hurt` 1 to 0 after a hit.
  */
-export function pose(model, { stride, moving, t, swing = 0, down = false, hurt = 0 }) {
+export function pose(model, { stride, moving, t, attack = -1, down = 0, hurt = 0 }) {
     const rig = model.userData.rig;
     if (!rig) return;
-    const amount = moving;
-    if (rig.quad) {
-        const s = Math.sin(stride * 2);
-        rig.legs[0].rotation.x = s * 0.7 * amount;
-        rig.legs[3].rotation.x = s * 0.7 * amount;
-        rig.legs[1].rotation.x = -s * 0.7 * amount;
-        rig.legs[2].rotation.x = -s * 0.7 * amount;
-        rig.body.position.y = Math.abs(Math.cos(stride * 2)) * 0.05 * amount;
-        rig.tail.rotation.z = Math.sin(t * 6) * 0.35;
-        rig.neck.rotation.x = swing * 0.6 + Math.sin(t * 2) * 0.04;
+    const args = { stride, moving: moving * (1 - down), t, attack: down > 0 ? -1 : attack, hurt };
+    if (rig.quad) poseQuadruped(rig, args);
+    else poseHumanoid(model, rig, args);
+
+    model.rotation.z = hurt ? Math.sin(t * 40) * 0.06 * hurt : 0;
+    if (down > 0) {
+        /* Topple backwards and settle with a small bounce. */
+        const fall = down < 0.7 ? smooth(down / 0.7) : 1 - Math.sin(((down - 0.7) / 0.3) * Math.PI) * 0.06;
+        rig.body.rotation.x = -fall * (Math.PI / 2);
+        rig.body.position.y = 0.14 * fall;
     } else {
-        const s = Math.sin(stride);
-        rig.legL.rotation.x = s * 0.75 * amount;
-        rig.legR.rotation.x = -s * 0.75 * amount;
-        rig.armL.rotation.x = -s * 0.6 * amount;
-        rig.armR.rotation.x = s * 0.6 * amount - swing * 2.1;
-        rig.armL.rotation.z = -0.06;
-        rig.armR.rotation.z = 0.06;
-        rig.body.position.y = Math.abs(Math.cos(stride)) * 0.06 * amount + Math.sin(t * 2.2) * 0.012 * (1 - amount);
-        rig.head.rotation.y = Math.sin(t * 0.7) * 0.15 * (1 - amount);
-        const cape = model.userData.cape;
-        if (cape) cape.rotation.x = 0.12 + amount * 0.35 + Math.sin(t * 3) * 0.04;
+        rig.body.rotation.x = rig.quad ? rig.body.rotation.x : 0;
     }
-    model.rotation.z = hurt ? Math.sin(t * 40) * 0.08 * hurt : 0;
-    if (down) {
-        rig.body.rotation.x = -Math.PI / 2;
-        rig.body.position.y = 0.15;
-    } else {
-        rig.body.rotation.x = 0;
-    }
+}
+
+/* Swap a figure to solid white for the instant it is hit, and back. */
+export function flashModel(model, on) {
+    if (Boolean(model.userData.flashing) === on) return;
+    model.userData.flashing = on;
+    model.traverse((node) => {
+        if (!node.isMesh) return;
+        if (on) {
+            node.userData.baseMaterial = node.material;
+            node.material = hitFlash();
+        } else if (node.userData.baseMaterial) {
+            node.material = node.userData.baseMaterial;
+        }
+    });
 }
 
 export function disposeModel(model) {

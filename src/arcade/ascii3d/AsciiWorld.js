@@ -10,6 +10,7 @@ import {
     structureKey,
     lookKey,
     pose,
+    flashModel,
     disposeModel,
 } from "./models";
 import { disposeMaterials } from "./materials";
@@ -75,6 +76,7 @@ export default class AsciiWorld {
         this.labels = new Map();
         this.players = new Map();
         this.creatures = [];
+        this.leaving = [];
         this.structures = new Map();
         this.chunks = new Map();
         this.flames = [];
@@ -132,11 +134,6 @@ export default class AsciiWorld {
         this.cursor.visible = false;
         this.scene.add(this.cursor);
 
-        /* Rain is drawn over the characters, at full resolution, so the
-           streaks stay crisp lines instead of becoming glyphs. */
-        this.rain = this.createRain();
-        this.overlay = new THREE.Scene();
-        this.overlay.add(this.rain);
         this.splashes = this.createSplashes();
         this.scene.add(this.splashes);
         this.embers = this.createEmbers();
@@ -260,7 +257,7 @@ export default class AsciiWorld {
     /* Swing the arm: chopping, mining, hitting. Purely for show. */
     swingSelf() {
         const self = [...this.players.values()].find((p) => p.data.self);
-        if (self) self.swing = 1;
+        if (self) self.attackStart = this.time;
     }
 
     registerLabel(id, element) {
@@ -363,7 +360,11 @@ export default class AsciiWorld {
         entity.from = far ? { x, y } : { x: entity.pos.x, y: entity.pos.z };
         entity.to = { x, y };
         entity.start = this.time;
-        entity.duration = duration;
+        /* Steps that come in a steady rhythm glide into one another instead of
+           stopping at every tile: each one takes as long as the gap since the
+           last. */
+        const gap = this.time - entity.lastStep;
+        entity.duration = gap < duration * 3 ? Math.min(Math.max(gap, duration * 0.8), duration * 2.2) : duration;
         if (!far) {
             entity.facing = Math.atan2(dx, dy);
             entity.lastStep = this.time;
@@ -386,8 +387,13 @@ export default class AsciiWorld {
             stride: 0,
             moving: 0,
             lastStep: -10,
-            swing: 0,
+            attackStart: -10,
             hurt: 0,
+            flashUntil: 0,
+            down: 0,
+            born: this.time,
+            seed: Math.random() * 7,
+            baseScale: model.scale.x,
         };
     }
 
@@ -412,13 +418,17 @@ export default class AsciiWorld {
                 entity.facing = p.self ? Math.PI : 0;
                 this.players.set(p.id, entity);
             }
-            if (entity.data && p.hp < entity.data.hp && p.hp > 0) entity.hurt = 1;
+            if (entity.data && p.hp < entity.data.hp) {
+                this.hit(entity);
+                /* Whatever bit them is probably standing next to them. */
+                this.strikeFrom(this.creatures, entity);
+            }
             entity.data = p;
             this.moveEntity(entity, p.x, p.y, 0.15);
         });
         [...this.players.keys()].forEach((id) => {
             if (seen.has(id)) return;
-            this.scene.remove(this.players.get(id).model);
+            this.leave(this.players.get(id));
             this.players.delete(id);
         });
     }
@@ -446,7 +456,10 @@ export default class AsciiWorld {
             if (best >= 0) {
                 entity = pool[best];
                 pool[best] = null;
-                if (m.hp < entity.data.hp) entity.hurt = 1;
+                if (m.hp < entity.data.hp) {
+                    this.hit(entity);
+                    this.strikeFrom([...this.players.values()].filter((p) => !p.data?.self), entity);
+                }
             } else {
                 entity = this.makeEntity(buildCreature(m.kind), m.x, m.y);
                 entity.kind = m.kind;
@@ -457,9 +470,51 @@ export default class AsciiWorld {
             next.push(entity);
         });
         pool.forEach((c) => {
-            if (c) this.scene.remove(c.model);
+            if (c) this.leave(c);
         });
         this.creatures = next;
+    }
+
+    hit(entity) {
+        entity.hurt = 1;
+        entity.flashUntil = this.time + 0.09;
+    }
+
+    /* The nearest of `from` within reach turns to `target` and swings. */
+    strikeFrom(from, target) {
+        let best = null;
+        let bestDistance = 1.6;
+        from.forEach((e) => {
+            const d = Math.hypot(e.to.x - target.to.x, e.to.y - target.to.y);
+            if (d > 0 && d <= bestDistance && this.time - e.attackStart > 0.5) {
+                best = e;
+                bestDistance = d;
+            }
+        });
+        if (!best) return;
+        best.facing = Math.atan2(target.to.x - best.to.x, target.to.y - best.to.y);
+        best.attackStart = this.time - 0.12;
+    }
+
+    /* Someone left or something died: shrink into the ground, then go. */
+    leave(entity) {
+        entity.leftAt = this.time;
+        flashModel(entity.model, false);
+        this.leaving.push(entity);
+    }
+
+    updateLeaving() {
+        this.leaving = this.leaving.filter((e) => {
+            const k = (this.time - e.leftAt) / 0.45;
+            if (k >= 1) {
+                this.scene.remove(e.model);
+                return false;
+            }
+            const scale = e.baseScale * (1 - k * k);
+            e.model.scale.setScalar(Math.max(0.001, scale));
+            e.model.rotation.y += 0.25;
+            return true;
+        });
     }
 
     setPhase(phase, weather) {
@@ -468,27 +523,6 @@ export default class AsciiWorld {
     }
 
     /* ── Per frame ─────────────────────────────────────────────────────── */
-
-    createRain() {
-        const count = 700;
-        const positions = new Float32Array(count * 6);
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-        const seeds = new Float32Array(count * 3);
-        for (let i = 0; i < count; i += 1) {
-            seeds[i * 3] = Math.random();
-            seeds[i * 3 + 1] = Math.random();
-            seeds[i * 3 + 2] = Math.random();
-        }
-        geometry.userData.seeds = seeds;
-        const lines = new THREE.LineSegments(
-            geometry,
-            new THREE.LineBasicMaterial({ color: 0xb8d4f0, transparent: true, opacity: 0.55, depthTest: false }),
-        );
-        lines.frustumCulled = false;
-        lines.visible = false;
-        return lines;
-    }
 
     /* Little rings where drops land; they come out as o and * on the ground. */
     createSplashes() {
@@ -561,23 +595,31 @@ export default class AsciiWorld {
         mesh.instanceMatrix.needsUpdate = true;
     }
 
+    /* The drops themselves are characters drawn by the ASCII pass; here
+       only how hard it is raining, and the splashes on the ground. */
     updateRain(dt) {
         const on = (this.weather === "rain" || this.weather === "storm") && !this.reducedMotion;
-        this.rain.visible = on;
         this.updateSplashes(dt, on);
-        if (!on) return;
-        const seeds = this.rain.geometry.userData.seeds;
-        const arr = this.rain.geometry.attributes.position.array;
-        const span = 34;
-        const fall = this.weather === "storm" ? 16 : 11;
-        for (let i = 0; i < seeds.length / 3; i += 1) {
-            seeds[i * 3 + 1] = (seeds[i * 3 + 1] + (dt * fall) / 14) % 1;
-            const x = this.focus.x + (seeds[i * 3] - 0.5) * span;
-            const z = this.focus.z + (seeds[i * 3 + 2] - 0.5) * span;
-            const y = this.focus.y + 12 - seeds[i * 3 + 1] * 14;
-            arr.set([x, y, z, x - 0.18, y - 0.9, z + 0.08], i * 6);
-        }
-        this.rain.geometry.attributes.position.needsUpdate = true;
+        const u = this.quad.material.uniforms;
+        u.uTime.value = this.time;
+        u.uRain.value = on ? (this.weather === "storm" ? 1 : 0.6) : 0;
+    }
+
+    /* Stars and cloud for the ASCII pass to draw where nothing else is. */
+    updateSky(dt) {
+        const u = this.quad.material.uniforms;
+        const stars = { night: 1, dusk: 0.45, dawn: 0.3, day: 0 }[this.phaseName || "day"];
+        const clouds = { clear: 0.15, fog: 0.5, rain: 0.75, storm: 1 }[this.weather || "clear"];
+        const k = Math.min(1, dt * 0.8);
+        u.uStars.value += (stars * (1 - clouds * 0.6) - u.uStars.value) * k;
+        u.uClouds.value += (clouds - u.uClouds.value) * k;
+        const day = this.phaseName === "day" || this.phaseName === "dawn";
+        const tint = new THREE.Color(day ? 0x3c4a66 : 0x283350);
+        if (this.flash > 0.2) tint.setHex(0x8f9fd0);
+        u.uCloudColor.value.lerp(tint, this.flash > 0.2 ? 1 : k);
+        /* Turning the camera slides the sky by the matching number of cells. */
+        const hfov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect);
+        u.uSkyShift.value = (-this.yaw / hfov) * this.grid.cols;
     }
 
     updateEntity(entity, dt) {
@@ -594,14 +636,27 @@ export default class AsciiWorld {
         entity.stride += moved * 4.6;
         entity.yaw = lerpAngle(entity.yaw, entity.facing, Math.min(1, dt * 14));
         entity.model.rotation.y = entity.yaw;
-        entity.swing = Math.max(0, entity.swing - dt * 3.2);
-        entity.hurt = Math.max(0, entity.hurt - dt * 2.5);
+        entity.hurt = Math.max(0, entity.hurt - dt * 2.8);
+        const dead = entity.data && entity.data.hp <= 0;
+        entity.down = Math.min(1, Math.max(0, entity.down + (dead ? dt : -dt) * 1.6));
+        flashModel(entity.model, this.time < entity.flashUntil);
+
+        /* New arrivals pop up out of the ground with a little overshoot. */
+        const age = (this.time - entity.born) / 0.4;
+        if (age < 1) {
+            const k = age - 1;
+            entity.model.scale.setScalar(entity.baseScale * Math.max(0.001, 1 + 2.7 * k * k * k + 1.7 * k * k));
+        } else if (entity.model.scale.x !== entity.baseScale) {
+            entity.model.scale.setScalar(entity.baseScale);
+        }
+
         pose(entity.model, {
             stride: entity.stride,
             moving: entity.moving,
-            t: this.time + entity.stride * 0.01,
-            swing: Math.sin(entity.swing * Math.PI),
-            down: entity.data && entity.data.hp <= 0,
+            /* Offset each figure's clock so idle crowds don't breathe in step. */
+            t: this.time + entity.seed,
+            attack: (this.time - entity.attackStart) / 0.5,
+            down: entity.down,
             hurt: entity.hurt,
         });
     }
@@ -814,10 +869,12 @@ export default class AsciiWorld {
 
         this.players.forEach((p) => this.updateEntity(p, dt));
         this.creatures.forEach((c) => this.updateEntity(c, dt));
+        this.updateLeaving();
         this.updateCamera(dt);
         this.updateChunks();
         this.updateLighting(dt);
         this.updateRain(dt);
+        this.updateSky(dt);
         this.updateEmbers();
         wind.uTime.value = this.reducedMotion ? 0 : this.time;
         this.updateCursor();
@@ -840,14 +897,6 @@ export default class AsciiWorld {
         this.renderer.render(this.scene, this.camera);
         this.renderer.setRenderTarget(null);
         this.renderer.render(this.postScene, this.postCamera);
-        if (this.rain.visible) {
-            const g = this.grid;
-            this.renderer.autoClear = false;
-            this.renderer.setViewport(g.offX, g.offY, g.cols * g.cellW, g.rows * g.cellH);
-            this.renderer.render(this.overlay, this.camera);
-            this.renderer.setViewport(0, 0, g.width, g.height);
-            this.renderer.autoClear = true;
-        }
         this.updateLabels();
     }
 

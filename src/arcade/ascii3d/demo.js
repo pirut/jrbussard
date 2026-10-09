@@ -62,7 +62,7 @@ function nearestWater(fromX, fromY) {
     return null;
 }
 
-export function createDemo() {
+export function createDemo({ phase: fixedPhase } = {}) {
     const random = rng(7);
     const camp = findCamp();
     const cells = [];
@@ -99,7 +99,8 @@ export function createDemo() {
     }
 
     const players = [
-        { id: "you", name: "you", x: hx + 2, y: hy + 5, self: true, look: LOOKS[4], tools: { weapon: 1 } },
+        /* Start a few steps back, so the first view takes in the camp. */
+        { id: "you", name: "you", ...(isSolid(hx + 3, hy + 9) ? openNear(hx + 3, hy + 9) : { x: hx + 3, y: hy + 9 }), self: true, look: LOOKS[4], tools: { weapon: 1 } },
         ...NAMES.map((name, i) => ({
             id: name,
             name,
@@ -159,17 +160,63 @@ export function createDemo() {
             if (now > p.saidUntil) p.saidText = "";
         });
         monsters.forEach((m) => {
-            if (random() < 0.6) {
+            if (m.hp <= 0) {
+                /* Lie there a moment, then turn up somewhere else. */
+                m.deadFor = (m.deadFor || 0) + 1;
+                if (m.deadFor > 5) Object.assign(m, respawn(m), { hp: m.maxHp, deadFor: 0 });
+                return;
+            }
+            const prey = nearest(players, m, 7);
+            if (prey && m.kind !== "rat" && random() < 0.5) {
+                const dx = Math.sign(prey.x - m.x);
+                const dy = Math.sign(prey.y - m.y);
+                const [sx, sy] = Math.abs(prey.x - m.x) > Math.abs(prey.y - m.y) ? [dx, 0] : [0, dy];
+                if (!inSafeZone(m.x + sx, m.y + sy)) tryStep(m, sx, sy);
+            } else if (random() < 0.6) {
                 const [dx, dy] = DIRS[Math.floor(random() * 4)];
                 if (!inSafeZone(m.x + dx, m.y + dy)) tryStep(m, dx, dy);
             }
         });
+        /* Scuffles: anyone next to a monster trades blows with it. */
+        monsters.forEach((m) => {
+            if (m.hp <= 0) return;
+            players.forEach((p) => {
+                if (Math.abs(p.x - m.x) + Math.abs(p.y - m.y) !== 1) return;
+                if (!p.self && random() < 0.35) m.hp = Math.max(0, m.hp - 2 - Math.floor(random() * 3));
+                if (random() < 0.3) p.hp = Math.max(12, p.hp - 3);
+            });
+        });
+        players.forEach((p) => {
+            if (p.hp < 30 && random() < 0.3) p.hp += 1;
+        });
         return true;
+    }
+
+    function nearest(list, from, reach) {
+        let best = null;
+        let bestDistance = reach;
+        list.forEach((e) => {
+            const d = Math.abs(e.x - from.x) + Math.abs(e.y - from.y);
+            if (d <= bestDistance) {
+                best = e;
+                bestDistance = d;
+            }
+        });
+        return best;
+    }
+
+    function respawn(m) {
+        for (let tries = 0; tries < 40; tries += 1) {
+            const x = camp.x + Math.round((random() - 0.5) * 30);
+            const y = camp.y + Math.round((random() - 0.5) * 30);
+            if (Math.abs(x - m.x) + Math.abs(y - m.y) > 6 && !solidAt(x, y) && !occupied(x, y) && !inSafeZone(x, y)) return { x, y };
+        }
+        return { x: m.x, y: m.y };
     }
 
     const started = Date.now();
     function snapshot(now = Date.now()) {
-        const phase = PHASES[Math.floor((now - started) / 24000) % PHASES.length];
+        const phase = PHASES.includes(fixedPhase) ? fixedPhase : PHASES[Math.floor((now - started) / 24000) % PHASES.length];
         return {
             now,
             phase,
@@ -201,6 +248,14 @@ export function createDemo() {
         snapshot,
         step(dx, dy) {
             return tryStep(players[0], dx, dy);
+        },
+        /* Hit whatever is next to you. */
+        strike() {
+            const me = players[0];
+            const m = monsters.find((c) => c.hp > 0 && Math.abs(c.x - me.x) + Math.abs(c.y - me.y) === 1);
+            if (!m) return false;
+            m.hp = Math.max(0, m.hp - 3);
+            return { dx: m.x - me.x, dy: m.y - me.y };
         },
         toggleDoorNear() {
             const me = players[0];

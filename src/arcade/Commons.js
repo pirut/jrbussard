@@ -174,12 +174,20 @@ function nameColor(name) {
  * local stand-in so the world can still be seen, and walked, on any build.
  */
 function Offline() {
-  const demo = useMemo(() => createDemo(), []);
+  /* ?phase=night pins the time of day, for looking at one light. */
+  const demo = useMemo(
+    () =>
+      createDemo({
+        phase: new URLSearchParams(window.location.search).get("phase"),
+      }),
+    [],
+  );
   const [snapshot, setSnapshot] = useState(() => demo.snapshot());
   const [exploring, setExploring] = useState(false);
   const [turn, setTurn] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [raw, setRaw] = useState(false);
+  const fieldApi = useRef(null);
 
   useEffect(() => {
     document.title = "The Commons · offline preview";
@@ -209,6 +217,12 @@ function Offline() {
       else if (key === "g") {
         demo.toggleDoorNear();
         setSnapshot(demo.snapshot());
+      } else if (key === " " || key === "f") {
+        event.preventDefault();
+        const target = demo.strike();
+        if (target) fieldApi.current?.faceSelf(target.dx, target.dy);
+        fieldApi.current?.swingSelf();
+        setSnapshot(demo.snapshot());
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -229,6 +243,7 @@ function Offline() {
         zoom={zoom}
         raw={raw}
         orbit={!exploring}
+        apiRef={fieldApi}
         className="commons-offline__field"
       >
         {!exploring && (
@@ -247,8 +262,8 @@ function Offline() {
         )}
         {exploring && (
           <p className="commons-offline__hint">
-            WASD to walk · [ ] turn the camera · − + zoom · G opens doors · V
-            shows the render behind the glyphs
+            WASD to walk · space swings · [ ] turn the camera · − + zoom · G
+            opens doors · V shows the render behind the glyphs
           </p>
         )}
       </AsciiField>
