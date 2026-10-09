@@ -1,0 +1,54 @@
+import * as THREE from "three";
+import { glyphCode, GLYPH_SETS } from "./asciiPass";
+
+/*
+ * Every material in the field writes its glyph set into alpha (see
+ * asciiPass.js). That only survives if blending is off — with normal blending
+ * three.js forces opaque surfaces to alpha 1 — so all of them are made here.
+ */
+
+const cache = new Map();
+
+export function material(color, set = "solid", options = {}) {
+    const { emissive = null, unlit = false, vertexColors = false, side } = options;
+    const key = `${color}|${set}|${emissive}|${unlit}|${vertexColors}|${side}`;
+    if (cache.has(key)) return cache.get(key);
+    const common = {
+        color: vertexColors ? 0xffffff : color,
+        vertexColors,
+        blending: THREE.NoBlending,
+        transparent: false,
+        opacity: glyphCode(GLYPH_SETS[set] ?? 0),
+        side: side ?? THREE.FrontSide,
+    };
+    const made = unlit
+        ? new THREE.MeshBasicMaterial(common)
+        : new THREE.MeshLambertMaterial({
+              ...common,
+              flatShading: true,
+              /* Models glow faintly from within, so a figure in its own
+                 shadow still reads as a figure rather than a dark hole. */
+              emissive: emissive ?? (vertexColors ? 0x000000 : new THREE.Color(color).multiplyScalar(0.22)),
+          });
+    cache.set(key, made);
+    return made;
+}
+
+/* A material that is never shared, for things that animate their colour. */
+export function ownMaterial(color, set = "solid", options = {}) {
+    const { emissive = 0x000000, unlit = false } = options;
+    const common = {
+        color,
+        blending: THREE.NoBlending,
+        transparent: false,
+        opacity: glyphCode(GLYPH_SETS[set] ?? 0),
+    };
+    return unlit
+        ? new THREE.MeshBasicMaterial(common)
+        : new THREE.MeshLambertMaterial({ ...common, flatShading: true, emissive });
+}
+
+export function disposeMaterials() {
+    cache.forEach((m) => m.dispose());
+    cache.clear();
+}

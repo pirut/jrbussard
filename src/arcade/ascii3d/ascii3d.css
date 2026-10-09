@@ -1,0 +1,32 @@
+/* The 3D field. The canvas fills the box; the box decides the size. */
+.ascii3d {
+  position: relative;
+  width: 100%;
+  height: clamp(320px, 62vh, 720px);
+  background: #0b120d;
+  overflow: hidden;
+}
+@media (max-width: 700px) {
+  .ascii3d {
+    height: clamp(280px, 54vh, 520px);
+  }
+}
+.ascii3d__host {
+  position: absolute;
+  inset: 0;
+}
+.ascii3d__canvas {
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+.ascii3d__failed {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  margin: 0;
+  text-align: center;
+  color: #c9c3a8;
+  font: 13px/1.6 var(--font-mono, monospace);
+}

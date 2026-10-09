@@ -3,7 +3,6 @@ import CharliePawPatrol from "../pages/CharliePawPatrol";
 import Snake from "../arcade/Snake";
 import Breakout from "../arcade/Breakout";
 import Idle from "../arcade/Idle";
-import Commons from "../arcade/Commons";
 
 /*
  * Adventure Bay is loaded on demand. It pulls in Three.js, which is 180 kB
@@ -19,6 +18,17 @@ function AdventureBay() {
     return (
         <React.Suspense fallback={<div className="bay-boot">Rolling out…</div>}>
             <PupPatrol3D />
+        </React.Suspense>
+    );
+}
+
+/* The Commons is a Three.js scene now too, so it loads the same way. */
+const CommonsField = React.lazy(() => import("../arcade/Commons"));
+
+function Commons() {
+    return (
+        <React.Suspense fallback={<div className="bay-boot">Walking out to the field…</div>}>
+            <CommonsField />
         </React.Suspense>
     );
 }
@@ -48,8 +58,8 @@ export const microfrontends = [
         name: "THE COMMONS",
         route: "/commons",
         blurb:
-            "A real shared ASCII field: build things, fight things, talk to whoever else is online. Runs on a server, so what you build stays.",
-        tags: ["Multiplayer", "Convex", "Sandbox"],
+            "A shared survival world modelled in 3D and drawn entirely in characters. Build, fight and talk with whoever else is online; what you build stays.",
+        tags: ["Multiplayer", "3D ASCII", "Convex"],
         element: <Commons />,
     },
     {

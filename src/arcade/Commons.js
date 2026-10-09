@@ -25,8 +25,6 @@ import {
   ROAD,
   SAND,
 } from "../lib/terrain";
-import { cellMarkup } from "../lib/glyph";
-import { shadeAt, GRAIN_SPREAD } from "../lib/shade";
 import {
   ITEMS,
   STRUCTURES,
@@ -34,26 +32,25 @@ import {
   journeyOf,
   TOOL_NAMES,
 } from "../lib/survival";
-import { appearanceOf, playerColor } from "../lib/appearance";
+import { playerColor } from "../lib/appearance";
 import { Vitals, Fieldcraft, Compass } from "./CommonsPanels";
-import CharacterCreator, {
-  CharacterPortrait,
-  WorldCharacter,
-} from "./CommonsCharacter";
+import CharacterCreator, { CharacterPortrait } from "./CommonsCharacter";
+import AsciiField from "./ascii3d/AsciiField";
+import { ZOOMS } from "./ascii3d/AsciiWorld";
+import { screenStep, HEADINGS } from "./ascii3d/controls";
+import { createDemo } from "./ascii3d/demo";
 import "./arcade.css";
 import "./commons.css";
 
 /*
- * THE COMMONS — a shared ASCII field.
+ * THE COMMONS — a shared world, modelled in 3D and drawn in characters.
  *
  * Everything here lives on a Convex deployment: the terrain, the monsters,
  * what everyone has built, and the chat. This component only renders what the
  * server sends and asks it for things; it never decides anything itself.
+ * The drawing happens in ./ascii3d: real models, lit and animated, run through
+ * a pass that turns every patch of the picture into a character.
  */
-
-/* The window we draw. The world itself has no edges. */
-const COLS = 61;
-const ROWS = 29;
 
 const TILE_LOOK = {
   [GRASS]: { ch: ",", color: "#668162" },
@@ -70,8 +67,6 @@ const BLOCK_LOOK = {
   stump: { ch: ",", color: "#6b7455", label: "cleared ground" },
   rubble: { ch: ":", color: "#778174", label: "cleared ground" },
 };
-const BRIDGE = { ch: "=", color: "#c9a97a", label: "bridge" };
-const CURSOR = "#fff6d5";
 
 /*
  * What you are standing in front of, and therefore what g / b / x will do.
@@ -141,11 +136,15 @@ function describeTarget(x, y, cells, myName) {
   return { label: "open ground", verb: "right-click builds here" };
 }
 
-const MONSTER_LOOK = {
-  rat: { ch: "r", color: "#c9a227" },
-  kobold: { ch: "k", color: "#e07a5f" },
-  wolf: { ch: "w", color: "#a9b8d4" },
-  troll: { ch: "T", color: "#9b6bd6" },
+const MOVES = {
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  w: [0, -1],
+  s: [0, 1],
+  a: [-1, 0],
+  d: [1, 0],
 };
 
 const BUILD_MENU = Object.keys(STRUCTURES).map((kind, i) => ({
@@ -153,8 +152,6 @@ const BUILD_MENU = Object.keys(STRUCTURES).map((kind, i) => ({
   key: String((i + 1) % 10),
 }));
 
-/* Dark enough that torches matter, light enough to still read the ground. */
-const PHASE_LIGHT = { dawn: 0.78, day: 1, dusk: 0.85, night: 0.78 };
 /* Stable colour per name, so you learn to recognise people. */
 function nameColor(name) {
   let hash = 0;
@@ -172,258 +169,145 @@ function nameColor(name) {
   return hues[hash % hues.length];
 }
 
-function dim(hex, amount) {
-  const value = parseInt(hex.slice(1), 16);
-  const r = Math.round(((value >> 16) & 255) * amount);
-  const g = Math.round(((value >> 8) & 255) * amount);
-  const b = Math.round((value & 255) * amount);
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
-}
-
-/* Terrain takes per-cell grain; anything a player put down or has to spot
-   keeps its own colour so it reads out of the texture. */
-const GRAINED = new Set([GRASS, TREE, WATER, ROCK, ROAD, SAND]);
-
+/*
+ * No server configured. Rather than an empty cabinet, run the field against a
+ * local stand-in so the world can still be seen, and walked, on any build.
+ */
 function Offline() {
+  const demo = useMemo(() => createDemo(), []);
+  const [snapshot, setSnapshot] = useState(() => demo.snapshot());
+  const [exploring, setExploring] = useState(false);
+  const [turn, setTurn] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const [raw, setRaw] = useState(false);
+
+  useEffect(() => {
+    document.title = "The Commons · offline preview";
+    const timer = window.setInterval(() => {
+      if (demo.tick(Date.now())) setSnapshot(demo.snapshot());
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [demo]);
+
+  useEffect(() => {
+    if (!exploring) return undefined;
+    const onKeyDown = (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const move = MOVES[event.key] || MOVES[event.key.toLowerCase()];
+      if (move) {
+        event.preventDefault();
+        const [dx, dy] = screenStep(turn, move[0], move[1]);
+        if (demo.step(dx, dy)) setSnapshot(demo.snapshot());
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "[") setTurn((t) => (t + 3) % 4);
+      else if (key === "]") setTurn((t) => (t + 1) % 4);
+      else if (key === "-") setZoom((z) => Math.min(ZOOMS.length - 1, z + 1));
+      else if (key === "=" || key === "+") setZoom((z) => Math.max(0, z - 1));
+      else if (key === "v") setRaw((r) => !r);
+      else if (key === "g") {
+        demo.toggleDoorNear();
+        setSnapshot(demo.snapshot());
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [exploring, demo, turn]);
+
   return (
-    <main className="cab cab--commons">
+    <main className="cab cab--commons commons-offline">
       <header className="cab__bar">
         <Link className="cab__back" to="/" state={{ room: "arcade" }}>
           ◄ back to the arcade
         </Link>
-        <span className="cab__title">THE COMMONS</span>
+        <span className="cab__title">THE COMMONS · OFFLINE</span>
       </header>
-      <div className="commons__offline">
-        <h2>This cabinet needs a server.</h2>
-        <p>
-          The Commons is a real shared world — terrain, monsters, buildings and
-          chat all live on a Convex deployment. This build has no{" "}
-          <code>REACT_APP_CONVEX_URL</code> set, so there is nothing to connect
-          to.
-        </p>
-        <p>
-          Run <code>npx convex dev</code> once to link a deployment, then set
-          that variable in the hosting environment.
-        </p>
-      </div>
+      <AsciiField
+        state={snapshot}
+        turn={turn}
+        zoom={zoom}
+        raw={raw}
+        orbit={!exploring}
+        className="commons-offline__field"
+      >
+        {!exploring && (
+          <div className="commons__offline">
+            <h2>No server on this build.</h2>
+            <p>
+              The Commons is a shared world: terrain, monsters, buildings and
+              chat live on a Convex deployment, and this build has no{" "}
+              <code>REACT_APP_CONVEX_URL</code>. What you see is a local
+              stand-in, so nothing here is saved or shared.
+            </p>
+            <button className="cab__start" onClick={() => setExploring(true)}>
+              Walk around anyway ↗
+            </button>
+          </div>
+        )}
+        {exploring && (
+          <p className="commons-offline__hint">
+            WASD to walk · [ ] turn the camera · − + zoom · G opens doors · V
+            shows the render behind the glyphs
+          </p>
+        )}
+      </AsciiField>
     </main>
   );
 }
 
-function Field({ state, phaseLight, aim, me, fieldRef }) {
-  const rows = useMemo(() => {
-    if (!state || !state.view) return [];
-
-    const originX = state.view.x;
-    const originY = state.view.y;
-
-    /* Terrain is generated on the fly from world coordinates using the
-           same function the server collides against, so the two can never
-           disagree and nothing has to be sent over the wire. */
-    const cells = new Array(COLS * ROWS);
-    for (let y = 0; y < ROWS; y += 1) {
-      for (let x = 0; x < COLS; x += 1) {
-        const wx = originX + x;
-        const wy = originY + y;
-        const tile = tileAt(wx, wy);
-        const resource = resourceAt(wx, wy);
-        const special =
-          resource && !["wood", "fish", "stone"].includes(resource);
-        const item = special ? ITEMS[resource] : null;
-        const look = item
-          ? { ch: item.glyph, color: item.color }
-          : TILE_LOOK[tile] || TILE_LOOK[GRASS];
-        cells[y * COLS + x] = GRAINED.has(tile)
-          ? { ch: look.ch, color: look.color, grain: shadeAt(wx, wy) }
-          : look;
-      }
-    }
-
-    const put = (wx, wy, value) => {
-      const x = wx - originX;
-      const y = wy - originY;
-      if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
-      cells[y * COLS + x] = value;
-    };
-
-    state.cells.forEach((cell) => {
-      let look =
-        cell.kind === "door" && !cell.open
-          ? BLOCK_LOOK.doorShut
-          : BLOCK_LOOK[cell.kind];
-      /* A path laid across water is a bridge, and should read as one. */
-      if (cell.kind === "floor" && tileAt(cell.x, cell.y) === WATER) {
-        look = BRIDGE;
-      }
-      if (cell.kind === "campfire" && cell.fuelUntil <= state.now)
-        look = { ch: "*", color: "#777765" };
-      if (look) put(cell.x, cell.y, look);
-    });
-
-    state.monsters.forEach((monster) => {
-      put(monster.x, monster.y, MONSTER_LOOK[monster.kind] || MONSTER_LOOK.rat);
-    });
-
-    state.players.forEach((player) => {
-      put(player.x, player.y, {
-        ch: appearanceOf(player).sigil,
-        color: playerColor(player),
-        player: true,
-      });
-    });
-
-    /* Everything you can reach gets a lift, so the working area reads at
-           a glance instead of having to be discovered by trial and error. */
-    if (me) {
-      for (let dy = -REACH; dy <= REACH; dy += 1) {
-        for (let dx = -REACH; dx <= REACH; dx += 1) {
-          const wx = me.x + dx;
-          const wy = me.y + dy;
-          if (!withinReach(me, wx, wy)) continue;
-          const cx = wx - originX;
-          const cy = wy - originY;
-          if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) continue;
-          const cell = cells[cy * COLS + cx];
-          cells[cy * COLS + cx] = { ...cell, inReach: true };
-        }
-      }
-    }
-
-    /* The cell you are aiming at, by mouse or by facing. */
-    if (aim) {
-      const ax = aim.x - originX;
-      const ay = aim.y - originY;
-      if (ax >= 0 && ay >= 0 && ax < COLS && ay < ROWS) {
-        const under = cells[ay * COLS + ax];
-        cells[ay * COLS + ax] = {
-          ch: under.ch === "," || under.ch === "·" ? "+" : under.ch,
-          color: CURSOR,
-          cursor: true,
-        };
-      }
-    }
-
-    const lights = state.cells.filter(
-      (c) =>
-        STRUCTURES[c.kind]?.light &&
-        (c.kind !== "campfire" || c.fuelUntil > state.now),
-    );
-    const painted = [];
-    for (let y = 0; y < ROWS; y += 1) {
-      let html = "";
-      let runColor = null;
-      let runText = "";
-      for (let x = 0; x < COLS; x += 1) {
-        const cell = cells[y * COLS + x];
-        /* Torches and players keep their brightness after dark. */
-        const bright =
-          cell.cursor || cell.player || cell.ch === "*" || cell.ch === "!";
-        /* Distance from the player carries the picture back into the
-                   dark, so the field has somewhere to recede to. */
-        const dx = originX + x - (me ? me.x : originX + COLS / 2);
-        const dy = originY + y - (me ? me.y : originY + ROWS / 2);
-        const far = Math.min(1, Math.hypot(dx, dy) / 22);
-        const depth = 1 - far * far * 0.3;
-        const light = bright
-          ? 1
-          : Math.max(
-              0.06,
-              Math.min(
-                1,
-                Math.max(
-                  phaseLight * depth,
-                  ...lights.map((l) =>
-                    Math.max(
-                      0,
-                      1 -
-                        Math.hypot(l.x - originX - x, l.y - originY - y) /
-                          STRUCTURES[l.kind].light,
-                    ),
-                  ),
-                ) +
-                  (cell.inReach ? 0.18 : 0) +
-                  (cell.grain === undefined ? 0 : GRAIN_SPREAD[cell.grain]),
-              ),
-            );
-        const color = light >= 1 ? cell.color : dim(cell.color, light);
-        if (color !== runColor) {
-          if (runColor !== null) {
-            html += `<span style="color:${runColor}">${runText}</span>`;
-          }
-          runColor = color;
-          runText = "";
-        }
-        runText += cellMarkup(cell.ch);
-      }
-      html += `<span style="color:${runColor}">${runText}</span>`;
-      painted.push(html);
-    }
-    return painted;
-  }, [state, phaseLight, aim, me]);
-
-  return (
-    <div
-      className="cab__screen commons__field"
-      aria-hidden="true"
-      ref={fieldRef}
-    >
-      {rows.map((row, y) => (
-        <div
-          className="cab__row"
-          // eslint-disable-next-line react/no-array-index-key
-          key={y}
-          dangerouslySetInnerHTML={{ __html: row }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function Nametags({ state, onInspect }) {
+/*
+ * Nametags are ordinary DOM over the canvas. The 3D world moves each one to
+ * sit over its owner's head every frame, so React only adds and removes them.
+ */
+function Nametags({ state, onInspect, fieldApi }) {
   return (
     <div className="commons-nametags">
       {state.players
         .filter((p) => p.hp > 0)
-        .map((player, i) => (
+        .map((player) => (
           <div
             key={player.id}
             className={`commons-nametag ${player.self ? "is-self" : ""}`}
-            style={{
-              left: `${((player.x - state.view.x + 0.5) / COLS) * 100}%`,
-              top: `${((player.y - state.view.y) / ROWS) * 100}%`,
-              color: playerColor(player),
-            }}
+            ref={(el) => fieldApi.current?.registerLabel(player.id, el)}
+            style={{ color: playerColor(player) }}
           >
-            <WorldCharacter player={player} />
-            <button
-              style={{
-                transform: `translateY(-${state.players.some((other, j) => j < i && Math.abs(other.x - player.x) < 12 && Math.abs(other.y - player.y) < 3) ? ((i % 3) + 1) * 16 : 0}px)`,
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onInspect(player);
-              }}
-              aria-label={`Inspect ${player.name}`}
-            >
-              <b>{player.name}</b>
-              <small>
-                {player.self ? "YOU" : `LV ${player.level}`}
-                {player.tools?.armor
-                  ? ` · ${player.tools.armor >= 2 ? "[#]" : "H"}`
-                  : ""}
-              </small>
-            </button>
-            {player.saidText && (
-              <span className="commons-speech">{player.saidText}</span>
-            )}
+            <div className="commons-nametag__body">
+              {player.saidText && (
+                <span className="commons-speech">{player.saidText}</span>
+              )}
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInspect(player);
+                }}
+                aria-label={`Inspect ${player.name}`}
+              >
+                <b>{player.name}</b>
+                <small>
+                  {player.self ? "YOU" : `LV ${player.level}`}
+                  {player.tools?.armor
+                    ? ` · ${player.tools.armor >= 2 ? "[#]" : "H"}`
+                    : ""}
+                </small>
+              </button>
+            </div>
           </div>
         ))}
     </div>
   );
 }
 
+/*
+ * Convex hooks throw outside a provider, even when skipped, so the offline
+ * preview has to be a separate tree rather than an early return.
+ */
 export default function Commons() {
+  return multiplayerReady ? <Online /> : <Offline />;
+}
+
+function Online() {
   const session = useMemo(() => getSession(), []);
   const [name, setLocalName] = useState(() => getName());
   const [draft, setDraft] = useState("");
@@ -437,14 +321,28 @@ export default function Commons() {
   const [facing, setFacing] = useState({ dx: 0, dy: 1 });
   const facingRef = useRef(facing);
   facingRef.current = facing;
-  /* Cell under the mouse, in world coordinates, and the pixel size of one
-       cell so the selection box can be laid over the right character. */
-  const [hover, setHover] = useState(null);
+  /* Tile under the mouse, in world coordinates. */
+  const [hover, setHoverState] = useState(null);
+  const setHover = useCallback((spot) => {
+    setHoverState((current) =>
+      current === spot ||
+      (current && spot && current.x === spot.x && current.y === spot.y)
+        ? current
+        : spot,
+    );
+  }, []);
   const [selection, setSelection] = useState(null);
-  const [cellSize, setCellSize] = useState(null);
-  const fieldRef = useRef(null);
+  /* The 3D field, for picking tiles and placing nametags. */
+  const fieldApi = useRef(null);
+  /* Camera: quarter turns, zoom step, glyph density, and a peek behind
+     the characters at the plain render. */
+  const [turn, setTurn] = useState(0);
+  /* Phones get a wider shot: a portrait box shows little side to side. */
+  const [zoom, setZoom] = useState(() => (window.innerWidth < 700 ? 2 : 1));
+  const [density, setDensity] = useState("normal");
+  const [raw, setRaw] = useState(false);
 
-  const state = useQuery(api.state, multiplayerReady ? { session } : "skip");
+  const state = useQuery(api.state, { session });
   const join = useMutation(api.join);
   const heartbeat = useMutation(api.heartbeat);
   const move = useMutation(api.move);
@@ -465,7 +363,6 @@ export default function Commons() {
   }, []);
 
   useEffect(() => {
-    if (!multiplayerReady) return undefined;
     join({ session, name }).catch(() =>
       setNotice("Could not join. Check your connection."),
     );
@@ -508,11 +405,22 @@ export default function Commons() {
       setFacing({ dx, dy });
       setSelection(null);
       setHover(null);
+      fieldApi.current?.faceSelf(dx, dy);
       move({ session, dx, dy }).catch(() =>
         flash("Movement interrupted. Reconnecting…"),
       );
     },
-    [move, session, flash],
+    [move, session, flash, setHover],
+  );
+
+  /* Keys and the pad are relative to the screen, so turn them with the
+     camera before they become steps on the map. */
+  const walk = useCallback(
+    (sx, sy) => {
+      const [dx, dy] = screenStep(turn, sx, sy);
+      step(dx, dy);
+    },
+    [turn, step],
   );
 
   /* The mouse wins while it is over the field; otherwise you aim with the
@@ -546,6 +454,8 @@ export default function Commons() {
   const doGather = useCallback(
     async (spot) => {
       if (!reachable(spot)) return;
+      fieldApi.current?.faceSelf(spot.x - me.x, spot.y - me.y);
+      fieldApi.current?.swingSelf();
       const monster = state.monsters.find(
         (m) => m.x === spot.x && m.y === spot.y,
       );
@@ -594,38 +504,14 @@ export default function Commons() {
     [reachable, demolish, act],
   );
 
-  /* Translate a pointer position into a world cell. */
+  /* Translate a pointer position into a world tile. */
   const cellFromEvent = useCallback(
-    (event) => {
-      const node = fieldRef.current;
-      if (!node || !state.view) return null;
-      const box = node.getBoundingClientRect();
-      const w = box.width / COLS;
-      const h = box.height / ROWS;
-      if (!cellSize || Math.abs(cellSize.w - w) > 0.01) setCellSize({ w, h });
-      const col = Math.floor((event.clientX - box.left) / w);
-      const row = Math.floor((event.clientY - box.top) / h);
-      if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return null;
-      return { x: state.view.x + col, y: state.view.y + row };
-    },
-    [state, cellSize],
+    (event) => fieldApi.current?.pick(event.clientX, event.clientY) || null,
+    [],
   );
 
   /* Keyboard. Typing in the chat box takes precedence over everything. */
   useEffect(() => {
-    if (!multiplayerReady) return undefined;
-
-    const MOVES = {
-      ArrowUp: [0, -1],
-      ArrowDown: [0, 1],
-      ArrowLeft: [-1, 0],
-      ArrowRight: [1, 0],
-      w: [0, -1],
-      s: [0, 1],
-      a: [-1, 0],
-      d: [1, 0],
-    };
-
     const onKeyDown = (event) => {
       if (customizing || event.metaKey || event.ctrlKey || event.altKey) return;
       const typing =
@@ -649,7 +535,7 @@ export default function Commons() {
       const vector = MOVES[event.key] || MOVES[event.key.toLowerCase()];
       if (vector) {
         event.preventDefault();
-        step(vector[0], vector[1]);
+        walk(vector[0], vector[1]);
         return;
       }
 
@@ -661,6 +547,11 @@ export default function Commons() {
       else if (key === "c") setTab("Craft");
       else if (key === "i") setTab("Pack");
       else if (key === "j") setTab("Journal");
+      else if (key === "[") setTurn((t) => (t + 3) % 4);
+      else if (key === "]") setTurn((t) => (t + 1) % 4);
+      else if (key === "-") setZoom((z) => Math.min(ZOOMS.length - 1, z + 1));
+      else if (key === "=" || key === "+") setZoom((z) => Math.max(0, z - 1));
+      else if (key === "v") setRaw((r) => !r);
       else if (key === "e")
         act(eat, { item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries" });
       else {
@@ -672,7 +563,7 @@ export default function Commons() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
-    step,
+    walk,
     doGather,
     doBuild,
     doDemolishAt,
@@ -708,8 +599,6 @@ export default function Commons() {
     [customize, session, flash],
   );
 
-  if (!multiplayerReady) return <Offline />;
-
   if (!state) {
     return (
       <main className="cab cab--commons">
@@ -724,7 +613,6 @@ export default function Commons() {
     );
   }
 
-  const phaseLight = PHASE_LIGHT[state.phase] || 1;
   /* Where a click or g / b / x will act. The mouse wins while it is over
        the field, so the box, the readout and the action all agree. */
   const aim =
@@ -795,18 +683,27 @@ export default function Commons() {
           <div className="survival-location">
             <span>{state.region}</span>
             <span>
-              {me ? `${me.x}, ${me.y}` : "Arriving…"} <b>N ↑</b>
+              {me ? `${me.x}, ${me.y}` : "Arriving…"} <b>{HEADINGS[turn]} ↑</b>
             </span>
           </div>
           <div
             className="cab__stage commons__stage"
             tabIndex={0}
             role="group"
-            aria-label="World playfield. WASD to move, G to gather, B to build."
+            aria-label="World playfield. WASD to move, G to gather, B to build, [ and ] turn the camera."
             onPointerMove={(e) => {
               if (e.pointerType !== "touch") setHover(cellFromEvent(e));
             }}
             onPointerLeave={() => setHover(null)}
+            onWheel={(e) => {
+              if (Math.abs(e.deltaY) < 4) return;
+              setZoom((z) =>
+                Math.max(
+                  0,
+                  Math.min(ZOOMS.length - 1, z + Math.sign(e.deltaY)),
+                ),
+              );
+            }}
             onContextMenu={(e) => e.preventDefault()}
             onPointerDown={(e) => {
               const spot = cellFromEvent(e);
@@ -818,21 +715,83 @@ export default function Commons() {
               else if (e.button === 0) doGather(spot);
             }}
           >
-            <Field
+            <AsciiField
               state={state}
-              session={session}
-              phaseLight={phaseLight}
               aim={aim}
-              me={me}
-              fieldRef={fieldRef}
-            />
-            <Nametags state={state} onInspect={setInspected} />
-            {(state.weather === "rain" || state.weather === "storm") && (
-              <div className="commons__rain" aria-hidden="true" />
-            )}
-            {state.weather === "fog" && (
-              <div className="commons__fog" aria-hidden="true" />
-            )}
+              aimOk={aimReachable}
+              turn={turn}
+              zoom={zoom}
+              raw={raw}
+              density={density}
+              apiRef={fieldApi}
+            >
+              <Nametags
+                state={state}
+                onInspect={setInspected}
+                fieldApi={fieldApi}
+              />
+            </AsciiField>
+            <div className="survival-camera" aria-label="Camera">
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setTurn((t) => (t + 3) % 4)}
+                aria-label="Turn camera left"
+                title="Turn left  ["
+              >
+                ⟲
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setTurn((t) => (t + 1) % 4)}
+                aria-label="Turn camera right"
+                title="Turn right  ]"
+              >
+                ⟳
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setZoom((z) => Math.max(0, z - 1))}
+                aria-label="Zoom in"
+                title="Zoom in  +"
+              >
+                +
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() =>
+                  setZoom((z) => Math.min(ZOOMS.length - 1, z + 1))
+                }
+                aria-label="Zoom out"
+                title="Zoom out  −"
+              >
+                −
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() =>
+                  setDensity((d) =>
+                    d === "fine"
+                      ? "normal"
+                      : d === "normal"
+                        ? "coarse"
+                        : "fine",
+                  )
+                }
+                aria-label={`Glyph size: ${density}`}
+                title="Glyph size"
+              >
+                Aa
+              </button>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setRaw((r) => !r)}
+                aria-pressed={raw}
+                aria-label="Show the 3D render behind the characters"
+                title="Behind the glyphs  V"
+              >
+                3D
+              </button>
+            </div>
             {me?.hp <= 0 && (
               <div className="cab__overlay">
                 <p className="cab__status">The wild got you.</p>
@@ -916,36 +875,36 @@ export default function Commons() {
             <button
               onClick={() => {
                 setHover(null);
-                step(0, -1);
+                walk(0, -1);
               }}
-              aria-label="Move north"
+              aria-label="Move up the screen"
             >
               ↑
             </button>
             <button
               onClick={() => {
                 setHover(null);
-                step(-1, 0);
+                walk(-1, 0);
               }}
-              aria-label="Move west"
+              aria-label="Move left"
             >
               ←
             </button>
             <button
               onClick={() => {
                 setHover(null);
-                step(0, 1);
+                walk(0, 1);
               }}
-              aria-label="Move south"
+              aria-label="Move down the screen"
             >
               ↓
             </button>
             <button
               onClick={() => {
                 setHover(null);
-                step(1, 0);
+                walk(1, 0);
               }}
-              aria-label="Move east"
+              aria-label="Move right"
             >
               →
             </button>
@@ -957,7 +916,7 @@ export default function Commons() {
             {notice ||
               (mode === "build"
                 ? `Building ${STRUCTURES[selected].label.toLowerCase()} · click a tile or press B to place`
-                : "WASD / arrows move · click or G to gather · walk into creatures to attack")}
+                : "WASD / arrows move · click or G to gather · walk into creatures to attack · [ ] turn · scroll to zoom")}
           </p>
           <div className="survival-bottom">
             <section className="survival-chat">

@@ -299,18 +299,6 @@
   box-shadow: none;
   overflow: hidden;
 }
-.commons-survival .commons__field {
-  width: 100%;
-  font-family: "Courier New", monospace;
-  font-size: calc(100cqw / 36.61);
-  line-height: 1.08;
-  text-shadow: none;
-  letter-spacing: 0;
-  cursor: crosshair;
-}
-.commons-survival .cab__row {
-  height: 1.08em;
-}
 .commons-nametags {
   position: absolute;
   inset: 0;
@@ -319,9 +307,24 @@
 }
 .commons-nametag {
   position: absolute;
-  transform: translate(-50%, -100%);
+  left: 0;
+  top: 0;
+  visibility: hidden;
   white-space: nowrap;
   text-align: center;
+  will-change: transform;
+}
+/* The world places the tag's anchor over the head; the body hangs above it. */
+.commons-nametag__body {
+  position: relative;
+  transform: translate(-50%, -100%);
+}
+.commons-nametag__body > button {
+  opacity: 0.86;
+}
+.commons-nametag.is-self .commons-nametag__body > button,
+.commons-nametag__body > button:hover {
+  opacity: 1;
 }
 .commons-nametag button {
   pointer-events: auto;
@@ -361,6 +364,28 @@
   border: 1px solid #55634a;
   color: #e6e5cd;
   font: 11px/1.4 var(--font-mono);
+}
+.survival-camera {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 4;
+  display: flex;
+  gap: 4px;
+}
+.survival-camera button {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid #4b5b43;
+  background: #0b140dd9;
+  color: var(--dim);
+  font: 12px/1 var(--font-mono);
+}
+.survival-camera button:hover,
+.survival-camera button[aria-pressed="true"] {
+  color: var(--gold);
+  border-color: #8a7a55;
 }
 .survival-target {
   display: flex;
@@ -1439,14 +1464,6 @@
   }
 }
 
-.commons-survival .commons__rain {
-  opacity: 0.12;
-  pointer-events: none;
-}
-.commons-survival .commons__fog {
-  opacity: 0.18;
-  pointer-events: none;
-}
 .world-character {
   position: absolute;
   top: 100%;
@@ -1505,4 +1522,43 @@
   .commons-survival .commons__field .cab__row {
     height: min(1.08em, calc((100dvh - 360px) / 29));
   }
+}
+
+/* Offline preview: the field fills the cabinet with the explanation over it. */
+.commons-offline {
+  min-height: 100vh;
+}
+.commons-offline .commons-offline__field {
+  height: calc(100vh - 7rem);
+  min-height: 360px;
+  border: 1px solid #384932;
+}
+.commons-offline .commons__offline {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  width: min(56ch, calc(100% - 2rem));
+  padding: 1.4rem 1.6rem 1.6rem;
+  background: #0b120ded;
+  border: 1px solid #4b5b43;
+  box-shadow: 0 10px 40px #000a;
+  z-index: 2;
+}
+.commons-offline__hint {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 12px;
+  background: #0b120dd9;
+  border: 1px solid #384932;
+  color: #b5bfa4;
+  font: 11px/1.4 var(--font-mono);
+  white-space: nowrap;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
