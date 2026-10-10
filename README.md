@@ -132,10 +132,14 @@ measured shape of every printable character and takes the closest; flat
 stretches take a density from a ramp instead, and every material writes a code
 into alpha choosing its own family and ramp, so water draws in `~`, grass in
 `/|\` and timber in `=`. Depth jumps outline people, creatures and buildings
-with strokes running along the edge. Figures keep their real colours and draw
-in symbols rather than letters, so they stand out from a world written in type.
-The second pass stamps each character from an atlas. Rain, stars and cloud are
-drawn straight onto the character grid.
+with strokes running along the edge. Stone, timber and people draw in marks and
+strokes rather than letters, so walls read as masonry, not as a page of type;
+lit windows and lanterns draw as solid squares. On the site the joints of the
+paving are traced in perspective from the depth buffer, which gives the ground
+its scale. The second pass stamps each character from an atlas over a faint
+wash of the cell's colour, plus the light that windows, lanterns and fire spill
+onto what is around them. Rain, stars, cloud and the moon are drawn straight
+onto the character grid.
 
 People and creatures are rounded, jointed rigs with faces. They bend at the knee
 and elbow, wind up and strike, flash and spill damage numbers on a hit, show a

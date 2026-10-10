@@ -93,7 +93,7 @@ export function tenement(b, x, z, y, h, open, lot, { crown = true } = {}) {
                        of light seen edge on down a lane. */
                     const lit = r < 0.24;
                     const hex = lit ? LIGHTS[Math.floor(hash(x + k, z + i, 215) * LIGHTS.length)] : "#24242a";
-                    panel(b, lit ? "solid:glow" : "solid", f, cx, sy + 0.24, cz, half, along, 0.2, 0.42, hex, lit ? 0.5 + r * 1.5 : 1);
+                    panel(b, lit ? "light:glow" : "light", f, cx, sy + 0.24, cz, half, along, 0.2, 0.42, hex, lit ? 0.5 + r * 1.5 : 1);
                 }
                 /* Now and then a cage over a window, or a box humming. */
                 const extra = hash(x * 11 + k, z * 3 + s, 216 + f.charCodeAt(0));
@@ -178,7 +178,7 @@ export function alleyClutter(b, x, z, y, across, room, width = 1) {
         span(by, 0.8, 0.8, SKINS[Math.floor(hash(x, z, 235) * SKINS.length)], "solid");
         span(by + 0.8, 0.08, 0.9, STONE_TRIM, "solid");
         const face = across === "x" ? ["s", "n"] : ["e", "w"];
-        face.forEach((f) => [-0.25, 0.25].forEach((along) => panel(b, "solid:glow", f, x, by + 0.22, z, 0.4, along * width, 0.18, 0.34, WINDOW, 0.75)));
+        face.forEach((f) => [-0.25, 0.25].forEach((along) => panel(b, "light:glow", f, x, by + 0.22, z, 0.4, along * width, 0.18, 0.34, WINDOW, 0.75)));
     } else if (pick < 0.42) {
         /* Washing on a line. */
         const ly = y + 2.9 + hash(x, z, 236) * 0.8;
@@ -197,8 +197,8 @@ export function alleyClutter(b, x, z, y, across, room, width = 1) {
         const sy = y + 2.4 + hash(x, z, 242) * 0.9;
         const hex = ["#e0584a", "#e6b768", "#9fd0a0", "#e07a9a"][Math.floor(hash(x, z, 243) * 4)];
         const out = width / 2 - 0.16;
-        if (across === "x") box(b, "solid:glow", x + s * out, sy, z, 0.3, 0.6, 0.05, hex, 0.8);
-        else box(b, "solid:glow", x, sy, z + s * out, 0.05, 0.6, 0.3, hex, 0.8);
+        if (across === "x") box(b, "light:glow", x + s * out, sy, z, 0.3, 0.6, 0.05, hex, 0.8);
+        else box(b, "light:glow", x, sy, z + s * out, 0.05, 0.6, 0.3, hex, 0.8);
     }
 }
 
@@ -228,7 +228,7 @@ export function oddity(b, x, z, y, pick, room) {
             const w = 1.6 - i * 0.05;
             box(b, "solid", x + i * 0.07, top, z, w, STOREY, w, SKINS[i % SKINS.length], 0.95);
             box(b, "solid", x + i * 0.07, top + STOREY - 0.06, z, w + 0.08, 0.08, w + 0.08, STONE_TRIM, 0.85);
-            panel(b, hash(x, i, 252) < 0.5 ? "solid:glow" : "solid", "s", x + i * 0.07, top + 0.24, z, w / 2, 0, 0.3, 0.4, WINDOW, 0.7);
+            panel(b, hash(x, i, 252) < 0.5 ? "light:glow" : "solid", "s", x + i * 0.07, top + 0.24, z, w / 2, 0, 0.3, 0.4, WINDOW, 0.7);
             top += STOREY;
         }
         crookedSpire(b, x + n * 0.07, z, top, 3, 0.2, 0.6, GOLD);
@@ -245,6 +245,6 @@ export function oddity(b, x, z, y, pick, room) {
 export function wallLantern(b, x, z, y, dx, dz) {
     const iron = "#3a3a40";
     box(b, "solid", x + dx * 0.1, y + 0.28, z + dz * 0.1, dx ? 0.22 : 0.04, 0.04, dz ? 0.22 : 0.04, iron);
-    box(b, "solid:glow", x, y - 0.12, z, 0.16, 0.26, 0.16, "#ffd38a");
+    box(b, "light:glow", x, y - 0.12, z, 0.16, 0.26, 0.16, "#ffd38a");
     b.shape("solid", P.tent(), place(x, y + 0.14, z, 0.24, 0.14, 0.24), col(iron));
 }
