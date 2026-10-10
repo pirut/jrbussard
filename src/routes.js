@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from "react";
 import World from "./pages/World";
+import NotFound from "./pages/NotFound";
 import { microfrontends } from "./microfrontends/registry";
 import { isPrayerHost } from './prayer/location';
 const Prayer = lazy(() => import('./prayer/PrayerRoot'));
@@ -14,4 +15,5 @@ export const routes = isPrayerHost(window.location.hostname) ? [
         element: <World />,
     },
     ...microfrontends.map((app) => ({ path: app.route, element: app.element })),
+    { path: "*", element: <NotFound /> },
 ];

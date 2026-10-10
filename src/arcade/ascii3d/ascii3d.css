@@ -1,0 +1,72 @@
+/* The 3D field. The canvas fills the box; the box decides the size. */
+.ascii3d {
+  position: relative;
+  width: 100%;
+  height: clamp(320px, 62vh, 720px);
+  background: #0b120d;
+  overflow: hidden;
+}
+@media (max-width: 700px) {
+  .ascii3d {
+    height: clamp(280px, 54vh, 520px);
+  }
+}
+.ascii3d__host {
+  position: absolute;
+  inset: 0;
+}
+.ascii3d__canvas {
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+.ascii3d__failed {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  margin: 0;
+  text-align: center;
+  color: #c9c3a8;
+  font: 13px/1.6 var(--font-mono, monospace);
+}
+
+/* Damage numbers and health bars, positioned each frame by AsciiWorld. */
+.ascii3d__fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ascii3d__float,
+.ascii3d__bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font: 700 13px/1 var(--font-mono, monospace);
+  white-space: nowrap;
+  translate: -50% -100%;
+  text-shadow: 0 0 3px #000, 0 1px 0 #000;
+  will-change: transform;
+}
+.ascii3d__float--damage {
+  color: #ffd27a;
+}
+.ascii3d__float--hurt {
+  color: #ff6b5e;
+  font-size: 15px;
+}
+.ascii3d__float--gain {
+  color: #9fe0a8;
+}
+.ascii3d__float--level {
+  color: #ffe9a8;
+  font-size: 17px;
+  letter-spacing: 0.08em;
+}
+.ascii3d__bar {
+  color: #ff8a73;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}

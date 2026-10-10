@@ -82,6 +82,12 @@ export function tileAt(x, y) {
     return GRASS;
 }
 
+/* Raw landform height in [0, 1). The tile kinds above are cut from it; the 3D
+   field also uses it so hills rise toward the rocks they are named for. */
+export function elevationAt(x, y) {
+    return ridged(x, y, SEED);
+}
+
 export function isSolid(x, y) {
     return SOLID.has(tileAt(x, y));
 }

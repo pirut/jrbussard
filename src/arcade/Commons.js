@@ -14,55 +14,35 @@ import {
   getName,
   setName,
 } from "../lib/convex";
-import {
-  tileAt,
-  withinReach,
-  REACH,
-  GRASS,
-  TREE,
-  WATER,
-  ROCK,
-  ROAD,
-  SAND,
-} from "../lib/terrain";
-import { cellMarkup } from "../lib/glyph";
-import { shadeAt, GRAIN_SPREAD } from "../lib/shade";
+import { tileAt, withinReach, TREE, WATER, ROCK } from "../lib/terrain";
 import {
   ITEMS,
   STRUCTURES,
   resourceAt,
   journeyOf,
+  inventoryOf,
   TOOL_NAMES,
 } from "../lib/survival";
-import { appearanceOf, playerColor } from "../lib/appearance";
-import { Vitals, Fieldcraft, Compass } from "./CommonsPanels";
-import CharacterCreator, {
-  CharacterPortrait,
-  WorldCharacter,
-} from "./CommonsCharacter";
+import { playerColor } from "../lib/appearance";
+import { Fieldcraft, Compass } from "./CommonsPanels";
+import CharacterCreator, { CharacterPortrait } from "./CommonsCharacter";
+import AsciiField from "./ascii3d/AsciiField";
+import { screenStep } from "./ascii3d/controls";
+import { passability, findPath } from "./ascii3d/navigation";
+import { createDemo } from "./ascii3d/demo";
 import "./arcade.css";
 import "./commons.css";
+import "./game.css";
 
 /*
- * THE COMMONS — a shared ASCII field.
+ * THE COMMONS — a shared world, modelled in 3D and drawn in characters.
  *
  * Everything here lives on a Convex deployment: the terrain, the monsters,
  * what everyone has built, and the chat. This component only renders what the
  * server sends and asks it for things; it never decides anything itself.
+ * The drawing happens in ./ascii3d: real models, lit and animated, run through
+ * a pass that turns every patch of the picture into a character.
  */
-
-/* The window we draw. The world itself has no edges. */
-const COLS = 61;
-const ROWS = 29;
-
-const TILE_LOOK = {
-  [GRASS]: { ch: ",", color: "#668162" },
-  [TREE]: { ch: "T", color: "#8faf7c" },
-  [WATER]: { ch: "~", color: "#82b4c6" },
-  [ROCK]: { ch: "^", color: "#a6ada5" },
-  [ROAD]: { ch: ".", color: "#9e956f" },
-  [SAND]: { ch: ".", color: "#b8a06a" },
-};
 
 const BLOCK_LOOK = {
   ...STRUCTURES,
@@ -70,11 +50,9 @@ const BLOCK_LOOK = {
   stump: { ch: ",", color: "#6b7455", label: "cleared ground" },
   rubble: { ch: ":", color: "#778174", label: "cleared ground" },
 };
-const BRIDGE = { ch: "=", color: "#c9a97a", label: "bridge" };
-const CURSOR = "#fff6d5";
 
 /*
- * What you are standing in front of, and therefore what g / b / x will do.
+ * What you are standing in front of, and therefore what a click or a key will do.
  * Terrain comes from the shared generator, so this needs nothing from the
  * server beyond the blocks other people have placed.
  */
@@ -82,7 +60,7 @@ function describeTarget(x, y, cells, myName) {
   const built = cells.find((c) => c.x === x && c.y === y);
   if (built) {
     const cleared = built.kind === "stump" || built.kind === "rubble";
-    if (cleared) return { label: "cleared ground", verb: "right-click builds" };
+    if (cleared) return { label: "cleared ground", verb: "B to build here" };
 
     const mine = built.mine;
     const owner = built.ownerName ? ` · ${built.ownerName}` : "";
@@ -90,7 +68,7 @@ function describeTarget(x, y, cells, myName) {
     if (built.kind === "door") {
       return {
         label: `${built.open ? "open" : "shut"} door${owner}`,
-        verb: `left-click ${built.open ? "shuts" : "opens"} it`,
+        verb: `click to ${built.open ? "shut" : "open"} it`,
       };
     }
     if (built.kind === "sign") {
@@ -98,31 +76,31 @@ function describeTarget(x, y, cells, myName) {
         label: built.text
           ? `sign: "${built.text}"${owner}`
           : `blank sign${owner}`,
-        verb: mine ? "left-click reads · x removes" : "left-click reads it",
+        verb: mine ? "click to read · X removes" : "click to read it",
       };
     }
 
     if (built.kind === "campfire")
       return {
         label: `campfire${owner}`,
-        verb: "use to add 1 wood · stand nearby to warm up",
+        verb: "click to add wood · stand close to warm up",
       };
     if (built.kind === "bedroll")
-      return { label: `bedroll${owner}`, verb: "use to set your camp" };
+      return { label: `bedroll${owner}`, verb: "click to set your camp" };
     if (built.kind === "chest")
       return {
         label: `shared chest${owner}`,
-        verb: "open Pack to store or take supplies",
+        verb: "Tab opens your pack to store or take",
       };
     if (["workbench", "furnace"].includes(built.kind))
       return {
         label: `${built.kind}${owner}`,
-        verb: "open Craft to use this station",
+        verb: "Tab opens crafting here",
       };
     const look = BLOCK_LOOK[built.kind];
     return {
       label: `${look ? look.label : built.kind}${owner}`,
-      verb: mine ? "x removes it" : "not yours to remove",
+      verb: mine ? "X removes it" : "not yours to remove",
     };
   }
 
@@ -130,22 +108,24 @@ function describeTarget(x, y, cells, myName) {
   if (resource && resource !== "fish")
     return {
       label: ITEMS[resource].name.toLowerCase(),
-      verb: "click or G to gather",
+      verb: "click to gather",
     };
   const tile = tileAt(x, y);
-  if (tile === TREE)
-    return { label: "tree", verb: "left-click chops it for wood" };
-  if (tile === ROCK)
-    return { label: "rock", verb: "left-click mines it for stone" };
-  if (tile === WATER) return { label: "water", verb: "right-click bridges it" };
-  return { label: "open ground", verb: "right-click builds here" };
+  if (tile === TREE) return { label: "tree", verb: "click to chop for wood" };
+  if (tile === ROCK) return { label: "rock", verb: "click to mine for stone" };
+  if (tile === WATER) return { label: "water", verb: "B to bridge it" };
+  return { label: "open ground", verb: "click to walk · B to build" };
 }
 
-const MONSTER_LOOK = {
-  rat: { ch: "r", color: "#c9a227" },
-  kobold: { ch: "k", color: "#e07a5f" },
-  wolf: { ch: "w", color: "#a9b8d4" },
-  troll: { ch: "T", color: "#9b6bd6" },
+const MOVES = {
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  w: [0, -1],
+  s: [0, 1],
+  a: [-1, 0],
+  d: [1, 0],
 };
 
 const BUILD_MENU = Object.keys(STRUCTURES).map((kind, i) => ({
@@ -153,8 +133,6 @@ const BUILD_MENU = Object.keys(STRUCTURES).map((kind, i) => ({
   key: String((i + 1) % 10),
 }));
 
-/* Dark enough that torches matter, light enough to still read the ground. */
-const PHASE_LIGHT = { dawn: 0.78, day: 1, dusk: 0.85, night: 0.78 };
 /* Stable colour per name, so you learn to recognise people. */
 function nameColor(name) {
   let hash = 0;
@@ -172,310 +150,266 @@ function nameColor(name) {
   return hues[hash % hues.length];
 }
 
-function dim(hex, amount) {
-  const value = parseInt(hex.slice(1), 16);
-  const r = Math.round(((value >> 16) & 255) * amount);
-  const g = Math.round(((value >> 8) & 255) * amount);
-  const b = Math.round((value & 255) * amount);
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
-}
-
-/* Terrain takes per-cell grain; anything a player put down or has to spot
-   keeps its own colour so it reads out of the texture. */
-const GRAINED = new Set([GRASS, TREE, WATER, ROCK, ROAD, SAND]);
-
-function Offline() {
-  return (
-    <main className="cab cab--commons">
-      <header className="cab__bar">
-        <Link className="cab__back" to="/" state={{ room: "arcade" }}>
-          ◄ back to the arcade
-        </Link>
-        <span className="cab__title">THE COMMONS</span>
-      </header>
-      <div className="commons__offline">
-        <h2>This cabinet needs a server.</h2>
-        <p>
-          The Commons is a real shared world — terrain, monsters, buildings and
-          chat all live on a Convex deployment. This build has no{" "}
-          <code>REACT_APP_CONVEX_URL</code> set, so there is nothing to connect
-          to.
-        </p>
-        <p>
-          Run <code>npx convex dev</code> once to link a deployment, then set
-          that variable in the hosting environment.
-        </p>
-      </div>
-    </main>
-  );
-}
-
-function Field({ state, phaseLight, aim, me, fieldRef }) {
-  const rows = useMemo(() => {
-    if (!state || !state.view) return [];
-
-    const originX = state.view.x;
-    const originY = state.view.y;
-
-    /* Terrain is generated on the fly from world coordinates using the
-           same function the server collides against, so the two can never
-           disagree and nothing has to be sent over the wire. */
-    const cells = new Array(COLS * ROWS);
-    for (let y = 0; y < ROWS; y += 1) {
-      for (let x = 0; x < COLS; x += 1) {
-        const wx = originX + x;
-        const wy = originY + y;
-        const tile = tileAt(wx, wy);
-        const resource = resourceAt(wx, wy);
-        const special =
-          resource && !["wood", "fish", "stone"].includes(resource);
-        const item = special ? ITEMS[resource] : null;
-        const look = item
-          ? { ch: item.glyph, color: item.color }
-          : TILE_LOOK[tile] || TILE_LOOK[GRASS];
-        cells[y * COLS + x] = GRAINED.has(tile)
-          ? { ch: look.ch, color: look.color, grain: shadeAt(wx, wy) }
-          : look;
-      }
-    }
-
-    const put = (wx, wy, value) => {
-      const x = wx - originX;
-      const y = wy - originY;
-      if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
-      cells[y * COLS + x] = value;
-    };
-
-    state.cells.forEach((cell) => {
-      let look =
-        cell.kind === "door" && !cell.open
-          ? BLOCK_LOOK.doorShut
-          : BLOCK_LOOK[cell.kind];
-      /* A path laid across water is a bridge, and should read as one. */
-      if (cell.kind === "floor" && tileAt(cell.x, cell.y) === WATER) {
-        look = BRIDGE;
-      }
-      if (cell.kind === "campfire" && cell.fuelUntil <= state.now)
-        look = { ch: "*", color: "#777765" };
-      if (look) put(cell.x, cell.y, look);
-    });
-
-    state.monsters.forEach((monster) => {
-      put(monster.x, monster.y, MONSTER_LOOK[monster.kind] || MONSTER_LOOK.rat);
-    });
-
-    state.players.forEach((player) => {
-      put(player.x, player.y, {
-        ch: appearanceOf(player).sigil,
-        color: playerColor(player),
-        player: true,
-      });
-    });
-
-    /* Everything you can reach gets a lift, so the working area reads at
-           a glance instead of having to be discovered by trial and error. */
-    if (me) {
-      for (let dy = -REACH; dy <= REACH; dy += 1) {
-        for (let dx = -REACH; dx <= REACH; dx += 1) {
-          const wx = me.x + dx;
-          const wy = me.y + dy;
-          if (!withinReach(me, wx, wy)) continue;
-          const cx = wx - originX;
-          const cy = wy - originY;
-          if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) continue;
-          const cell = cells[cy * COLS + cx];
-          cells[cy * COLS + cx] = { ...cell, inReach: true };
-        }
-      }
-    }
-
-    /* The cell you are aiming at, by mouse or by facing. */
-    if (aim) {
-      const ax = aim.x - originX;
-      const ay = aim.y - originY;
-      if (ax >= 0 && ay >= 0 && ax < COLS && ay < ROWS) {
-        const under = cells[ay * COLS + ax];
-        cells[ay * COLS + ax] = {
-          ch: under.ch === "," || under.ch === "·" ? "+" : under.ch,
-          color: CURSOR,
-          cursor: true,
-        };
-      }
-    }
-
-    const lights = state.cells.filter(
-      (c) =>
-        STRUCTURES[c.kind]?.light &&
-        (c.kind !== "campfire" || c.fuelUntil > state.now),
-    );
-    const painted = [];
-    for (let y = 0; y < ROWS; y += 1) {
-      let html = "";
-      let runColor = null;
-      let runText = "";
-      for (let x = 0; x < COLS; x += 1) {
-        const cell = cells[y * COLS + x];
-        /* Torches and players keep their brightness after dark. */
-        const bright =
-          cell.cursor || cell.player || cell.ch === "*" || cell.ch === "!";
-        /* Distance from the player carries the picture back into the
-                   dark, so the field has somewhere to recede to. */
-        const dx = originX + x - (me ? me.x : originX + COLS / 2);
-        const dy = originY + y - (me ? me.y : originY + ROWS / 2);
-        const far = Math.min(1, Math.hypot(dx, dy) / 22);
-        const depth = 1 - far * far * 0.3;
-        const light = bright
-          ? 1
-          : Math.max(
-              0.06,
-              Math.min(
-                1,
-                Math.max(
-                  phaseLight * depth,
-                  ...lights.map((l) =>
-                    Math.max(
-                      0,
-                      1 -
-                        Math.hypot(l.x - originX - x, l.y - originY - y) /
-                          STRUCTURES[l.kind].light,
-                    ),
-                  ),
-                ) +
-                  (cell.inReach ? 0.18 : 0) +
-                  (cell.grain === undefined ? 0 : GRAIN_SPREAD[cell.grain]),
-              ),
-            );
-        const color = light >= 1 ? cell.color : dim(cell.color, light);
-        if (color !== runColor) {
-          if (runColor !== null) {
-            html += `<span style="color:${runColor}">${runText}</span>`;
-          }
-          runColor = color;
-          runText = "";
-        }
-        runText += cellMarkup(cell.ch);
-      }
-      html += `<span style="color:${runColor}">${runText}</span>`;
-      painted.push(html);
-    }
-    return painted;
-  }, [state, phaseLight, aim, me]);
-
-  return (
-    <div
-      className="cab__screen commons__field"
-      aria-hidden="true"
-      ref={fieldRef}
-    >
-      {rows.map((row, y) => (
-        <div
-          className="cab__row"
-          // eslint-disable-next-line react/no-array-index-key
-          key={y}
-          dangerouslySetInnerHTML={{ __html: row }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function Nametags({ state, onInspect }) {
+/*
+ * Nametags are ordinary DOM over the canvas. The 3D world moves each one to
+ * sit over its owner's head every frame, so React only adds and removes them.
+ */
+function Nametags({ state, onInspect, fieldApi }) {
   return (
     <div className="commons-nametags">
       {state.players
         .filter((p) => p.hp > 0)
-        .map((player, i) => (
+        .map((player) => (
           <div
             key={player.id}
             className={`commons-nametag ${player.self ? "is-self" : ""}`}
-            style={{
-              left: `${((player.x - state.view.x + 0.5) / COLS) * 100}%`,
-              top: `${((player.y - state.view.y) / ROWS) * 100}%`,
-              color: playerColor(player),
-            }}
+            ref={(el) => fieldApi.current?.registerLabel(player.id, el)}
+            style={{ color: playerColor(player) }}
           >
-            <WorldCharacter player={player} />
-            <button
-              style={{
-                transform: `translateY(-${state.players.some((other, j) => j < i && Math.abs(other.x - player.x) < 12 && Math.abs(other.y - player.y) < 3) ? ((i % 3) + 1) * 16 : 0}px)`,
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onInspect(player);
-              }}
-              aria-label={`Inspect ${player.name}`}
-            >
-              <b>{player.name}</b>
-              <small>
-                {player.self ? "YOU" : `LV ${player.level}`}
-                {player.tools?.armor
-                  ? ` · ${player.tools.armor >= 2 ? "[#]" : "H"}`
-                  : ""}
-              </small>
-            </button>
-            {player.saidText && (
-              <span className="commons-speech">{player.saidText}</span>
-            )}
+            <div className="commons-nametag__body">
+              {player.saidText && (
+                <span className="commons-speech">{player.saidText}</span>
+              )}
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInspect(player);
+                }}
+                aria-label={`Inspect ${player.name}`}
+              >
+                <b>{player.name}</b>
+                <small>
+                  {player.self ? "YOU" : `LV ${player.level}`}
+                  {player.tools?.armor
+                    ? ` · ${player.tools.armor >= 2 ? "[#]" : "H"}`
+                    : ""}
+                </small>
+              </button>
+            </div>
           </div>
         ))}
     </div>
   );
 }
 
+/*
+ * Convex hooks throw outside a provider, even when skipped, so the offline
+ * preview has to be a separate tree rather than an early return. Both trees
+ * end in the same <Game>; they differ only in who answers its calls.
+ */
 export default function Commons() {
+  return multiplayerReady ? <Online /> : <Offline />;
+}
+
+function Online() {
   const session = useMemo(() => getSession(), []);
   const [name, setLocalName] = useState(() => getName());
-  const [draft, setDraft] = useState("");
-  const [selected, setSelected] = useState("wall");
-  const [notice, setNotice] = useState("");
-  const [customizing, setCustomizing] = useState(false);
-  const [inspected, setInspected] = useState(null);
-  const [tab, setTab] = useState("Craft");
-  const [mode, setMode] = useState("gather");
-  const inputRef = useRef(null);
-  const [facing, setFacing] = useState({ dx: 0, dy: 1 });
-  const facingRef = useRef(facing);
-  facingRef.current = facing;
-  /* Cell under the mouse, in world coordinates, and the pixel size of one
-       cell so the selection box can be laid over the right character. */
-  const [hover, setHover] = useState(null);
-  const [selection, setSelection] = useState(null);
-  const [cellSize, setCellSize] = useState(null);
-  const fieldRef = useRef(null);
-
-  const state = useQuery(api.state, multiplayerReady ? { session } : "skip");
+  const state = useQuery(api.state, { session });
   const join = useMutation(api.join);
   const heartbeat = useMutation(api.heartbeat);
-  const move = useMutation(api.move);
-  const harvest = useMutation(api.harvest);
-  const build = useMutation(api.build);
-  const demolish = useMutation(api.demolish);
-  const use = useMutation(api.use);
-  const say = useMutation(api.say);
-  const drink = useMutation(api.drink);
-  const respawn = useMutation(api.respawn);
-  const craft = useMutation(api.craft);
-  const eat = useMutation(api.eat);
-  const transfer = useMutation(api.transfer);
-  const customize = useMutation(api.customize);
+  const mutations = {
+    move: useMutation(api.move),
+    harvest: useMutation(api.harvest),
+    build: useMutation(api.build),
+    demolish: useMutation(api.demolish),
+    use: useMutation(api.use),
+    say: useMutation(api.say),
+    drink: useMutation(api.drink),
+    respawn: useMutation(api.respawn),
+    craft: useMutation(api.craft),
+    eat: useMutation(api.eat),
+    transfer: useMutation(api.transfer),
+    customize: useMutation(api.customize),
+  };
+  const mutationsRef = useRef(mutations);
+  mutationsRef.current = mutations;
+  const [lost, setLost] = useState("");
 
   useEffect(() => {
     document.title = "The Commons · a shared survival world";
   }, []);
 
   useEffect(() => {
-    if (!multiplayerReady) return undefined;
     join({ session, name }).catch(() =>
-      setNotice("Could not join. Check your connection."),
+      setLost("Could not join. Check your connection."),
     );
     const timer = window.setInterval(() => {
-      heartbeat({ session }).catch(() =>
-        setNotice("Connection interrupted. Reconnecting…"),
-      );
+      heartbeat({ session })
+        .then(() => setLost(""))
+        .catch(() => setLost("Connection interrupted. Reconnecting…"));
     }, 15000);
     return () => window.clearInterval(timer);
   }, [join, heartbeat, session, name]);
+
+  const call = useCallback(
+    (kind, args = {}) => mutationsRef.current[kind]({ session, ...args }),
+    [session],
+  );
+
+  const saveCharacter = useCallback(
+    async ({ name: newName, appearance }) => {
+      await call("customize", { name: newName, appearance });
+      setName(newName.trim());
+      setLocalName(newName.trim());
+    },
+    [call],
+  );
+
+  if (!state) {
+    return (
+      <main className="commons-game commons-game--loading">
+        <p className="game-loading">
+          <span>THE COMMONS</span>
+          {lost || "walking out to the field…"}
+        </p>
+      </main>
+    );
+  }
+  return (
+    <Game
+      state={state}
+      call={call}
+      live
+      status={lost}
+      onSaveCharacter={saveCharacter}
+    />
+  );
+}
+
+/*
+ * No server configured. Rather than an empty cabinet, run the same game
+ * against a local stand-in, so the world can be seen and played on any build.
+ */
+function Offline() {
+  /* ?phase=night and ?weather=storm pin the sky, for looking at one light. */
+  const demo = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return createDemo({
+      phase: params.get("phase"),
+      weather: params.get("weather"),
+    });
+  }, []);
+  const [snapshot, setSnapshot] = useState(() => demo.snapshot());
+
+  useEffect(() => {
+    document.title = "The Commons · offline preview";
+    const timer = window.setInterval(() => {
+      if (demo.tick(Date.now())) setSnapshot(demo.snapshot());
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [demo]);
+
+  const call = useCallback(
+    (kind, args = {}) => {
+      const message = demo.call(kind, args);
+      setSnapshot(demo.snapshot());
+      return Promise.resolve(message);
+    },
+    [demo],
+  );
+
+  const saveCharacter = useCallback(
+    async ({ name, appearance }) => {
+      await call("customize", { name, appearance });
+    },
+    [call],
+  );
+
+  return (
+    <Game
+      state={snapshot}
+      call={call}
+      live={false}
+      onSaveCharacter={saveCharacter}
+    />
+  );
+}
+
+/* One step per this long while a movement key is held. The server allows
+   one every 120ms; a little slack keeps steps from being dropped. */
+const STEP_MS = 165;
+/* How often a held mouse button swings again. */
+const SWING_MS = 430;
+
+const sameSpot = (a, b) => a === b || (a && b && a.x === b.x && a.y === b.y);
+const isCleared = (cell) =>
+  cell && (cell.kind === "stump" || cell.kind === "rubble");
+
+function Bar({ value, max, width = 14 }) {
+  const filled = Math.max(
+    0,
+    Math.min(width, Math.round((value / Math.max(1, max)) * width)),
+  );
+  return (
+    <span className="game-bar" aria-hidden="true">
+      <i>{"█".repeat(filled)}</i>
+      {"░".repeat(width - filled)}
+    </span>
+  );
+}
+
+const PHASE_GLYPH = { dawn: "◒", day: "☼", dusk: "◓", night: "☾" };
+const WEATHER_WORD = {
+  clear: "clear",
+  rain: "rain",
+  storm: "storm",
+  fog: "fog",
+};
+
+/*
+ * The game itself: a field that fills the window, a HUD over it, and
+ * keyboard and mouse controls in the manner of any action RPG.
+ *
+ *   WASD / arrows    walk (hold to keep walking), relative to the camera
+ *   left click       walk there, or go and chop, mine, open, attack
+ *   hold left        keep attacking or gathering
+ *   right drag       turn the camera; wheel zooms
+ *   space            act on what is in front of you
+ *   B, 1–9           build; click to place, right click or Esc to stop
+ *   E / Q            eat / drink a potion
+ *   Tab or C, I, J   craft, pack, journal
+ *   Enter            talk
+ *   F                full screen
+ */
+function Game({ state, call, live, status = "", onSaveCharacter }) {
+  const rootRef = useRef(null);
+  const stageRef = useRef(null);
+  const fieldApi = useRef(null);
+  const chatRef = useRef(null);
+
+  const [notice, setNotice] = useState("");
+  const [panel, setPanel] = useState(null);
+  const [building, setBuilding] = useState(false);
+  const [selected, setSelected] = useState("wall");
+  const [hover, setHoverState] = useState(null);
+  const [chatting, setChatting] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [customizing, setCustomizing] = useState(false);
+  const [inspected, setInspected] = useState(null);
+  const [raw, setRaw] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  /* Offline, the camera circles the camp until you step in. */
+  const [playing, setPlaying] = useState(live);
+  const [density] = useState(() =>
+    window.innerWidth < 700 ? "coarse" : "normal",
+  );
+
+  const me = state.me;
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const buildingRef = useRef(building);
+  buildingRef.current = building;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const hoverRef = useRef(hover);
+  hoverRef.current = hover;
+
+  const setHover = useCallback((spot) => {
+    setHoverState((current) => (sameSpot(current, spot) ? current : spot));
+  }, []);
 
   const noticeTimer = useRef(null);
   useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
@@ -483,547 +417,845 @@ export default function Commons() {
     if (!message) return;
     setNotice(message);
     window.clearTimeout(noticeTimer.current);
-    noticeTimer.current = window.setTimeout(() => setNotice(""), 4000);
+    noticeTimer.current = window.setTimeout(() => setNotice(""), 3200);
   }, []);
 
   const act = useCallback(
-    async (mutation, args) => {
+    async (kind, args = {}) => {
       try {
-        const message = await mutation({ session, ...args });
+        const message = await call(kind, args);
         flash(message);
         return message;
       } catch {
-        flash("That action could not reach the world. Try again.");
+        flash("That could not reach the world. Try again.");
         return null;
       }
     },
-    [session, flash],
+    [call, flash],
   );
-  const me = state && state.me;
 
-  const step = useCallback(
+  /* ── Walking ──────────────────────────────────────────────────────── */
+
+  /* Where you will be once the steps already sent land. Steps go out
+     before the server answers, so this runs ahead of `me` while you walk
+     and falls back to it when you stop. */
+  const posRef = useRef(null);
+  const lastStepRef = useRef(0);
+  const facingRef = useRef({ dx: 0, dy: 1 });
+  const planRef = useRef(null);
+  const heldRef = useRef([]);
+  const mouseRef = useRef({ held: false, last: 0 });
+
+  useEffect(() => {
+    if (!me) return;
+    if (
+      !posRef.current ||
+      performance.now() - lastStepRef.current > 700 ||
+      Math.abs(posRef.current.x - me.x) + Math.abs(posRef.current.y - me.y) > 3
+    )
+      posRef.current = { x: me.x, y: me.y };
+  }, [me]);
+
+  const here = useCallback(() => posRef.current || stateRef.current.me, []);
+
+  /* One tile. Returns whether you actually moved. */
+  const stepBy = useCallback(
     (dx, dy) => {
-      /* Walking into something you cannot pass still turns you to face
-               it, which is how you aim at a tree or a wall. */
-      setFacing({ dx, dy });
-      setSelection(null);
-      setHover(null);
-      move({ session, dx, dy }).catch(() =>
-        flash("Movement interrupted. Reconnecting…"),
-      );
-    },
-    [move, session, flash],
-  );
-
-  /* The mouse wins while it is over the field; otherwise you aim with the
-       direction you last walked. Both feed the same actions. */
-  const hoverRef = useRef(hover);
-  hoverRef.current = hover;
-
-  const target = useCallback(() => {
-    if (!me) return null;
-    if (hoverRef.current) return hoverRef.current;
-    if (selection) return selection;
-    return { x: me.x + facingRef.current.dx, y: me.y + facingRef.current.dy };
-  }, [me, selection]);
-
-  const reachable = useCallback(
-    (spot) => {
-      if (!me || me.hp <= 0 || !spot) return false;
-      if (!withinReach(me, spot.x, spot.y)) {
-        flash("out of reach");
+      const st = stateRef.current;
+      if (!st.me || st.me.hp <= 0) return false;
+      const from = here();
+      const nx = from.x + dx;
+      const ny = from.y + dy;
+      const nav = passability(st);
+      facingRef.current = { dx, dy };
+      fieldApi.current?.faceSelf(dx, dy);
+      lastStepRef.current = performance.now();
+      const send = () =>
+        call("move", { dx, dy }).catch(() =>
+          flash("Movement interrupted. Reconnecting…"),
+        );
+      if (nav.creatureAt(nx, ny)) {
+        /* Walking into a creature is an attack. */
+        fieldApi.current?.swingSelf();
+        send();
         return false;
       }
+      if (!nav.free(nx, ny)) {
+        /* Still sent: bumping into something turns you to face it. */
+        send();
+        return false;
+      }
+      posRef.current = { x: nx, y: ny };
+      fieldApi.current?.predictSelf(nx, ny);
+      send();
       return true;
     },
-    [me, flash],
+    [call, flash, here],
   );
 
-  /*
-   * Left hand: work the world as it is — chop a tree, mine a rock, swing a
-   * door, read a sign.
-   */
-  const doGather = useCallback(
-    async (spot) => {
-      if (!reachable(spot)) return;
-      const monster = state.monsters.find(
-        (m) => m.x === spot.x && m.y === spot.y,
-      );
-      if (monster) {
-        if (Math.abs(spot.x - me.x) + Math.abs(spot.y - me.y) === 1)
-          await act(move, { dx: spot.x - me.x, dy: spot.y - me.y });
-        else flash("move next to the creature to attack");
+  /* Walk to the nearest tile where `goal` holds, then do `then`. */
+  const goThen = useCallback(
+    (goal, then, why = "can't find a way there") => {
+      const st = stateRef.current;
+      const path = findPath(here(), goal, passability(st).free);
+      if (path === null) {
+        flash(why);
+        planRef.current = null;
         return;
       }
-      const built = state.cells.find((c) => c.x === spot.x && c.y === spot.y);
-      const cleared =
-        built && (built.kind === "stump" || built.kind === "rubble");
-
-      if (built && !cleared) {
-        await act(use, spot);
-        return;
+      planRef.current = { steps: path, then };
+      if (!path.length) {
+        planRef.current = null;
+        then?.();
       }
-      if (!cleared && resourceAt(spot.x, spot.y)) {
-        await act(harvest, spot);
-        return;
-      }
-      flash("nothing to gather there");
     },
-    [reachable, state, me, act, move, use, harvest, flash],
+    [flash, here],
   );
 
-  /* Right hand: put down whatever is selected. */
-  const doBuild = useCallback(
+  const inReach = (spot) => (x, y) => withinReach({ x, y }, spot.x, spot.y);
+  const nextTo = (spot) => (x, y) =>
+    Math.abs(x - spot.x) + Math.abs(y - spot.y) === 1;
+
+  const face = useCallback(
+    (spot) => {
+      const from = here();
+      const dx = Math.sign(spot.x - from.x);
+      const dy = Math.sign(spot.y - from.y);
+      if (dx || dy) {
+        fieldApi.current?.faceSelf(spot.x - from.x, spot.y - from.y);
+        facingRef.current =
+          Math.abs(spot.x - from.x) >= Math.abs(spot.y - from.y)
+            ? { dx, dy: 0 }
+            : { dx: 0, dy };
+      }
+    },
+    [here],
+  );
+
+  const placeAt = useCallback(
     async (spot) => {
-      if (!reachable(spot)) return;
       let text = "";
-      if (selected === "sign") {
+      const kind = selectedRef.current;
+      if (kind === "sign") {
+        heldRef.current = [];
         text = window.prompt("What should the sign say?") || "";
         if (!text) return;
       }
-      await act(build, { ...spot, kind: selected, text });
+      face(spot);
+      fieldApi.current?.swingSelf();
+      await act("build", { ...spot, kind, text });
     },
-    [reachable, selected, build, act],
+    [act, face],
   );
 
-  const doDemolishAt = useCallback(
-    async (spot) => {
-      if (!reachable(spot)) return;
-      await act(demolish, spot);
+  /* Chase a creature down and hit it. Creatures move, so each arrival
+     looks for it again, a few times before giving up. */
+  const attack = useCallback(
+    (spot, tries = 6) => {
+      const st = stateRef.current;
+      const creature =
+        passability(st).creatureAt(spot.x, spot.y) ||
+        st.monsters.find(
+          (m) => Math.abs(m.x - spot.x) + Math.abs(m.y - spot.y) <= 2,
+        );
+      if (!creature) return;
+      const from = here();
+      const dx = creature.x - from.x;
+      const dy = creature.y - from.y;
+      if (Math.abs(dx) + Math.abs(dy) === 1) {
+        stepBy(dx, dy);
+        return;
+      }
+      if (tries > 0)
+        goThen(nextTo(creature), () => attack(creature, tries - 1));
     },
-    [reachable, demolish, act],
+    [stepBy, goThen, here],
   );
 
-  /* Translate a pointer position into a world cell. */
-  const cellFromEvent = useCallback(
-    (event) => {
-      const node = fieldRef.current;
-      if (!node || !state.view) return null;
-      const box = node.getBoundingClientRect();
-      const w = box.width / COLS;
-      const h = box.height / ROWS;
-      if (!cellSize || Math.abs(cellSize.w - w) > 0.01) setCellSize({ w, h });
-      const col = Math.floor((event.clientX - box.left) / w);
-      const row = Math.floor((event.clientY - box.top) / h);
-      if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return null;
-      return { x: state.view.x + col, y: state.view.y + row };
+  /* The one verb: whatever makes sense for what was clicked. */
+  const primary = useCallback(
+    (spot) => {
+      const st = stateRef.current;
+      if (!spot || !st.me) return;
+      if (st.me.hp <= 0) return;
+      const from = here();
+      if (buildingRef.current) {
+        goThen(inReach(spot), () => placeAt(spot), "can't reach that spot");
+        return;
+      }
+      const nav = passability(st);
+      if (nav.creatureAt(spot.x, spot.y)) {
+        attack(spot);
+        return;
+      }
+      const built = st.cells.find((c) => c.x === spot.x && c.y === spot.y);
+      if (built && !isCleared(built)) {
+        goThen(inReach(spot), () => {
+          face(spot);
+          act("use", spot);
+        });
+        return;
+      }
+      const resource = resourceAt(spot.x, spot.y);
+      if (!built && resource && resource !== "fish") {
+        goThen(inReach(spot), () => {
+          face(spot);
+          fieldApi.current?.swingSelf();
+          act("harvest", spot);
+        });
+        return;
+      }
+      if (spot.x === from.x && spot.y === from.y) return;
+      goThen((x, y) => x === spot.x && y === spot.y, null, "can't walk there");
     },
-    [state, cellSize],
+    [goThen, placeAt, attack, act, face, here],
   );
 
-  /* Keyboard. Typing in the chat box takes precedence over everything. */
-  useEffect(() => {
-    if (!multiplayerReady) return undefined;
-
-    const MOVES = {
-      ArrowUp: [0, -1],
-      ArrowDown: [0, 1],
-      ArrowLeft: [-1, 0],
-      ArrowRight: [1, 0],
-      w: [0, -1],
-      s: [0, 1],
-      a: [-1, 0],
-      d: [1, 0],
+  const facingSpot = useCallback(() => {
+    const from = here();
+    if (!from) return null;
+    return {
+      x: from.x + facingRef.current.dx,
+      y: from.y + facingRef.current.dy,
     };
+  }, [here]);
+
+  /* Steps, from held keys first and then any plan, on one clock. */
+  useEffect(() => {
+    let raf;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      if (now - lastStepRef.current < STEP_MS) return;
+      const held = heldRef.current;
+      if (held.length) {
+        planRef.current = null;
+        const [sx, sy] = MOVES[held[held.length - 1]];
+        const [dx, dy] = screenStep(fieldApi.current?.heading() ?? 0, sx, sy);
+        stepBy(dx, dy);
+        return;
+      }
+      const plan = planRef.current;
+      if (plan) {
+        if (plan.steps.length) {
+          const next = plan.steps.shift();
+          const from = here();
+          const dx = next.x - from.x;
+          const dy = next.y - from.y;
+          if (Math.abs(dx) + Math.abs(dy) !== 1 || !stepBy(dx, dy)) {
+            planRef.current = null;
+          }
+        } else {
+          planRef.current = null;
+          plan.then?.();
+        }
+        return;
+      }
+      /* Holding the button down on a creature or a tree keeps at it. */
+      const mouse = mouseRef.current;
+      const spot = hoverRef.current;
+      if (mouse.held && spot && now - mouse.last > SWING_MS) {
+        const st = stateRef.current;
+        const target =
+          passability(st).creatureAt(spot.x, spot.y) ||
+          (!st.cells.some((c) => c.x === spot.x && c.y === spot.y) &&
+            resourceAt(spot.x, spot.y));
+        if (target && !buildingRef.current) {
+          mouse.last = now;
+          primary(spot);
+        }
+      }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [stepBy, primary, here]);
+
+  /* ── Feedback ─────────────────────────────────────────────────────── */
+
+  /* Gains float up off you: experience, gold, what you gathered. */
+  const lastMe = useRef(null);
+  useEffect(() => {
+    const prev = lastMe.current;
+    lastMe.current = me;
+    if (!prev || !me || !fieldApi.current) return;
+    const api = fieldApi.current;
+    if (me.level > prev.level) api.floatSelf(`LEVEL ${me.level}`, "level");
+    else if (me.xp > prev.xp) api.floatSelf(`+${me.xp - prev.xp} xp`, "gain");
+    if (me.gold > prev.gold)
+      api.floatSelf(`+${me.gold - prev.gold} gold`, "gain");
+    const before = inventoryOf(prev);
+    const after = inventoryOf(me);
+    Object.keys(after).forEach((item) => {
+      if (after[item] > before[item])
+        api.floatSelf(
+          `+${after[item] - before[item]} ${ITEMS[item]?.name.toLowerCase() || item}`,
+          "gain",
+        );
+    });
+  }, [me]);
+
+  /* ── Keyboard ─────────────────────────────────────────────────────── */
+
+  const toggleFullscreen = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else
+      root.requestFullscreen?.().catch(() => flash("full screen was refused"));
+  }, [flash]);
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  useEffect(() => {
+    const typing = () =>
+      document.activeElement &&
+      ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
 
     const onKeyDown = (event) => {
       if (customizing || event.metaKey || event.ctrlKey || event.altKey) return;
-      const typing =
-        document.activeElement &&
-        ["INPUT", "TEXTAREA", "SELECT"].includes(
-          document.activeElement.tagName,
-        );
-      if (typing) {
-        if (event.key === "Escape") document.activeElement.blur();
+      if (typing()) {
+        if (event.key === "Escape") {
+          document.activeElement.blur();
+          setChatting(false);
+        }
         return;
       }
-
-      if (event.key === "Enter" && document.activeElement?.tagName === "BUTTON")
+      const move = MOVES[event.key]
+        ? event.key
+        : MOVES[event.key.toLowerCase()]
+          ? event.key.toLowerCase()
+          : null;
+      if (move) {
+        event.preventDefault();
+        if (!playing) setPlaying(true);
+        if (!heldRef.current.includes(move))
+          heldRef.current = [...heldRef.current, move];
         return;
+      }
       if (event.key === "Enter" || event.key === "t") {
         event.preventDefault();
-        inputRef.current?.focus();
+        setChatting(true);
+        window.setTimeout(() => chatRef.current?.focus(), 0);
         return;
       }
-
-      const vector = MOVES[event.key] || MOVES[event.key.toLowerCase()];
-      if (vector) {
+      if (event.key === "Tab") {
         event.preventDefault();
-        step(vector[0], vector[1]);
+        setPanel((p) => (p ? null : "Craft"));
         return;
       }
-
-      const key = event.key.toLowerCase();
-      if (key === "g") doGather(target());
-      else if (key === "b") doBuild(target());
-      else if (key === "x") doDemolishAt(target());
-      else if (key === "q") act(drink, {});
-      else if (key === "c") setTab("Craft");
-      else if (key === "i") setTab("Pack");
-      else if (key === "j") setTab("Journal");
-      else if (key === "e")
-        act(eat, { item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries" });
-      else {
-        const pick = BUILD_MENU.find((entry) => entry.key === event.key);
-        if (pick) setSelected(pick.kind);
+      if (event.key === "Escape") {
+        if (help) setHelp(false);
+        else if (panel) setPanel(null);
+        else if (buildingRef.current) setBuilding(false);
+        planRef.current = null;
+        return;
       }
+      const key = event.key.toLowerCase();
+      const slot = BUILD_MENU.find((entry) => entry.key === event.key);
+      if (event.key === " ") {
+        event.preventDefault();
+        primary(hoverRef.current || facingSpot());
+      } else if (slot) {
+        setSelected(slot.kind);
+        setBuilding(true);
+      } else if (key === "b") setBuilding((b) => !b);
+      else if (key === "x") {
+        const spot = hoverRef.current || facingSpot();
+        if (spot) goThen(inReach(spot), () => act("demolish", spot));
+      } else if (key === "q") act("drink");
+      else if (key === "e")
+        act("eat", {
+          item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries",
+        });
+      else if (key === "c") setPanel((p) => (p === "Craft" ? null : "Craft"));
+      else if (key === "i") setPanel((p) => (p === "Pack" ? null : "Pack"));
+      else if (key === "j")
+        setPanel((p) => (p === "Journal" ? null : "Journal"));
+      else if (key === "f") toggleFullscreen();
+      else if (key === "v") setRaw((r) => !r);
+      else if (key === "h" || key === "?") setHelp((h) => !h);
+      else if (key === "[") fieldApi.current?.rotate(-Math.PI / 2);
+      else if (key === "]") fieldApi.current?.rotate(Math.PI / 2);
+      else if (key === "-") fieldApi.current?.zoomBy(1.25);
+      else if (key === "=" || key === "+") fieldApi.current?.zoomBy(0.8);
+      else if (key === "r" && me?.hp <= 0) act("respawn");
     };
-
+    const onKeyUp = (event) => {
+      const key = MOVES[event.key] ? event.key : event.key.toLowerCase();
+      heldRef.current = heldRef.current.filter(
+        (k) => k !== key && k !== event.key,
+      );
+    };
+    const release = () => {
+      heldRef.current = [];
+      mouseRef.current.held = false;
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", release);
+    };
   }, [
-    step,
-    doGather,
-    doBuild,
-    doDemolishAt,
-    target,
-    drink,
-    act,
-    eat,
-    me,
     customizing,
+    playing,
+    help,
+    panel,
+    primary,
+    goThen,
+    act,
+    me,
+    toggleFullscreen,
+    facingSpot,
   ]);
+
+  /* ── Mouse ────────────────────────────────────────────────────────── */
+
+  const dragRef = useRef(null);
+  const pick = (event) =>
+    fieldApi.current?.pick(event.clientX, event.clientY) || null;
+
+  /* The wheel needs a listener that may cancel scrolling the page. */
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return undefined;
+    const onWheel = (event) => {
+      event.preventDefault();
+      fieldApi.current?.zoomBy(Math.exp(event.deltaY * 0.0012));
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const onPointerDown = (event) => {
+    if (event.target.closest("button, a, input, form")) return;
+    if (!playing) {
+      setPlaying(true);
+      return;
+    }
+    if (event.button === 2 || event.button === 1) {
+      event.preventDefault();
+      dragRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+        moved: 0,
+        button: event.button,
+      };
+      stageRef.current?.setPointerCapture?.(event.pointerId);
+      return;
+    }
+    if (event.button !== 0) return;
+    const spot = pick(event);
+    setHover(spot);
+    if (event.pointerType === "touch") {
+      primary(spot);
+      return;
+    }
+    mouseRef.current = { held: true, last: performance.now() };
+    primary(spot);
+  };
+
+  const onPointerMove = (event) => {
+    const drag = dragRef.current;
+    if (drag) {
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      drag.moved += Math.abs(dx) + Math.abs(dy);
+      if (drag.moved > 4 && !dragging) setDragging(true);
+      fieldApi.current?.rotate(-dx * 0.0065, dy * 0.004);
+      return;
+    }
+    if (event.pointerType !== "touch") setHover(pick(event));
+  };
+
+  const onPointerUp = (event) => {
+    mouseRef.current.held = false;
+    const drag = dragRef.current;
+    if (!drag) return;
+    dragRef.current = null;
+    setDragging(false);
+    /* A right click that did not drag leaves build mode. */
+    if (drag.moved <= 4 && drag.button === 2 && buildingRef.current)
+      setBuilding(false);
+  };
+
+  /* ── Talking ──────────────────────────────────────────────────────── */
 
   const submitChat = useCallback(
     async (event) => {
       event.preventDefault();
       const text = draft.trim();
-      if (!text) return;
       setDraft("");
-      /* Hand the keyboard back to the game, or wasd silently stops
-               working the moment someone says hello. */
-      inputRef.current?.blur();
-      await act(say, { text });
+      /* Hand the keyboard back to the game. */
+      chatRef.current?.blur();
+      setChatting(false);
+      if (text) await act("say", { text });
     },
-    [draft, say, act],
+    [draft, act],
   );
 
   const saveCharacter = useCallback(
-    async ({ name: newName, appearance }) => {
-      await customize({ session, name: newName, appearance });
-      setName(newName.trim());
-      setLocalName(newName.trim());
+    async (character) => {
+      await onSaveCharacter(character);
       flash("character saved");
     },
-    [customize, session, flash],
+    [onSaveCharacter, flash],
   );
 
-  if (!multiplayerReady) return <Offline />;
+  /* ── Drawing ──────────────────────────────────────────────────────── */
 
-  if (!state) {
-    return (
-      <main className="cab cab--commons">
-        <header className="cab__bar">
-          <Link className="cab__back" to="/" state={{ room: "arcade" }}>
-            ◄ back to the arcade
-          </Link>
-          <span className="cab__title">THE COMMONS</span>
-        </header>
-        <p className="commons__connecting">connecting to the field…</p>
-      </main>
-    );
-  }
-
-  const phaseLight = PHASE_LIGHT[state.phase] || 1;
-  /* Where a click or g / b / x will act. The mouse wins while it is over
-       the field, so the box, the readout and the action all agree. */
-  const aim =
-    hover ||
-    selection ||
-    (me ? { x: me.x + facing.dx, y: me.y + facing.dy } : null);
+  const aim = playing ? hover || null : null;
   const aimedCreature =
     aim && state.monsters.find((m) => m.x === aim.x && m.y === aim.y);
   const aimInfo = aimedCreature
     ? {
-        label: `${aimedCreature.kind} · ${aimedCreature.hp}/${aimedCreature.maxHp} health`,
-        verb: "move next to it, then click or walk into it to attack",
+        label: `${aimedCreature.kind}${aimedCreature.maxHp ? ` · ${aimedCreature.hp}/${aimedCreature.maxHp}` : ""}`,
+        verb: "click to attack · hold to keep swinging",
       }
     : aim
       ? describeTarget(aim.x, aim.y, state.cells, me?.name)
       : null;
-  const aimReachable = aim && me ? withinReach(me, aim.x, aim.y) : false;
   const objective = journeyOf(me).find((q) => !q.done);
   const inspection =
     state.players.find((p) => p.id === inspected?.id) || inspected;
+  const recentChat = state.chat.slice(0, 7).reverse();
 
   return (
-    <main className={`cab cab--commons commons-survival cab--${state.phase}`}>
-      <header className="survival-header">
-        <Link
-          className="survival-back"
-          to="/"
-          state={{ room: "arcade" }}
-          aria-label="Back to the arcade"
+    <main
+      ref={rootRef}
+      className={`commons-game commons-game--${state.phase} ${building ? "is-building" : ""} ${dragging ? "is-turning" : ""} ${fullscreen ? "is-fullscreen" : ""}`}
+    >
+      <div
+        ref={stageRef}
+        className="game-stage"
+        role="application"
+        aria-label="The Commons. WASD to walk, click to act, right-drag to turn the camera, H for help."
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onPointerLeave={() => !dragRef.current && setHover(null)}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <AsciiField
+          state={state}
+          aim={aim}
+          aimOk={aim && me ? withinReach(here() || me, aim.x, aim.y) : false}
+          raw={raw}
+          orbit={!playing}
+          density={density}
+          apiRef={fieldApi}
+          className="game-field"
         >
-          ←
-        </Link>
-        <div className="survival-brand">
-          <span aria-hidden="true">T</span>
-          <div>
-            <h1>The Commons</h1>
-            <p>A shared wilderness. A place of your own.</p>
-          </div>
-        </div>
-        <div className="survival-world-status">
-          <span className="world-weather">
-            {state.phase === "night" ? "☾" : "☼"}
-          </span>
-          <div>
-            <b>
-              {state.phase} / {state.weather}
-            </b>
-            <small>
-              <i /> {state.online}{" "}
-              {state.online === 1 ? "survivor" : "survivors"} online
-            </small>
-          </div>
-        </div>
-        <button
-          className="survival-customize"
-          disabled={!me}
-          onClick={() => setCustomizing(true)}
-        >
-          Your character <span>↗</span>
-        </button>
-      </header>
-      <div className="survival-workspace">
-        <div className="survival-rail">
-          <Vitals me={me} />
-          <Compass me={me} state={state} />
-        </div>
-        <section className="survival-play" aria-label="The shared world">
-          <div className="survival-location">
-            <span>{state.region}</span>
-            <span>
-              {me ? `${me.x}, ${me.y}` : "Arriving…"} <b>N ↑</b>
-            </span>
-          </div>
-          <div
-            className="cab__stage commons__stage"
-            tabIndex={0}
-            role="group"
-            aria-label="World playfield. WASD to move, G to gather, B to build."
-            onPointerMove={(e) => {
-              if (e.pointerType !== "touch") setHover(cellFromEvent(e));
-            }}
-            onPointerLeave={() => setHover(null)}
-            onContextMenu={(e) => e.preventDefault()}
-            onPointerDown={(e) => {
-              const spot = cellFromEvent(e);
-              setHover(spot);
-              setSelection(spot);
-              if (e.pointerType === "touch") return;
-              if (e.button === 2 || (e.button === 0 && mode === "build"))
-                doBuild(spot);
-              else if (e.button === 0) doGather(spot);
-            }}
-          >
-            <Field
+          {playing && (
+            <Nametags
               state={state}
-              session={session}
-              phaseLight={phaseLight}
-              aim={aim}
-              me={me}
-              fieldRef={fieldRef}
+              onInspect={setInspected}
+              fieldApi={fieldApi}
             />
-            <Nametags state={state} onInspect={setInspected} />
-            {(state.weather === "rain" || state.weather === "storm") && (
-              <div className="commons__rain" aria-hidden="true" />
-            )}
-            {state.weather === "fog" && (
-              <div className="commons__fog" aria-hidden="true" />
-            )}
-            {me?.hp <= 0 && (
-              <div className="cab__overlay">
-                <p className="cab__status">The wild got you.</p>
-                <p className="cab__hint">
-                  Your camp and equipment remain. Wake at your bedroll or the
-                  crossroads. You lose 10% of your gold.
-                </p>
+          )}
+        </AsciiField>
+      </div>
+
+      {playing && (
+        <div className="game-hud">
+          <section className="hud-vitals" aria-label="You">
+            <Link
+              className="hud-back"
+              to="/"
+              state={{ room: "arcade" }}
+              aria-label="Leave the Commons"
+            >
+              ← leave
+            </Link>
+            {me && (
+              <>
                 <button
-                  className="cab__start"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => act(respawn, {})}
+                  className="hud-name"
+                  onClick={() => setCustomizing(true)}
+                  title="Your character"
                 >
-                  Wake up ↗
+                  <b>{me.name}</b> <span>lv {me.level}</span>
                 </button>
-              </div>
+                <div className="hud-meter hud-meter--hp">
+                  <span>HP</span>
+                  <Bar value={me.hp} max={me.maxHp} />
+                  <em>
+                    {Math.max(0, Math.round(me.hp))}/{me.maxHp}
+                  </em>
+                </div>
+                <div className="hud-meter hud-meter--food">
+                  <span>FD</span>
+                  <Bar value={me.hunger ?? 100} max={100} />
+                </div>
+                <div className="hud-meter hud-meter--warm">
+                  <span>WM</span>
+                  <Bar value={me.warmth ?? 100} max={100} />
+                </div>
+                <div className="hud-meter hud-meter--xp">
+                  <span>XP</span>
+                  <Bar value={me.xp} max={me.xpNeeded || 1} />
+                  <em>{me.gold}g</em>
+                </div>
+              </>
             )}
-          </div>
-          <div className="survival-target">
-            <span className="target-glyph">
-              {aim &&
-                (BLOCK_LOOK[
-                  state.cells.find((c) => c.x === aim.x && c.y === aim.y)?.kind
-                ]?.ch ||
-                  TILE_LOOK[tileAt(aim.x, aim.y)]?.ch)}
-            </span>
-            <div>
-              <b>{aimInfo?.label || "The wilderness"}</b>
+          </section>
+
+          <section className="hud-world" aria-label="The world">
+            <div className="hud-sky">
+              <b>
+                {PHASE_GLYPH[state.phase] || "☼"} {state.phase}
+              </b>
+              <span>{WEATHER_WORD[state.weather] || state.weather}</span>
+            </div>
+            <div className="hud-where">
+              {state.region}
               <span>
-                {aimReachable ? aimInfo?.verb : "Aim within four tiles to work"}
+                {live
+                  ? `${state.online} online`
+                  : "offline preview · nothing is saved"}
               </span>
             </div>
-            <span className="survival-reach">{REACH} tile reach</span>
-          </div>
-          <div className="survival-hotbar" aria-label="Game actions">
-            <button
-              aria-pressed={mode === "gather"}
-              onClick={() => {
-                setMode("gather");
-                doGather(target());
-              }}
-            >
-              <kbd>G</kbd>
-              <span>Gather / use</span>
-            </button>
-            <button
-              aria-pressed={mode === "build"}
-              onClick={() => {
-                setMode("build");
-                setTab("Build");
-              }}
-            >
-              <kbd>B</kbd>
-              <span>Build</span>
-              <small>{STRUCTURES[selected].label}</small>
-            </button>
-            <button onClick={() => doBuild(target())}>
-              <span className="hotbar-glyph">{STRUCTURES[selected].ch}</span>
-              <span>Place</span>
-            </button>
-            <button
-              onClick={() =>
-                act(eat, {
-                  item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries",
-                })
-              }
-            >
-              <kbd>E</kbd>
-              <span>Eat</span>
-            </button>
-            <button onClick={() => act(drink, {})}>
-              <kbd>Q</kbd>
-              <span>Potion</span>
-              <small>{me?.potions || 0}</small>
-            </button>
-            <button onClick={() => doDemolishAt(target())}>
-              <kbd>X</kbd>
-              <span>Remove</span>
-            </button>
-          </div>
-          <div className="survival-pad" aria-label="Movement controls">
-            <button
-              onClick={() => {
-                setHover(null);
-                step(0, -1);
-              }}
-              aria-label="Move north"
-            >
-              ↑
-            </button>
-            <button
-              onClick={() => {
-                setHover(null);
-                step(-1, 0);
-              }}
-              aria-label="Move west"
-            >
-              ←
-            </button>
-            <button
-              onClick={() => {
-                setHover(null);
-                step(0, 1);
-              }}
-              aria-label="Move south"
-            >
-              ↓
-            </button>
-            <button
-              onClick={() => {
-                setHover(null);
-                step(1, 0);
-              }}
-              aria-label="Move east"
-            >
-              →
-            </button>
-          </div>
-          <p
-            className={`survival-notice ${notice ? "has-notice" : ""}`}
-            role="status"
-          >
-            {notice ||
-              (mode === "build"
-                ? `Building ${STRUCTURES[selected].label.toLowerCase()} · click a tile or press B to place`
-                : "WASD / arrows move · click or G to gather · walk into creatures to attack")}
-          </p>
-          <div className="survival-bottom">
-            <section className="survival-chat">
-              <h2>
-                Camp chat <span>ENTER TO TALK</span>
-              </h2>
-              <ol aria-live="polite" aria-relevant="additions">
-                {state.chat
-                  .slice(0, 12)
-                  .reverse()
-                  .map((entry, i) => (
-                    <li
-                      key={`${entry.name}-${i}`}
-                      className={`chat-${entry.kind}`}
-                    >
-                      {entry.kind === "chat" && (
-                        <b style={{ color: nameColor(entry.name) }}>
-                          {entry.name}{" "}
-                        </b>
-                      )}
-                      {entry.text}
-                    </li>
-                  ))}
-              </ol>
+            <div className="hud-buttons">
+              <button
+                onClick={() => setHelp((h) => !h)}
+                title="Controls (H)"
+                aria-label="Controls"
+              >
+                ?
+              </button>
+              <button
+                onClick={toggleFullscreen}
+                title="Full screen (F)"
+                aria-label={fullscreen ? "Leave full screen" : "Full screen"}
+              >
+                {fullscreen ? "⤡" : "⤢"}
+              </button>
+            </div>
+            {me && <Compass me={me} state={state} />}
+          </section>
+
+          {objective && (
+            <section className="hud-quest" aria-label="Next goal">
+              <span>NEXT</span>
+              <b>{objective.title}</b>
+              <small>{objective.detail}</small>
+            </section>
+          )}
+
+          <section className="hud-chat" aria-label="Chat">
+            <ol aria-live="polite" aria-relevant="additions">
+              {recentChat.map((entry, i) => (
+                <li
+                  key={`${entry.name}-${entry.text}-${i}`}
+                  className={`chat-${entry.kind}`}
+                >
+                  {entry.kind === "chat" && (
+                    <b style={{ color: nameColor(entry.name) }}>
+                      {entry.name}{" "}
+                    </b>
+                  )}
+                  {entry.text}
+                </li>
+              ))}
+            </ol>
+            {chatting ? (
               <form onSubmit={submitChat}>
                 <span aria-hidden="true">&gt;</span>
                 <input
-                  ref={inputRef}
+                  ref={chatRef}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder="Say something to the commons…"
+                  onBlur={() => !draft && setChatting(false)}
+                  placeholder="say something…"
                   maxLength={160}
                   aria-label="Say something"
                 />
-                <button type="submit">Send ↗</button>
               </form>
-            </section>
-            <section className="survival-objective">
-              <span>YOUR NEXT CHAPTER</span>
-              <h2>{objective?.title || "Make this place yours."}</h2>
-              <p>
-                {objective?.detail ||
-                  "Keep exploring. There is always more wilderness."}
-              </p>
-              <button onClick={() => setTab("Journal")}>Open journal ↗</button>
-            </section>
-          </div>
-        </section>
-        <Fieldcraft
-          me={me}
-          state={state}
-          selected={selected}
-          setSelected={(kind) => {
-            setSelected(kind);
-            setMode("build");
-          }}
-          craft={(recipe) => act(craft, { recipe })}
-          eat={(item) => act(eat, { item })}
-          transfer={(chest, item, direction) =>
-            act(transfer, { x: chest.x, y: chest.y, item, direction })
-          }
-          tab={tab}
-          setTab={setTab}
-        />
-      </div>
-      {inspection && (
+            ) : (
+              <p className="hud-chat-hint">ENTER to talk</p>
+            )}
+          </section>
+
+          <section className="hud-bottom">
+            <p className={`hud-target ${aimInfo ? "" : "is-empty"}`}>
+              {aimInfo && (
+                <>
+                  <b>{building ? STRUCTURES[selected].label : aimInfo.label}</b>
+                  <span>
+                    {building
+                      ? "click to place · right click or Esc to stop building"
+                      : aimInfo.verb}
+                  </span>
+                </>
+              )}
+            </p>
+            <div className="hud-hotbar" role="toolbar" aria-label="Build">
+              {BUILD_MENU.map(({ kind, key }) => {
+                const s = STRUCTURES[kind];
+                return (
+                  <button
+                    key={kind}
+                    className={building && selected === kind ? "is-on" : ""}
+                    onClick={() => {
+                      if (building && selected === kind) setBuilding(false);
+                      else {
+                        setSelected(kind);
+                        setBuilding(true);
+                      }
+                    }}
+                    title={`${s.label}${s.wood || s.stone ? ` · ${[s.wood ? `${s.wood} wood` : "", s.stone ? `${s.stone} stone` : ""].filter(Boolean).join(", ")}` : ""}`}
+                  >
+                    <kbd>{key}</kbd>
+                    <span style={{ color: s.color }}>{s.ch}</span>
+                  </button>
+                );
+              })}
+              <i aria-hidden="true" />
+              <button
+                onClick={() =>
+                  act("eat", {
+                    item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries",
+                  })
+                }
+                title="Eat (E)"
+              >
+                <kbd>E</kbd>
+                <span>%</span>
+              </button>
+              <button onClick={() => act("drink")} title="Drink a potion (Q)">
+                <kbd>Q</kbd>
+                <span>!</span>
+                <small>{me?.potions || 0}</small>
+              </button>
+              <button
+                onClick={() => setPanel((p) => (p ? null : "Craft"))}
+                title="Craft, pack and journal (Tab)"
+              >
+                <kbd>⇥</kbd>
+                <span>≡</span>
+              </button>
+            </div>
+          </section>
+
+          <p
+            className={`hud-notice ${notice || status ? "is-on" : ""}`}
+            role="status"
+          >
+            {status || notice}
+          </p>
+
+          {panel && (
+            <div className="hud-window" role="dialog" aria-label="Fieldcraft">
+              <button
+                className="hud-close"
+                onClick={() => setPanel(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+              <Fieldcraft
+                me={me}
+                state={state}
+                selected={selected}
+                setSelected={(kind) => {
+                  setSelected(kind);
+                  setBuilding(true);
+                  setPanel(null);
+                }}
+                craft={(recipe) => act("craft", { recipe })}
+                eat={(item) => act("eat", { item })}
+                transfer={(chest, item, direction) =>
+                  act("transfer", { x: chest.x, y: chest.y, item, direction })
+                }
+                tab={panel}
+                setTab={setPanel}
+              />
+            </div>
+          )}
+
+          {help && (
+            <div
+              className="hud-window hud-help"
+              role="dialog"
+              aria-label="Controls"
+            >
+              <button
+                className="hud-close"
+                onClick={() => setHelp(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+              <h2>Controls</h2>
+              <dl>
+                <dt>WASD · arrows</dt>
+                <dd>walk; hold to keep going</dd>
+                <dt>left click</dt>
+                <dd>walk there, or go and chop, mine, open, attack</dd>
+                <dt>hold left</dt>
+                <dd>keep swinging</dd>
+                <dt>right drag · wheel</dt>
+                <dd>turn the camera · zoom</dd>
+                <dt>space</dt>
+                <dd>act on what's in front of you</dd>
+                <dt>1–0 · B</dt>
+                <dd>pick something to build · build mode</dd>
+                <dt>X</dt>
+                <dd>remove something you built</dd>
+                <dt>E · Q</dt>
+                <dd>eat · drink a potion</dd>
+                <dt>Tab · C I J</dt>
+                <dd>craft · pack · journal</dd>
+                <dt>Enter</dt>
+                <dd>talk</dd>
+                <dt>F · V</dt>
+                <dd>full screen · see the render behind the characters</dd>
+              </dl>
+            </div>
+          )}
+
+          {me?.hp <= 0 && (
+            <div className="hud-dead">
+              <p>The wild got you.</p>
+              <small>
+                Your camp and equipment remain. You lose a tenth of your gold.
+              </small>
+              <button onClick={() => act("respawn")}>Wake up (R)</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!playing && (
+        <div className="game-title">
+          <Link className="hud-back" to="/" state={{ room: "arcade" }}>
+            ← back to the arcade
+          </Link>
+          <h1>THE COMMONS</h1>
+          <p>
+            A shared wilderness drawn in characters.
+            {!live &&
+              " This build has no server, so you are playing a local stand-in: nothing is saved or shared."}
+          </p>
+          <button className="game-start" onClick={() => setPlaying(true)}>
+            click to play
+          </button>
+          <small>
+            WASD to walk · click to act · right drag to look · F for full screen
+          </small>
+        </div>
+      )}
+
+      {inspection && playing && (
         <div className="survivor-inspect">
           <button
             onClick={() => setInspected(null)}
