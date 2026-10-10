@@ -55,12 +55,12 @@ export function Intro({ onStart, onIndex, onTravel }) {
                     </button>
                 </div>
                 <p className="intro__keys only-keys">
-                    <kbd>WASD</kbd> walk <span>·</span> <kbd>E</kbd> interact{" "}
-                    <span>·</span> <kbd>1</kbd>–<kbd>6</kbd> travel{" "}
-                    <span>·</span> <kbd>M</kbd> map
+                    <kbd>WASD</kbd> walk <span>·</span> drag to look{" "}
+                    <span>·</span> <kbd>E</kbd> interact <span>·</span>{" "}
+                    <kbd>1</kbd>–<kbd>6</kbd> travel
                 </p>
                 <p className="intro__keys only-touch">
-                    Pick a room below <span>·</span> thumb pad to walk
+                    Pick a room below <span>·</span> thumb pad to walk, drag to look
                 </p>
             </div>
             <nav className="intro__rooms" aria-label="Go straight to a room">
@@ -208,8 +208,9 @@ export function PromptBar({ prompt, player, onAct }) {
                 </button>
             ) : (
                 <span className="hud__prompt only-keys">
-                    <kbd>WASD</kbd> walk <span>·</span> <kbd>E</kbd> interact{" "}
-                    <span>·</span> <kbd>1</kbd>–<kbd>6</kbd> travel
+                    <kbd>WASD</kbd> walk <span>·</span> drag or{" "}
+                    <kbd>[</kbd> <kbd>]</kbd> to turn <span>·</span>{" "}
+                    <kbd>E</kbd> interact
                 </span>
             )}
             <span className="hud__position" aria-hidden="true">

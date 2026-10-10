@@ -24,8 +24,8 @@ import { P, place } from "../arcade/ascii3d/shapes";
  * parapet along the south side to see in over, taller walls down the sides,
  * the tallest along the north, and the landmark above that. Everything
  * stands on the wall tiles the tile world already has, so walking and
- * collisions are unchanged; only the landmarks stand outside, on ground
- * the compound reserves so no trees grow through them.
+ * collisions are unchanged; only the landmarks stand outside, across the
+ * street, on lots the compound keeps clear of tenements.
  */
 
 const NORTH = 3.4;
@@ -75,13 +75,15 @@ const LANDMARKS = {
 
 /* Tiles a landmark needs kept clear, by its centre. */
 const CLEAR = { w: 6, d: 6 };
+/* Landmarks stand back from the wall, past the street that runs round it. */
+const BACK = 4.6;
 
 export function reservedTiles(rooms) {
     const keep = new Set();
     rooms.forEach((room) => {
         (LANDMARKS[room.id] || []).forEach(([f]) => {
             const cx = Math.round(room.x + (room.w - 1) * f);
-            for (let y = room.y - CLEAR.d; y < room.y; y += 1) {
+            for (let y = room.y - 2 - CLEAR.d; y < room.y - 2; y += 1) {
                 for (let x = cx - CLEAR.w / 2; x <= cx + CLEAR.w / 2; x += 1) keep.add(`${x},${y}`);
             }
         });
@@ -156,6 +158,6 @@ export function buildCompound(b, room, open, floor) {
     /* And the landmark behind it all. */
     (LANDMARKS[room.id] || []).forEach(([f, build]) => {
         const cx = Math.round(x0 + (room.w - 1) * f);
-        build(b, cx, y0 - 2.6, floor);
+        build(b, cx, y0 - BACK, floor);
     });
 }

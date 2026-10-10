@@ -50,8 +50,8 @@ const m4 = new THREE.Matrix4();
 const q = new THREE.Quaternion();
 const e = new THREE.Euler();
 const color = new THREE.Color();
-export function place(x, y, z, sx, sy, sz, ry = 0, rx = 0) {
-    e.set(rx, ry, 0);
+export function place(x, y, z, sx, sy, sz, ry = 0, rx = 0, rz = 0) {
+    e.set(rx, ry, rz);
     q.setFromEuler(e);
     return m4.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, sz));
 }

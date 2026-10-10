@@ -2,15 +2,15 @@ import * as THREE from "three";
 import { AsciiPass, glyphCode } from "../arcade/ascii3d/asciiPass";
 import { disposeMaterials } from "../arcade/ascii3d/materials";
 import { buildSurvivor, buildCursor, pose } from "../arcade/ascii3d/models";
-import { Batch, P, place, tint, hash, addBlades, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
-import { alienSpire, cityTile, hybridTower, monolith, setbackTower, stalinTower, streetlamp, redStar } from "../arcade/ascii3d/architecture";
+import { Batch, P, place, tint, hash, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
+import { streetlamp } from "../arcade/ascii3d/architecture";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
 import { KIND } from "../world/tiles";
 import { fbm } from "../lib/noise";
 import { buildProp, buildTorch, disposeProps } from "./props";
 import { buildCompound, reservedTiles } from "./compound";
 import { Citizens } from "./citizens";
-import { buildVisitor } from "./visitor";
+import { alleyClutter, oddity, tenement, wallLantern } from "./warren";
 
 /*
  * The workshop, in 3D, drawn in characters.
@@ -29,17 +29,14 @@ const SEABED = -0.7;
 const ROOM_FLOOR = 0.1;
 const ROAD = 0.05;
 
-/* Camera distance and pitch at each zoom step. The workshop is read at room
-   scale, so even the closest step keeps most of a room in view. */
-export const ZOOMS = [11, 15, 20, 28];
-const PITCHES = [0.28, 0.36, 0.46, 0.58];
+/* Camera distance and pitch at each zoom step. Exploring, the camera rides
+   over JR's right shoulder, low, so the city towers over you; the front door
+   is a wide, slow flyover instead. Same scheme as the Commons. */
+export const ZOOMS = [3.6, 5.5, 8.5, 13];
+const PITCHES = [0.12, 0.2, 0.28, 0.4];
 const INTRO = { distance: 44, pitch: 0.34 };
-const FOV = 46;
+const FOV = 52;
 const MAX_LIGHTS = 10;
-/* How far the camera's sightline climbs per tile toward it: a building can
-   be no taller than this times the open ground behind it, or it would hide
-   whoever walks there. */
-const SIGHT = 0.5;
 
 /* JR, as a survivor from the Commons. */
 const JR = {
@@ -90,6 +87,8 @@ export default class SiteScene {
         this.distance = INTRO.distance;
         this.distanceGoal = INTRO.distance;
         this.yaw = 0.6;
+        this.yawGoal = 0;
+        this.pitchBias = 0;
         this.focus = new THREE.Vector3(world.spawn.x, 0, world.spawn.y - 4);
         this.counts = {};
         this.highlight = null;
@@ -112,7 +111,7 @@ export default class SiteScene {
 
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x0b120d, 30, 60);
-        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.5, 220);
+        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.25, 220);
 
         const p = PHASES[this.phaseName];
         this.hemi = new THREE.HemisphereLight(p.sky, p.ground, p.hemi);
@@ -140,15 +139,12 @@ export default class SiteScene {
         this.scene.add(this.water);
 
         this.reserved = reservedTiles(world.rooms);
-        this.measureSkyline();
+        this.measureCity();
         this.findLamps();
         this.buildCompounds();
         this.buildProps();
         this.buildLabels();
         this.citizens = new Citizens(this.scene, world, (x, y) => this.standHeight(x, y));
-        this.visitor = buildVisitor();
-        this.visitor.group.position.set(world.w / 2, 0, -6);
-        this.scene.add(this.visitor.group);
 
         this.player = buildSurvivor(JR);
         this.player.scale.setScalar(1.25);
@@ -216,29 +212,30 @@ export default class SiteScene {
     }
 
     /*
-     * For every tile, the tallest a building there may be: the camera looks
-     * north, so what matters is the open ground north of it. The edge of the
-     * world has none, so the skyline there can be as tall as it likes.
+     * How tall the city stands on every tile. Heights come by the 2x2 lot,
+     * so neighbouring tiles rise as one building, over a slow field that
+     * swells into districts of taller and lower blocks; the ring at the
+     * edge of the world climbs highest, a wall of towers all round.
      */
-    measureSkyline() {
+    measureCity() {
         const { w, h } = this.world;
-        this.caps = new Float32Array(w * h);
-        for (let x = 0; x < w; x += 1) {
-            for (let y = 0; y < h; y += 1) {
-                let d = 60;
-                for (let k = 1; k < 60 && y - k >= 0; k += 1) {
-                    if (this.isOpen(x - 1, y - k) || this.isOpen(x, y - k) || this.isOpen(x + 1, y - k)) {
-                        d = k;
-                        break;
-                    }
-                }
-                this.caps[y * w + x] = 1.2 + d * SIGHT;
+        this.heights = new Float32Array(w * h);
+        for (let y = 0; y < h; y += 1) {
+            for (let x = 0; x < w; x += 1) {
+                if (!this.isCity(x, y)) continue;
+                const lx = x >> 1;
+                const ly = y >> 1;
+                const edge = Math.min(x, y, w - 1 - x, h - 1 - y);
+                const district = fbm(lx * 2, ly * 2, 0.035);
+                let want = 6.5 + district * 9 + hash(lx, ly, 81) * 3.5 + (hash(x, y, 88) - 0.5) * 1.6;
+                if (edge < 7) want += (7 - edge) * 2.4;
+                this.heights[y * w + x] = want;
             }
         }
     }
 
-    capAt(x, y) {
-        return this.caps[y * this.world.w + x] || 0;
+    heightAt(x, y) {
+        return this.heights[y * this.world.w + x] || 0;
     }
 
     /* A lamp every few tiles down each side of every road. */
@@ -248,7 +245,21 @@ export default class SiteScene {
         this.lampAt = new Map();
         for (let y = 1; y < world.h - 1; y += 1) {
             for (let x = 1; x < world.w - 1; x += 1) {
-                if (world.kindAt(x, y) !== KIND.FLOOR || this.roomOf(x, y)) continue;
+                if (this.roomOf(x, y) || world.isSolid(x, y)) continue;
+                if (world.kindAt(x, y) !== KIND.FLOOR) {
+                    /* Down the alleys, a lantern on a bracket now and then. */
+                    const wall = [
+                        [1, 0],
+                        [-1, 0],
+                        [0, 1],
+                        [0, -1],
+                    ].find(([dx, dy]) => this.isCity(x + dx, y + dy));
+                    if (!wall || hash(x, y, 12) > 0.16) continue;
+                    const spot = { x: x + wall[0] * 0.3, y: y + wall[1] * 0.3, wall, light: { y: 2.5, range: 5, color: 0xffb46b } };
+                    this.lamps.push(spot);
+                    this.lampAt.set(`${x},${y}`, spot);
+                    continue;
+                }
                 const out = [
                     [0, -1],
                     [0, 1],
@@ -272,72 +283,32 @@ export default class SiteScene {
         this.compound.forEach((m) => this.scene.add(m));
     }
 
-    /* One lot of the city: the building that fills a solid outdoor tile. */
-    cityAt(batch, x, y, h, kind) {
+    /* One lot of the city: the tenement that fills a solid outdoor tile. */
+    cityAt(batch, x, y, h) {
         const world = this.world;
-        const cap = this.capAt(x, y);
-        const edge = Math.min(x, y, world.w - 1 - x, world.h - 1 - y);
-        const faces = [];
-        if (this.isOpen(x, y + 1)) faces.push("s");
-        if (this.isOpen(x, y - 1)) faces.push("n");
-        if (this.isOpen(x + 1, y)) faces.push("e");
-        if (this.isOpen(x - 1, y)) faces.push("w");
-        if (!faces.length && cap > 4) faces.push("s");
-
-        /* Lots are 2x2, so neighbouring tiles rise together as buildings. */
         const lx = x >> 1;
         const ly = y >> 1;
         const lot = hash(lx, ly, 81);
-        const solidLot = [0, 1].every((dy) => [0, 1].every((dx) => this.isCity(lx * 2 + dx, ly * 2 + dy)));
-        const lotCap = Math.min(this.capAt(lx * 2, ly * 2), this.capAt(lx * 2 + 1, ly * 2), this.capAt(lx * 2, ly * 2 + 1), this.capAt(lx * 2 + 1, ly * 2 + 1));
+        const edge = Math.min(x, y, world.w - 1 - x, world.h - 1 - y);
+        const whole = [0, 1].every((dy) => [0, 1].every((dx) => this.isCity(lx * 2 + dx, ly * 2 + dy) && !this.reserved.has(`${lx * 2 + dx},${ly * 2 + dy}`)));
 
-        /* Now and then a lot carries a landmark instead of a block. */
-        if (solidLot && lotCap > 14 && lot < (edge < 6 ? 0.3 : 0.16)) {
-            if (x !== lx * 2 || y !== ly * 2) return;
-            const cx = lx * 2 + 0.5;
-            const cz = ly * 2 + 0.5;
-            batch.shape("solid", P.cube(), place(cx, h + 0.3, cz, 2, 0.6, 2), tint("#6e6a62", 1).clone());
-            const pick = hash(lx, ly, 82);
-            const room = Math.min(lotCap - 1, 28);
-            if (pick < 0.4) alienSpire(batch, cx, cz, h + 0.6, { h: Math.min(room, 14 + pick * 30), hue: Math.floor(pick * 9) });
-            else if (pick < 0.62) hybridTower(batch, cx, cz, h + 0.6, { scale: Math.min(0.6, room / 26), hue: Math.floor(pick * 7) });
-            else if (pick < 0.82) stalinTower(batch, cx, cz, h + 0.6, { scale: Math.min(0.55, room / 28), tiers: 4, crown: pick < 0.72 ? "star" : "cross" });
-            else monolith(batch, cx, cz, h + 0.6, { h: Math.min(room, 10 + pick * 8), hue: Math.floor(pick * 5) });
+        /* Now and then a lot holds something that does not quite make sense. */
+        if (whole && edge > 8 && hash(lx, ly, 89) < 0.05) {
+            if (x === lx * 2 && y === ly * 2) oddity(batch, lx * 2 + 0.5, ly * 2 + 0.5, h, hash(lx, ly, 82), 14 + lot * 12);
             return;
         }
-
-        if (kind === KIND.MOUNTAIN && edge >= 5) {
-            /* Out in the open, a lone solid tile is a monument. */
-            batch.shape("rock", P.cube(), place(x, h + 0.3, y, 0.9, 0.6, 0.9), tint("#7d7468", 1).clone());
-            batch.shape("solid", P.spire(), place(x, h + 0.6, y, 0.5, Math.min(cap, 4.5), 0.5), tint("#cfc3a6", 0.9).clone());
-            redStar(batch, x, h + 0.6 + Math.min(cap, 4.5), y, 0.5);
-            return;
-        }
-
-        const density = fbm(lx * 2, ly * 2, 0.045);
-        let want = 2.2 + Math.max(0, density - 0.5) * 26 + lot * 3.5;
-        if (edge < 6) want += (6 - edge) * 3.2;
-        const hex = ["#8f8778", "#a39782", "#7f8a8c", "#9a8c86", "#b0a48a"][Math.floor(hash(lx, ly, 84) * 5)];
-
-        /* A tall lot is one stepped building, not four blocks. */
-        if (solidLot && want > 7 && lotCap > 8) {
-            if (x !== lx * 2 || y !== ly * 2) return;
-            const crowns = ["star", "cross", "orb"];
-            setbackTower(batch, lx * 2 + 0.5, ly * 2 + 0.5, h, Math.min(want, (lotCap - 1) / 1.3), {
-                hex,
-                crown: crowns[Math.floor(hash(lx, ly, 85) * 3)],
-                hue: Math.floor(hash(lx, ly, 86) * 3),
-            });
-            return;
-        }
-        const height = Math.max(1.4, Math.min(cap, want));
-        const roof = height > cap - 1.2 ? 0 : Math.floor(hash(lx, ly, 83) * 5);
-        cityTile(batch, x, y, h, height, faces, { hex, roof: (x & 1) === 0 && (y & 1) === 1 ? roof : 0 });
+        const open = {
+            n: this.isOpen(x, y - 1),
+            s: this.isOpen(x, y + 1),
+            e: this.isOpen(x + 1, y),
+            w: this.isOpen(x - 1, y),
+        };
+        tenement(batch, x, y, h, this.heightAt(x, y), open, Math.floor(lot * 997));
     }
 
     isCity(x, y) {
         const kind = this.world.kindAt(x, y);
-        return (kind === KIND.TREE || kind === KIND.MOUNTAIN) && !this.roomOf(x, y);
+        return (kind === KIND.BLOCK || kind === KIND.TREE || kind === KIND.MOUNTAIN) && !this.roomOf(x, y);
     }
 
     buildChunk(cx, cy) {
@@ -351,8 +322,6 @@ export default class SiteScene {
                 if (h === null) continue;
                 const kind = world.kindAt(x, y);
                 const room = this.roomOf(x, y);
-                const lush = fbm(x, y, 0.055, 7);
-                const park = kind === KIND.GRASS && lush > 0.6;
                 let set = "path";
                 let top;
                 if (room) {
@@ -363,13 +332,10 @@ export default class SiteScene {
                 } else if (kind === KIND.FLOOR) {
                     /* Cobbled avenues. */
                     top = tint("#5d5850", 0.82 + hash(x, y, 4) * 0.22).clone();
-                } else if (park) {
-                    set = "grass";
-                    top = tint("#3d5f36", 0.88 + hash(x, y, 5) * 0.14).clone();
                 } else {
-                    /* Square paving for plazas and the ground under blocks. */
-                    const flag = (x + y) % 2 ? 0.9 : 1;
-                    top = tint("#4c4945", flag * (0.88 + hash(x, y, 5) * 0.12)).clone();
+                    /* Worn setts down the alleys, darker where it is wet. */
+                    const wet = hash(x, y, 6) < 0.18 ? 0.7 : 1;
+                    top = tint("#4c4945", wet * (0.86 + hash(x, y, 5) * 0.14)).clone();
                 }
                 batch.quad(set, [x - 0.5, h, y - 0.5], [x - 0.5, h, y + 0.5], [x + 0.5, h, y + 0.5], [x + 0.5, h, y - 0.5], top);
 
@@ -396,12 +362,16 @@ export default class SiteScene {
                         batch.shape("timber", P.cube(), place(x, h + 1.24, y, 1.02, 0.08, 1.02), tint("#7a5a3c", 1));
                     }
                 } else if (this.isCity(x, y)) {
-                    if (!this.reserved.has(`${x},${y}`)) this.cityAt(batch, x, y, h, kind);
-                } else if (park) {
-                    addBlades(batch, x, y, h, 4, 1);
+                    if (!this.reserved.has(`${x},${y}`)) this.cityAt(batch, x, y, h);
+                } else if (!room && !world.isSolid(x, y)) {
+                    /* An alley: walls either side, and the city strung
+                       across the gap overhead. */
+                    if (this.isCity(x - 1, y) && this.isCity(x + 1, y)) alleyClutter(batch, x, y, h, "x", Math.min(this.heightAt(x - 1, y), this.heightAt(x + 1, y)));
+                    else if (this.isCity(x, y - 1) && this.isCity(x, y + 1)) alleyClutter(batch, x, y, h, "z", Math.min(this.heightAt(x, y - 1), this.heightAt(x, y + 1)));
                 }
                 const lamp = this.lampAt.get(`${x},${y}`);
-                if (lamp) streetlamp(batch, lamp.x, lamp.y, h, { double: hash(x, y, 9) < 0.3 });
+                if (lamp && lamp.wall) wallLantern(batch, lamp.x, lamp.y, h + lamp.light.y, lamp.wall[0], lamp.wall[1]);
+                else if (lamp) streetlamp(batch, lamp.x, lamp.y, h, { double: hash(x, y, 9) < 0.3 });
             }
         }
         const group = new THREE.Group();
@@ -479,6 +449,16 @@ export default class SiteScene {
         });
     }
 
+    /* Whether the city stands between you and a point: a room's name
+       should not float through the tenements in front of it. */
+    inSight(x, z) {
+        const d = Math.hypot(x - this.focus.x, z - this.focus.z);
+        for (let k = 1; k < d; k += 1) {
+            if (this.isCity(Math.round(this.focus.x + ((x - this.focus.x) * k) / d), Math.round(this.focus.z + ((z - this.focus.z) * k) / d))) return false;
+        }
+        return true;
+    }
+
     updateLabels() {
         const g = this.grid;
         const w = g.cols * g.cellW;
@@ -489,7 +469,7 @@ export default class SiteScene {
             /* Room names mark rooms you are not in; the floor text belongs
                to the room around you. The front door shows neither, so the
                title has the picture to itself. */
-            const show = !intro && (label.room ? d > 12 : d < 16);
+            const show = !intro && (label.room ? d > 12 && this.inSight(label.x, label.z) : d < 16);
             const opacity = label.room ? Math.min(1, (d - 12) / 6) : Math.min(1, (16 - d) / 4);
             if (!show || opacity <= 0) {
                 if (label.shown) {
@@ -528,6 +508,7 @@ export default class SiteScene {
             w.duration = gap < 0.4 ? Math.min(Math.max(gap, 0.09), 0.2) : 0.12;
             w.lastStep = this.time;
         }
+        if (!far && this.mode !== "intro") this.follow(Math.sign(x - w.to.x), Math.sign(y - w.to.y), x, y);
         w.from = far ? { x, y } : { x: this.player.position.x, y: this.player.position.z };
         w.to = { x, y };
         w.start = this.time;
@@ -593,23 +574,104 @@ export default class SiteScene {
         pose(this.player, { stride: w.stride, moving: w.moving, t: this.time });
     }
 
+    /* Free look, from a drag; and a quarter turn, from the keys. */
+    rotate(dyaw, dpitch = 0) {
+        this.yawGoal += dyaw;
+        this.pitchBias = Math.max(-0.1, Math.min(0.5, this.pitchBias + dpitch));
+    }
+
+    /* Which quarter of the compass the camera faces: 0 north, 1 east. */
+    heading() {
+        const q = Math.round(this.yawGoal / (Math.PI / 2));
+        return ((q % 4) + 4) % 4;
+    }
+
+    /*
+     * Turn the camera to follow you round a corner. A step to the side,
+     * where the camera behind you is walled in, means you have turned into a
+     * lane it cannot see down: swing round to look along it. Out in the
+     * open the camera holds still, so a sidestep is only a sidestep.
+     */
+    follow(dx, dy, x, y) {
+        if (!dx === !dy) return;
+        const yaw = this.yawGoal;
+        const fx = Math.round(Math.sin(yaw));
+        const fy = Math.round(-Math.cos(yaw));
+        /* Forward and back keep the camera where it is. */
+        if (dx * fx + dy * fy !== 0) return;
+        const walled = (bx, by) => [1, 2].some((k) => this.tileTop(x + bx * k, y + by * k) > 3);
+        if (!walled(-fx, -fy) || walled(-dx, -dy)) return;
+        let goal = Math.atan2(dx, -dy);
+        while (goal - yaw > Math.PI) goal -= Math.PI * 2;
+        while (goal - yaw < -Math.PI) goal += Math.PI * 2;
+        this.yawGoal = goal;
+    }
+
+    /* How tall whatever stands on a tile is, for keeping the camera out. */
+    tileTop(x, y) {
+        const world = this.world;
+        if (this.isCity(x, y)) return 40;
+        const kind = world.kindAt(x, y);
+        if (kind === KIND.WALL) {
+            const room = this.roomOf(x, y);
+            return room && this.isBorder(room, x, y) ? 4 : 1.4;
+        }
+        return world.isSolid(x, y) && kind !== KIND.WATER && kind !== KIND.VOID ? 1.4 : 0;
+    }
+
+    /* The share of the way back the camera can go before it would be inside
+       a wall or a building: walk the line out from your head and stop
+       short of the first thing taller than it. */
+    cameraReach(sx, sz, head, shoulder, pitch) {
+        for (let k = 1; k <= 12; k += 1) {
+            const f = k / 12;
+            const dist = this.distance * f;
+            const x = Math.round(this.focus.x + sx * dist * Math.cos(pitch) + sz * shoulder * f);
+            const z = Math.round(this.focus.z + sz * dist * Math.cos(pitch) - sx * shoulder * f);
+            if (x === Math.round(this.focus.x) && z === Math.round(this.focus.z)) continue;
+            if (ROOM_FLOOR + this.tileTop(x, z) > head + dist * Math.sin(pitch)) return Math.max(0.3, f - 0.1);
+        }
+        return 1;
+    }
+
     updateCamera(dt) {
         const intro = this.mode === "intro";
         const goal = intro ? tmp.set(this.world.spawn.x, 0, this.world.spawn.y - 4) : this.player.position;
-        this.focus.lerp(goal, Math.min(1, dt * (intro ? 0.8 : 7)));
-        if (intro && !this.reducedMotion) this.yaw += dt * 0.05;
-        else if (!intro) this.yaw = lerpAngle(this.yaw, 0, Math.min(1, dt * 2.5));
-        this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * (intro ? 1.5 : 3.5));
-        const pitch = pitchFor(this.distance);
-        const back = this.distance * Math.cos(pitch);
-        const up = this.distance * Math.sin(pitch);
+        this.focus.lerp(goal, Math.min(1, dt * (intro ? 0.8 : 9)));
+        if (intro) {
+            if (!this.reducedMotion) this.yaw += dt * 0.05;
+            this.yawGoal = 0;
+        } else this.yaw = lerpAngle(this.yaw, this.yawGoal, Math.min(1, dt * 10));
+        this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * (intro ? 1.5 : 4));
+        const pitch = Math.max(0.04, pitchFor(this.distance) + (intro ? 0 : this.pitchBias));
         const sx = -Math.sin(this.yaw);
         const sz = Math.cos(this.yaw);
-        /* Aim above the focus: low and looking up is what makes it tall.
-           On the front door the camera looks up into the skyline. */
-        const look = intro ? 7 : 2.8;
-        this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + look, this.focus.z + sz * back);
-        this.camera.lookAt(this.focus.x, this.focus.y + look, this.focus.z);
+        if (intro) {
+            /* The front door looks up into the skyline. */
+            const back = this.distance * Math.cos(pitch);
+            const up = this.distance * Math.sin(pitch);
+            this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + 7, this.focus.z + sz * back);
+            this.camera.lookAt(this.focus.x, this.focus.y + 7, this.focus.z);
+        } else {
+            /* Over the shoulder: behind and a little right, aimed at a
+               point ahead at head height. */
+            const head = this.focus.y + 1.9;
+            const rx = sz;
+            const rz = -sx;
+            /* Hug the middle of a lane too narrow for the shoulder. */
+            const tight = this.tileTop(Math.round(this.focus.x + rx * 0.8), Math.round(this.focus.z + rz * 0.8)) > 3;
+            const want = (tight ? 0 : 0.7) * Math.min(1, this.distance / 5);
+            this.shoulder = this.shoulder === undefined ? want : this.shoulder + (want - this.shoulder) * Math.min(1, dt * 5);
+            const shoulder = this.shoulder;
+            /* And rise a little there, to see down the lane over your head. */
+            this.lift = (this.lift || 0) + ((tight ? 0.8 : 0) - (this.lift || 0)) * Math.min(1, dt * 4);
+            const reach = this.cameraReach(sx, sz, head, shoulder, pitch);
+            this.reach = this.reach === undefined || reach < this.reach ? reach : this.reach + (reach - this.reach) * Math.min(1, dt * 3);
+            const d = this.distance * this.reach;
+            this.camera.position.set(this.focus.x + sx * d * Math.cos(pitch) + rx * shoulder, head + this.lift + d * Math.sin(pitch), this.focus.z + sz * d * Math.cos(pitch) + rz * shoulder);
+            const ahead = 3 + this.distance * 0.2;
+            this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, head - 0.1, this.focus.z - sz * ahead + rz * shoulder * 0.4);
+        }
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
     }
@@ -621,8 +683,15 @@ export default class SiteScene {
            ambient and a hotter ASCII pass, so the stone still draws. */
         const night = this.phaseName === "night";
         this.sun.intensity = p.sun + (night ? 0.6 : 0);
-        this.ascii.uniforms.uGain.value = { night: 1.4, dusk: 1.25, dawn: 1.15, day: 1.0 }[this.phaseName];
+        this.ascii.uniforms.uGain.value = { night: 1.4, dusk: 1.15, dawn: 1.1, day: 0.95 }[this.phaseName];
         this.ascii.uniforms.uInk.value = { night: 1.9, dusk: 1.7, dawn: 1.4, day: 1.1 }[this.phaseName];
+        /* Each cell's colour also washes its background, so walls and
+           towers read as solid masses with type on them, not as type alone. */
+        this.ascii.uniforms.uFill.value = night ? 0.4 : 0.32;
+        /* A gentler ramp: close walls fill the view down an alley, and at
+           full strength their flat faces drown the edges in letters. */
+        this.ascii.uniforms.uRamp.value = 1.55;
+        this.ascii.uniforms.uContrast.value = 1.5;
         this.sun.color.set(p.sunColor);
         /* A touch brighter than the Commons: this is a site to read. */
         this.hemi.intensity = p.hemi + { night: 0.9, dusk: 0.7, dawn: 0.5, day: 0.3 }[this.phaseName];
@@ -711,7 +780,6 @@ export default class SiteScene {
         this.updateChunks();
         this.updateProps();
         this.citizens.update(this.reducedMotion ? 0 : dt, this.time, this.focus);
-        this.visitor.update(this.reducedMotion ? 0 : this.time);
         this.updateSky();
         wind.uTime.value = this.reducedMotion ? 0 : this.time;
         if (!this.reducedMotion || !this.waterStill) {
@@ -736,7 +804,6 @@ export default class SiteScene {
         this.chunks.clear();
         this.compound.forEach((m) => m.geometry.dispose());
         this.citizens.dispose();
-        this.visitor.dispose();
         this.props.forEach((prop) => disposeProps(prop.group));
         this.torches.forEach((t) => disposeProps(t.group));
         this.ascii.dispose();

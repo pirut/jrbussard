@@ -24,6 +24,7 @@ import {
     DESTINATIONS,
 } from "../components/Hud";
 import { localPhase } from "../site3d/phase";
+import { screenStep } from "../arcade/ascii3d/controls";
 import "../styles/world.css";
 
 const STEP_MS = 105;
@@ -47,6 +48,14 @@ const DIRECTIONS = {
     s: "down",
     d: "right",
 };
+
+/* Keys speak in screen directions; with the 3D camera turned, "up" is
+   whichever way it faces. The character renderer never turns. `held` is the
+   heading when the keys went down: the camera swings round to follow you
+   into a side street, and a held key should keep going the way it meant. */
+function onMap(scene, held, dx, dy) {
+    return screenStep(held ?? scene?.heading?.() ?? 0, dx, dy);
+}
 
 const NEIGHBORS = [
     [0, -1],
@@ -275,6 +284,8 @@ const World = () => {
     const rendererRef = useRef(null);
     const sceneHostRef = useRef(null);
     const sceneRef = useRef(null);
+    const rawRef = useRef(false);
+    const heldRef = useRef(null);
     const viewportRef = useRef({ cols: 0, rows: 0 });
     const playerRef = useRef({ ...arrival });
     const keysRef = useRef(new Set());
@@ -365,10 +376,11 @@ const World = () => {
        a quick tap always registers. */
     const press = useCallback((direction) => {
         if (keysRef.current.has(direction)) return;
+        if (!keysRef.current.size) heldRef.current = sceneRef.current?.heading?.() ?? null;
         keysRef.current.add(direction);
         const flags = flagsRef.current;
         if (!flags.started || flags.blocked) return;
-        const [dx, dy] = VECTORS[direction];
+        const [dx, dy] = onMap(sceneRef.current, heldRef.current, ...VECTORS[direction]);
         moveRef.current(dx, dy);
         nextStepRef.current = performance.now() + REPEAT_DELAY_MS;
     }, []);
@@ -504,7 +516,7 @@ const World = () => {
             else if (keys.has("right")) dx = 1;
             if (!dx && !dy) return;
 
-            tryMove(dx, dy);
+            tryMove(...onMap(sceneRef.current, heldRef.current, dx, dy));
             nextStepRef.current = time + STEP_MS;
         };
 
@@ -596,6 +608,19 @@ const World = () => {
                 return;
             }
 
+            if (event.key === "[" || event.key === "]") {
+                event.preventDefault();
+                sceneRef.current?.rotate((event.key === "]" ? 1 : -1) * (Math.PI / 2));
+                return;
+            }
+
+            /* The scene without the characters, as in the Commons. */
+            if (event.key === "v" || event.key === "V") {
+                rawRef.current = !rawRef.current;
+                sceneRef.current?.setRaw?.(rawRef.current);
+                return;
+            }
+
             if (event.key === "+" || event.key === "=") {
                 event.preventDefault();
                 setZoom((z) => Math.max(0, z - 1));
@@ -678,6 +703,26 @@ const World = () => {
         );
     }, []);
 
+    /* Drag anywhere on the world to look round, as in the Commons. */
+    const dragRef = useRef(null);
+    const onPointerDown = useCallback((event) => {
+        if (!flagsRef.current.started || flagsRef.current.blocked) return;
+        dragRef.current = { x: event.clientX, y: event.clientY };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+    }, []);
+    const onPointerMove = useCallback((event) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        const dx = event.clientX - drag.x;
+        const dy = event.clientY - drag.y;
+        drag.x = event.clientX;
+        drag.y = event.clientY;
+        sceneRef.current?.rotate(-dx * 0.0065, dy * 0.004);
+    }, []);
+    const onPointerUp = useCallback(() => {
+        dragRef.current = null;
+    }, []);
+
     const enter = () => {
         setStarted(true);
         requestAnimationFrame(() => stageRef.current?.focus());
@@ -706,8 +751,12 @@ const World = () => {
                 ref={stageRef}
                 tabIndex={started ? 0 : -1}
                 role="group"
-                aria-label="Explorable workshop. Use arrow keys or WASD to walk, E to interact, M for map, 1 to 6 to travel between rooms."
+                aria-label="A city drawn in characters. Use arrow keys or WASD to walk, drag or the bracket keys to turn, E to interact, M for map, 1 to 6 to travel between rooms."
                 onWheel={onWheel}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
             />
             <div
                 className="world-plane world-plane--near"

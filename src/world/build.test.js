@@ -1,6 +1,7 @@
 import { buildWorld } from "./build";
 import { KIND, INTERACTIVE } from "./tiles";
 import { arcade } from "../data/site";
+import { LAKES } from "./rooms";
 
 /* Flood fill the walkable floor starting from the spawn point. */
 function reachable(world) {
@@ -95,5 +96,22 @@ describe("the overworld", () => {
     it("has at least as many arcade cabinets as registered projects", () => {
         const cabinets = world.markers.filter((m) => m.kind === KIND.ARCADE).length;
         expect(cabinets).toBeGreaterThanOrEqual(arcade.length);
+    });
+
+    it("packs the outdoors with blocks, and every alley leads somewhere", () => {
+        const inLake = (x, y) => LAKES.some((l) => ((x - l.x) / l.rx) ** 2 + ((y - l.y) / l.ry) ** 2 <= 1.05);
+        let blocks = 0;
+        let lost = 0;
+        for (let y = 5; y < world.h - 5; y += 1) {
+            for (let x = 5; x < world.w - 5; x += 1) {
+                const kind = world.kindAt(x, y);
+                if (kind === KIND.BLOCK) blocks += 1;
+                /* Rooms keep their own nooks, and lakes their islands. */
+                else if (world.zones[y * world.w + x] || inLake(x, y)) continue;
+                else if (!world.isSolid(x, y) && !seen[y * world.w + x]) lost += 1;
+            }
+        }
+        expect(blocks).toBeGreaterThan((world.w - 10) * (world.h - 10) * 0.4);
+        expect(lost).toBe(0);
     });
 });

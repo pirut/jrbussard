@@ -5,8 +5,9 @@ import { buildSurvivor, pose } from "../arcade/ascii3d/models";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
 import { Batch, tint, hash, addTree, addBlades, wind } from "../arcade/ascii3d/terrainMesh";
 import { KIND } from "../world/tiles";
-import { alienSpire, church, kremlinTower, setbackTower, stalinTower, wallTile } from "../arcade/ascii3d/architecture";
+import { church, kremlinTower, setbackTower, stalinTower, wallTile } from "../arcade/ascii3d/architecture";
 import { buildProp, buildTorch, disposeProps } from "./props";
+import { oddity } from "./warren";
 
 /*
  * A small scene in the same type as the workshop, for the pages that are not
@@ -36,8 +37,8 @@ function arcade(scene) {
     kremlinTower(batch, 0, -5, 0, { w: 2.2, h: 5.2, crown: "star" });
     church(batch, -5, -9, 0, { scale: 1, belfry: 0 });
     stalinTower(batch, 5, -10, 0, { scale: 0.8, crown: "cross" });
-    alienSpire(batch, 12, -12, 0, { h: 18, hue: 1 });
-    setbackTower(batch, -12, -12, 0, 10, { crown: "orb" });
+    oddity(batch, 12, -12, 0, 0.3, 22);
+    setbackTower(batch, -12, -12, 0, 10, { crown: "cross" });
     const ground = batch.meshes();
     ground.forEach((m) => scene.add(m));
     const props = [];
@@ -102,8 +103,8 @@ function lost(scene) {
         const x = Math.cos(a) * r;
         const z = Math.sin(a) * r;
         const pick = hash(i, 2, 3);
-        if (pick < 0.3) alienSpire(batch, x, z, 0, { h: 12 + pick * 30, hue: i });
-        else if (pick < 0.6) setbackTower(batch, x, z, 0, 8 + pick * 6, { crown: ["star", "cross", "orb"][i % 3], hue: i });
+        if (pick < 0.3) oddity(batch, x, z, 0, hash(i, 4, 3), 14 + pick * 30);
+        else if (pick < 0.6) setbackTower(batch, x, z, 0, 8 + pick * 6, { crown: i % 2 ? "star" : "cross" });
         else if (pick < 0.8) stalinTower(batch, x, z, 0, { scale: 0.7, tiers: 4, crown: i % 2 ? "star" : "cross" });
         else church(batch, x, z, 0, { scale: 0.9, belfry: i % 2 ? 1 : 0 });
     }

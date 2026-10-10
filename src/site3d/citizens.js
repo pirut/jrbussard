@@ -8,7 +8,7 @@ import { KIND } from "../world/tiles";
  * about them is solid, and they never get in your way.
  */
 
-const COUNT = 34;
+const COUNT = 64;
 const SEEN = 46;
 const STEPS = [
     [0, -1],
@@ -40,7 +40,7 @@ export class Citizens {
         this.random = rng(20261010);
         const spots = [];
         for (let y = 0; y < world.h; y += 1) {
-            for (let x = 0; x < world.w; x += 1) if (this.walkable(x, y) && world.kindAt(x, y) === KIND.FLOOR) spots.push([x, y]);
+            for (let x = 0; x < world.w; x += 1) if (this.walkable(x, y)) spots.push([x, y]);
         }
         this.people = [];
         for (let i = 0; i < COUNT && spots.length; i += 1) {

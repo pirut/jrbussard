@@ -106,6 +106,12 @@
 .world-stage {
     z-index: 1;
     outline: none;
+    /* Dragging turns the camera, so the page must not pan instead. */
+    touch-action: none;
+    cursor: grab;
+}
+.world-stage:active {
+    cursor: grabbing;
 }
 .is-2d .world-stage {
     text-shadow: 0 0 2px currentColor;

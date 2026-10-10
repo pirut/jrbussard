@@ -329,85 +329,6 @@ export function peakBuilding(b, x, z, y, pick) {
     return stalinTower(b, x, z, y, { scale: 0.42, tiers: 4, crown: "star" });
 }
 
-/* ── The other city ───────────────────────────────────────────────────────
- *
- * Between the towers stand things nobody here built: ribbed needles that
- * taper to nothing, rings that hang around them without touching, black
- * slabs with light running down a seam. Glowing in teal and violet, so at
- * night they read as a different hand from the warm windows of the rest.
- */
-
-export const ALIEN = "#3d3a4a";
-export const ALIEN_GLOW = ["#7fe0d6", "#a98cff", "#ff7ad9"];
-
-/* A needle: stacked, narrowing segments, alternately fat and pinched, with
-   rings floating around it and a light at the tip. */
-export function alienSpire(b, x, z, y, { h = 18, hue = 0, width = 1.6 } = {}) {
-    const glow = ALIEN_GLOW[hue % ALIEN_GLOW.length];
-    const segs = Math.max(5, Math.round(h / 1.6));
-    let top = y;
-    for (let i = 0; i < segs; i += 1) {
-        const k = 1 - i / segs;
-        const sh = h / segs;
-        const fat = i % 2 ? 0.62 : 1;
-        b.shape("solid", P.gem(), place(x, top + sh / 2, z, width * k * fat, sh * 1.25, width * k * fat, i * 0.4), col(ALIEN, 0.9 + (i % 2) * 0.15));
-        if (i % 3 === 1) b.shape("solid:glow", P.ring(), place(x, top + sh / 2, z, width * k * 2.1, 1, width * k * 2.1), col(glow, 0.8));
-        top += sh;
-    }
-    b.shape("fire:glow", P.gem(), place(x, top + 0.4, z, 0.35, 0.8, 0.35), col(glow));
-    return top + 0.8;
-}
-
-/* A black slab, taller than it is wide, with a glowing seam. */
-export function monolith(b, x, z, y, { h = 9, w = 2.2, d = 0.9, hue = 1 } = {}) {
-    block(b, "solid", x, y, z, w, h, d, "#26242e");
-    block(b, "solid:glow", x, y + 0.2, z + d / 2 + 0.01, 0.08, h - 0.4, 0.04, ALIEN_GLOW[hue % ALIEN_GLOW.length], 0.85);
-    block(b, "solid", x, y + h, z, w * 0.7, 0.2, d * 0.7, "#26242e", 1.3);
-    return y + h;
-}
-
-/* A Stalinist tower finished not with a star but with something that
-   hovers: the city's two hands meeting in one building. */
-export function hybridTower(b, x, z, y, { scale = 1, hue = 0 } = {}) {
-    const top = stalinTower(b, x, z, y, { scale, tiers: 4, crown: "star" });
-    const glow = ALIEN_GLOW[hue % ALIEN_GLOW.length];
-    b.shape("solid:glow", P.ring(), place(x, top - 2.2 * scale, z, 2.6 * scale, 1, 2.6 * scale), col(glow, 0.8));
-    b.shape("solid:glow", P.ring(), place(x, top - 1.2 * scale, z, 1.8 * scale, 1, 1.8 * scale), col(glow, 0.8));
-    return top;
-}
-
-/*
- * One tile of city block. `faces` lists which sides look onto open ground
- * (n, s, e, w), so windows go only where someone could see them. `roof`
- * picks what tops it.
- */
-export function cityTile(b, x, z, y, h, faces, { hex = "#8f8778", roof = 0, lit = 0.7 } = {}) {
-    block(b, "solid", x, y, z, 1, h, 1, hex, 0.85 + hash(x, z, 91) * 0.2);
-    const rows = Math.max(1, Math.round(h / 0.95));
-    faces.forEach((f) => {
-        for (let r = 0; r < rows; r += 1) {
-            if (r === 0 && h > 2) continue;
-            const on = hash(x * 3 + r, z * 5, f.charCodeAt(0)) < lit;
-            const wy = y + (r + 0.35) * (h / rows);
-            const set = on ? "solid:glow" : "solid";
-            const wc = on ? WINDOW : "#2a2a30";
-            const k = on ? 0.6 + hash(x, z + r, 93) * 0.4 : 1;
-            for (const o of [-0.22, 0.22]) {
-                if (f === "s") block(b, set, x + o, wy, z + 0.51, 0.18, (h / rows) * 0.42, 0.03, wc, k);
-                else if (f === "n") block(b, set, x + o, wy, z - 0.51, 0.18, (h / rows) * 0.42, 0.03, wc, k);
-                else if (f === "e") block(b, set, x + 0.51, wy, z + o, 0.03, (h / rows) * 0.42, 0.18, wc, k);
-                else block(b, set, x - 0.51, wy, z + o, 0.03, (h / rows) * 0.42, 0.18, wc, k);
-            }
-        }
-    });
-    /* Cornice, then a roof: flat, a steep red gable, a green tent, a dome. */
-    block(b, "solid", x, y + h, z, 1.04, 0.1, 1.04, STONE_TRIM, 0.85);
-    if (roof === 1) cone(b, "rock", P.tent, x, y + h + 0.1, z, 0.5, 1.1, BRICK, 0.9);
-    else if (roof === 2) cone(b, "solid", P.tent, x, y + h + 0.1, z, 0.5, 1.6, VERDIGRIS);
-    else if (roof === 3) onion(b, x, y + h + 0.1, z, 0.3, hash(x, z, 94) < 0.5 ? GOLD : "#3f6fb0", { drum: 0.3 });
-    else if (roof === 4) cone(b, "solid", P.spire, x, y + h + 0.1, z, 0.18, 2.4, STONE_TRIM);
-}
-
 /* A streetlamp: an iron post, a crook, and a lantern that glows. Built
    tall, so the street has a ceiling of light. */
 export function streetlamp(b, x, z, y, { double = false } = {}) {
@@ -426,9 +347,9 @@ export function streetlamp(b, x, z, y, { double = false } = {}) {
 /*
  * A tall block on a 2x2 lot, stepped back as it rises the way the Moscow
  * high-rises are: a broad base, a narrower shaft, a crown, and a spire with
- * a star, a cross, or something that glows and is neither.
+ * a star or a cross on it.
  */
-export function setbackTower(b, x, z, y, h, { hex = STONE, crown = "star", hue = 0 } = {}) {
+export function setbackTower(b, x, z, y, h, { hex = STONE, crown = "star" } = {}) {
     const steps = [
         [2, 0.5],
         [1.5, 0.28],
@@ -451,9 +372,6 @@ export function setbackTower(b, x, z, y, h, { hex = STONE, crown = "star", hue =
     cone(b, "solid", P.spire, x, top, z, 0.22, h * 0.28, GOLD, 0.8);
     top += h * 0.28;
     if (crown === "cross") cross(b, x, top, z, 0.9);
-    else if (crown === "orb") {
-        b.shape("fire:glow", P.blob(), place(x, top + 0.5, z, 0.7, 0.7, 0.7), col(ALIEN_GLOW[hue % ALIEN_GLOW.length]));
-        b.shape("solid:glow", P.ring(), place(x, top + 0.5, z, 1.6, 1, 1.6), col(ALIEN_GLOW[(hue + 1) % ALIEN_GLOW.length], 0.8));
-    } else redStar(b, x, top, z, 0.8);
+    else redStar(b, x, top, z, 0.8);
     return top;
 }

@@ -23,19 +23,23 @@ with `M`, close anything with `ESC`. Touch devices get a thumb pad. Returning
 from a game brings you back to the Arcade.
 
 The world is still a tile grid ([`src/world/`](src/world/)): rooms, roads,
-woods, lakes and the props worth touching. Walking, collisions and what each
-prop opens are all decided there. [`src/site3d/SiteScene.js`](src/site3d/SiteScene.js)
-only draws it, through the Commons' ASCII pass. The look is a Moscow that kept
-its churches and took in something from elsewhere: each room is a Kremlin-walled
-compound ([`compound.js`](src/site3d/compound.js)) with a landmark behind it — a
-five-domed church behind the library, a stepped Seven Sisters tower behind the
-atrium, chimneys behind the foundry, a St Basil's behind the arcade — and the
-woods and hills of the tile world stand as city blocks, setback towers and
-glowing alien spires, never taller than the sightline to the street behind
-them. Streetlamps line every road, people walk the avenues
-([`citizens.js`](src/site3d/citizens.js)), and something hangs in the sky past
-the north edge ([`visitor.js`](src/site3d/visitor.js)). The buildings come from
-one kit shared with the Commons ([`architecture.js`](src/arcade/ascii3d/architecture.js)).
+lakes, the props worth touching, and between them a warren of tenement blocks
+cut by one-tile alleys, packed the way the Kowloon Walled City was. Walking,
+collisions and what each prop opens are all decided there. [`src/site3d/SiteScene.js`](src/site3d/SiteScene.js)
+only draws it, through the Commons' ASCII pass, with the camera over JR's
+shoulder (drag or `[` `]` to turn; it swings round to follow you into a side
+lane). The look is a Moscow that kept its churches: each room is a Kremlin-walled
+compound ([`compound.js`](src/site3d/compound.js)) with a landmark across the
+street behind it — a five-domed church behind the library, a stepped Seven
+Sisters tower behind the atrium, chimneys behind the foundry, a St Basil's
+behind the arcade — and the blocks ([`warren.js`](src/site3d/warren.js)) are
+stacks of mismatched storeys with a cornice between each, strung across with
+washing, cables, signs and covered bridges, topped with pinnacles, domes and
+spires that do not quite stand straight. A few lots hold something odder: a
+chapel on a tower's roof, a stack that drifts sideways as it climbs. Lanterns
+light the alleys, streetlamps the roads, and people walk all of it
+([`citizens.js`](src/site3d/citizens.js)). The buildings come from one kit
+shared with the Commons ([`architecture.js`](src/arcade/ascii3d/architecture.js)).
 Inside, a book on the shelf for every note, a turning star for every
 repository, lit cabinets, a lighthouse at the end of the pier, and the text
 painted on each room's floor floats over it in the page's own type. Props
