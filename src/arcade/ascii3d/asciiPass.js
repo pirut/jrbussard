@@ -59,14 +59,14 @@ const SQUARES = "\u25aa\u25a0";
 const FAMILIES = {
     /* Built things draw in strokes and marks, never letters, so a wall reads
        as masonry rather than as a page of type. */
-    solid: " .,:;'`\"-_=+*#%|/\\()<>^~![]{}",
+    solid: " .,:;'`\"-_=+*#%|/\\()<>^~!",
     rock: " .,:;'`\"-_=+*#%@&$|/\\()<>^~!",
     light: " .:-=+*#\u25aa\u25a0",
     water: " ~-=_.,'`^:",
     leaves: " .,:;'`\"*+o%&@#^~()",
     grass: " /\\|'\",.`:;vVwWyY!il",
     fire: " *^'\".,:+xX%#&@`",
-    timber: " =-_|:.'#+[]",
+    timber: " =-_|:.'#+",
     path: " .,:;-_='\"`",
     /* Figures draw in symbols, not letters, so a person stands out from a
        world written in type. */

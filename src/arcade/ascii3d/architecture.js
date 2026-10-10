@@ -76,10 +76,10 @@ function windows(b, x, y, z, w, d, rows, cols, h, face = 1) {
             const off = -w / 2 + step * (i + 0.5);
             const tall = (h / rows) * 0.42;
             if (face === 1 || face === -1) {
-                block(b, lit ? "light:glow" : "solid", x + off, wy, z + face * (d / 2 + 0.01), step * 0.34, tall, 0.04, hex, lit ? 0.85 : 1);
+                block(b, lit ? "light:glow" : "light", x + off, wy, z + face * (d / 2 + 0.01), step * 0.34, tall, 0.04, hex, lit ? 0.85 : 1);
             } else {
                 const s = face === "e" ? 1 : -1;
-                block(b, lit ? "light:glow" : "solid", x + s * (d / 2 + 0.01), wy, z + off, 0.04, tall, step * 0.34, hex, lit ? 0.85 : 1);
+                block(b, lit ? "light:glow" : "light", x + s * (d / 2 + 0.01), wy, z + off, 0.04, tall, step * 0.34, hex, lit ? 0.85 : 1);
             }
         }
     }

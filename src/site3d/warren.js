@@ -93,7 +93,7 @@ export function tenement(b, x, z, y, h, open, lot, { crown = true } = {}) {
                        of light seen edge on down a lane. */
                     const lit = r < 0.24;
                     const hex = lit ? LIGHTS[Math.floor(hash(x + k, z + i, 215) * LIGHTS.length)] : "#24242a";
-                    panel(b, lit ? "light:glow" : "solid", f, cx, sy + 0.24, cz, half, along, 0.2, 0.42, hex, lit ? 0.5 + r * 1.5 : 1);
+                    panel(b, lit ? "light:glow" : "light", f, cx, sy + 0.24, cz, half, along, 0.2, 0.42, hex, lit ? 0.5 + r * 1.5 : 1);
                 }
                 /* Now and then a cage over a window, or a box humming. */
                 const extra = hash(x * 11 + k, z * 3 + s, 216 + f.charCodeAt(0));
