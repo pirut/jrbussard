@@ -1,0 +1,11 @@
+.backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: #0b0f0c;
+}
+/* Behind a game the scene steps back, so the playfield stays the thing. */
+.backdrop--dim {
+    opacity: 0.42;
+}

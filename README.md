@@ -1,7 +1,9 @@
 # jrbussard.com
 
-A personal site you walk around in. The whole thing is a character grid: you
-control an `@`, explore an overworld, and stand next to things to open them.
+A personal site you walk around in. The whole thing is a workshop modelled in
+3D and drawn entirely in characters, with the same renderer as the Commons
+(see below): you walk JR around an overworld and stand next to things to open
+them.
 
 ```
         THE OBSERVATORY        live GitHub repos
@@ -13,17 +15,34 @@ control an `@`, explore an overworld, and stand next to things to open them.
          THE BEACON                          contact
 ```
 
-The entrance includes a clickable atlas drawn from the actual world geometry.
-Enter to walk, choose a room on the atlas, or open the index to browse directly.
+The front door is a slow flyover of the workshop with the ways in laid over it:
+enter and walk, jump straight to a room, or open the index to browse directly.
 
-Move with `WASD`/arrows, act with `E`, open the world map with `M`, close
-anything with `ESC`. Touch devices get a thumb pad. The room strip and map
-buttons take you beside that room's content on reachable ground. Returning
+Move with `WASD`/arrows, act with `E`, travel between rooms with `1`–`6` (the
+hotbar along the bottom), zoom with the wheel or `+`/`-`, open the world map
+with `M`, close anything with `ESC`. Touch devices get a thumb pad. Returning
 from a game brings you back to the Arcade.
+
+The world is still a tile grid ([`src/world/`](src/world/)): rooms, roads,
+woods, lakes and the props worth touching. Walking, collisions and what each
+prop opens are all decided there. [`src/site3d/SiteScene.js`](src/site3d/SiteScene.js)
+only draws it — room walls in tinted stone, furniture in timber, a book on the
+shelf for every note, a turning star for every repository, lit cabinets, a
+lighthouse at the end of the pier — through the Commons' ASCII pass, and the
+text painted on each room's floor floats over it in the page's own type. Props
+light up when there is something behind them and go cold when there is not.
+The sky follows the visitor's clock (`?phase=night`, `dusk`, `dawn` or `day`
+pins it).
+
+Three.js is loaded after first paint. If it will not load or WebGL will not
+start, the original character renderer ([`src/world/render.js`](src/world/render.js))
+draws the same world instead. The arcade cabinets and the page for a wrong
+turn get small 3D scenes of their own behind them ([`src/site3d/Diorama.js`](src/site3d/Diorama.js)),
+which are decoration only and simply absent without WebGL.
 
 The index lists every note, project, game, repository, and contact link. Reading
 panels keep keyboard focus inside while open and return it when closed.
-Reduced-motion preferences stop the world's decorative shimmer. The page also
+Reduced-motion preferences stop the world's drift and shimmer. The page also
 carries a screen-reader-only copy of the same content.
 
 ## The Arcade

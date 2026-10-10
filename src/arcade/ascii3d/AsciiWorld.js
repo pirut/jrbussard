@@ -54,7 +54,7 @@ const FOV = 38;
 const MAX_LIGHTS = 6;
 
 /* Sky, sun and fill for each part of the day. Colours are sRGB hex. */
-const PHASES = {
+export const PHASES = {
     dawn: { sun: 1.3, sunColor: "#ffc796", hemi: 0.6, sky: "#a9b0d8", ground: "#3a3a36", bg: "#0d1020", angle: 0.5 },
     day: { sun: 1.7, sunColor: "#f6efe0", hemi: 0.8, sky: "#b9cdf0", ground: "#34443a", bg: "#0c1322", angle: 1.0 },
     dusk: { sun: 1.0, sunColor: "#ff9d6a", hemi: 0.5, sky: "#a68cb0", ground: "#3a3030", bg: "#110d1c", angle: 0.4 },

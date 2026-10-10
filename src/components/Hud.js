@@ -1,5 +1,4 @@
 import React from "react";
-import Atlas from "./Atlas";
 
 export const DESTINATIONS = [
     { id: "atrium", name: "Atrium", detail: "Start here", glyph: "@" },
@@ -15,115 +14,180 @@ export const DESTINATIONS = [
     { id: "beacon", name: "Beacon", detail: "Get in touch", glyph: "◉" },
 ];
 
-export function Intro({ world, onStart, onIndex, onTravel }) {
+const PHASE_GLYPH = { dawn: "◒", day: "○", dusk: "◓", night: "●" };
+
+/*
+ * The front door. The world itself is the backdrop — the camera drifts over
+ * the workshop — so this is only a title, a line, and the ways in.
+ */
+export function Intro({ onStart, onIndex, onTravel }) {
     return (
         <main className="intro">
-            <div className="intro__copy">
-                <h1>
-                    A small world.
-                    <br />
-                    <span>A working mind.</span>
+            <div className="intro__card">
+                <p className="intro__kicker">
+                    West Palm Beach, FL <span>·</span> operator &amp; builder
+                </p>
+                <h1 className="intro__title">
+                    <span className="sr-only">JR Bussard</span>
+                    <span aria-hidden="true">JR BUSSARD</span>
                 </h1>
-                <div className="intro__description">
-                    <p>
-                        I’m JR. I build systems, write things down, and make
-                        room for the occasional side quest.
-                    </p>
+                <p className="intro__tag">A small world. A working mind.</p>
+                <p className="intro__blurb">
+                    I’m JR. I build systems, write things down, and make room
+                    for the occasional side quest. This site is a workshop you
+                    walk around in, modelled in 3D and drawn entirely in
+                    characters.
+                </p>
+                <div className="intro__actions">
                     <button
                         type="button"
                         className="intro__start"
                         onClick={onStart}
                     >
-                        Enter the world <span aria-hidden="true">↗</span>
+                        Enter the world
                     </button>
                     <button
                         type="button"
                         className="intro__browse"
                         onClick={onIndex}
                     >
-                        Or browse the index
+                        or browse the index
                     </button>
                 </div>
                 <p className="intro__keys only-keys">
-                    <kbd>WASD</kbd> to wander <span>·</span> <kbd>E</kbd> to
-                    interact
+                    <kbd>WASD</kbd> walk <span>·</span> <kbd>E</kbd> interact{" "}
+                    <span>·</span> <kbd>1</kbd>–<kbd>6</kbd> travel{" "}
+                    <span>·</span> <kbd>M</kbd> map
                 </p>
                 <p className="intro__keys only-touch">
-                    Tap a room on the map to go there <span>·</span> thumb pad
-                    to walk
+                    Pick a room below <span>·</span> thumb pad to walk
                 </p>
             </div>
-            <div className="intro__world">
-                <Atlas world={world} onTravel={onTravel} />
-                <div className="intro__coordinates">
-                    <span aria-hidden="true">⌖</span>
-                    <p>
-                        THE ATRIUM<small>You are here</small>
-                    </p>
-                </div>
-            </div>
-            <footer className="intro__footer">
-                <span>An explorable workshop</span>
-                <span>Projects · Notes · Games · Code</span>
-            </footer>
+            <nav className="intro__rooms" aria-label="Go straight to a room">
+                {DESTINATIONS.map((room) => (
+                    <button
+                        type="button"
+                        key={room.id}
+                        onClick={() => onTravel(room.id)}
+                    >
+                        <b aria-hidden="true">{room.glyph}</b>
+                        <span>
+                            {room.name}
+                            <small>{room.detail}</small>
+                        </span>
+                    </button>
+                ))}
+            </nav>
         </main>
     );
 }
 
-export function TopBar({ region, started, onIndex, onMap, onHome }) {
+/* Top corners: who and where on the left, the sky and the controls right. */
+export function TopBar({
+    region,
+    started,
+    phase,
+    onIndex,
+    onMap,
+    onHome,
+    onZoom,
+}) {
     return (
-        <header className="hud hud--top">
-            <button
-                className="hud__brand"
-                type="button"
-                onClick={onHome}
-                aria-label="JR Bussard — home"
-            >
-                <span className="hud__mark" aria-hidden="true">
-                    @
-                </span>{" "}
-                JR BUSSARD
-            </button>
-            <span className="hud__region">
-                {started ? region : "West Palm Beach, FL"}
-            </span>
-            <nav className="hud__actions" aria-label="Site navigation">
-                {started && (
-                    <button type="button" onClick={onMap}>
-                        Map <kbd>M</kbd>
-                    </button>
-                )}
-                <button type="button" className="hud__index" onClick={onIndex}>
-                    Open index <span aria-hidden="true">↗</span>
+        <>
+            <header className="hud hud--brand">
+                <button
+                    className="hud__brand"
+                    type="button"
+                    onClick={onHome}
+                    aria-label="JR Bussard — home"
+                >
+                    <span className="hud__mark" aria-hidden="true">
+                        @
+                    </span>
+                    <span>
+                        JR BUSSARD
+                        <small>an explorable workshop</small>
+                    </span>
                 </button>
+                {started && (
+                    <p className="hud__region" aria-live="polite">
+                        {region}
+                        <small>
+                            Stand beside something that glows. Press E.
+                        </small>
+                    </p>
+                )}
+            </header>
+            <nav className="hud hud--actions" aria-label="Site navigation">
+                {phase && (
+                    <span className="hud__phase">
+                        <span aria-hidden="true">{PHASE_GLYPH[phase]}</span>{" "}
+                        {phase}
+                        <small>local time</small>
+                    </span>
+                )}
+                <div className="hud__buttons">
+                    {started && onZoom && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => onZoom(-1)}
+                                aria-label="Zoom in"
+                                title="Zoom in (+)"
+                            >
+                                +
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onZoom(1)}
+                                aria-label="Zoom out"
+                                title="Zoom out (-)"
+                            >
+                                −
+                            </button>
+                        </>
+                    )}
+                    {started && (
+                        <button type="button" onClick={onMap}>
+                            Map <kbd>M</kbd>
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        className="hud__index"
+                        onClick={onIndex}
+                    >
+                        Index
+                    </button>
+                </div>
             </nav>
-        </header>
+        </>
     );
 }
 
+/* The room strip, laid out like the Commons hotbar: a number key each. */
 export function RoomNav({ region, onTravel }) {
     return (
         <nav className="room-nav" aria-label="Travel to a room">
-            {DESTINATIONS.map((room) => (
+            {DESTINATIONS.map((room, i) => (
                 <button
                     type="button"
                     key={room.id}
                     onClick={() => onTravel(room.id)}
+                    title={`${room.name} — ${room.detail}`}
                     aria-current={
                         region === `THE ${room.name.toUpperCase()}`
                             ? "location"
                             : undefined
                     }
                 >
+                    <i aria-hidden="true">{i + 1}</i>
                     <span className="room-nav__glyph" aria-hidden="true">
                         {room.glyph}
                     </span>
-                    <span>
+                    <span className="room-nav__name">
                         {room.name}
                         <small>{room.detail}</small>
-                    </span>
-                    <span className="room-nav__arrow" aria-hidden="true">
-                        ↗
                     </span>
                 </button>
             ))}
@@ -133,24 +197,23 @@ export function RoomNav({ region, onTravel }) {
 
 export function PromptBar({ prompt, player, onAct }) {
     return (
-        <footer className="hud hud--bottom">
+        <footer className="hud hud--prompt">
             {prompt ? (
                 <button
                     type="button"
                     className="hud__prompt is-live"
                     onClick={onAct}
                 >
-                    <kbd>E</kbd> {prompt.verb} <span>— {prompt.label}</span>{" "}
-                    <span aria-hidden="true">↗</span>
+                    <kbd>E</kbd> {prompt.verb} <span>{prompt.label}</span>
                 </button>
             ) : (
                 <span className="hud__prompt only-keys">
-                    <kbd>WASD</kbd> / arrows to walk <span>·</span> <kbd>E</kbd>{" "}
-                    to interact
+                    <kbd>WASD</kbd> walk <span>·</span> <kbd>E</kbd> interact{" "}
+                    <span>·</span> <kbd>1</kbd>–<kbd>6</kbd> travel
                 </span>
             )}
-            <span className="hud__position">
-                {String(player.x).padStart(3, "0")} /{" "}
+            <span className="hud__position" aria-hidden="true">
+                {String(player.x).padStart(3, "0")},{" "}
                 {String(player.y).padStart(3, "0")}
             </span>
         </footer>

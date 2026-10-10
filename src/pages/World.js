@@ -15,7 +15,15 @@ import { fetchNotes } from "../lib/sanity";
 import { projects, arcade, about, contact, signs } from "../data/site";
 import Panel from "../components/Panel";
 import Minimap from "../components/Minimap";
-import { Intro, TopBar, PromptBar, TouchPad, RoomNav } from "../components/Hud";
+import {
+    Intro,
+    TopBar,
+    PromptBar,
+    TouchPad,
+    RoomNav,
+    DESTINATIONS,
+} from "../components/Hud";
+import { localPhase } from "../site3d/phase";
 import "../styles/world.css";
 
 const STEP_MS = 105;
@@ -265,6 +273,8 @@ const World = () => {
     const farRef = useRef(null);
     const probeRef = useRef(null);
     const rendererRef = useRef(null);
+    const sceneHostRef = useRef(null);
+    const sceneRef = useRef(null);
     const viewportRef = useRef({ cols: 0, rows: 0 });
     const playerRef = useRef({ ...arrival });
     const keysRef = useRef(new Set());
@@ -274,6 +284,7 @@ const World = () => {
     const reducedMotionRef = useRef(false);
     const moveRef = useRef(() => false);
     const countsRef = useRef({});
+    const travelRef = useRef(() => {});
 
     const [player, setPlayer] = useState(() => ({ ...arrival }));
     const [started, setStarted] = useState(Boolean(location.state?.room));
@@ -281,6 +292,14 @@ const World = () => {
     const [mapOpen, setMapOpen] = useState(false);
     const [notes, setNotes] = useState([]);
     const [touch, setTouch] = useState(false);
+    /* "loading" until the 3D scene is up, "3d" once it is, "2d" if this
+       browser cannot run it and the character renderer takes over. */
+    const [mode, setMode] = useState("loading");
+    const [zoom, setZoom] = useState(1);
+    const phase = useMemo(
+        () => localPhase(new Date(), window.location.search),
+        [],
+    );
 
     const { repos, activity } = useGitHub();
 
@@ -358,11 +377,61 @@ const World = () => {
         keysRef.current.delete(direction);
     }, []);
 
+    /*
+     * The 3D scene. Three.js is loaded on demand, the same way the Commons
+     * loads it, so the first paint of the page does not wait on it. If the
+     * module will not load or WebGL will not start, the character renderer
+     * below draws the same world instead.
+     */
+    useEffect(() => {
+        let cancelled = false;
+        let scene = null;
+        import("../site3d/SiteScene")
+            .then(({ default: SiteScene }) => {
+                if (cancelled || !sceneHostRef.current) return;
+                scene = new SiteScene(sceneHostRef.current, world, {
+                    reducedMotion: reducedMotionRef.current,
+                    phase,
+                });
+                sceneRef.current = scene;
+                setMode("3d");
+            })
+            .catch(() => {
+                if (!cancelled) setMode("2d");
+            });
+        return () => {
+            cancelled = true;
+            if (scene) scene.dispose();
+            sceneRef.current = null;
+        };
+    }, [world, phase]);
+
+    useEffect(() => {
+        sceneRef.current?.setMode(started ? "explore" : "intro");
+    }, [started, mode]);
+
+    useEffect(() => {
+        sceneRef.current?.setPlayer(player);
+    }, [player, mode]);
+
+    useEffect(() => {
+        sceneRef.current?.setZoom(zoom);
+    }, [zoom, mode]);
+
+    useEffect(() => {
+        sceneRef.current?.setCounts({
+            [KIND.BOOK]: notes.length,
+            [KIND.REPO]: repos.length,
+            [KIND.PROJECT]: projects.length,
+            [KIND.ARCADE]: arcade.length,
+        });
+    }, [notes, repos, mode]);
+
     /* Renderer lifecycle: rebuild the row elements whenever the stage resizes. */
     useEffect(() => {
         const stage = stageRef.current;
         const probe = probeRef.current;
-        if (!stage || !probe) return undefined;
+        if (mode !== "2d" || !stage || !probe) return undefined;
 
         const renderer = createRenderer(stage, world, {
             near: nearRef.current,
@@ -389,8 +458,9 @@ const World = () => {
         return () => {
             observer.disconnect();
             rendererRef.current = null;
+            stage.replaceChildren();
         };
-    }, [world]);
+    }, [world, mode]);
 
     /* Single loop: advance the player, then repaint at a steady cadence. */
     useEffect(() => {
@@ -523,6 +593,25 @@ const World = () => {
             if (event.key === "m" || event.key === "M") {
                 event.preventDefault();
                 setMapOpen(true);
+                return;
+            }
+
+            if (event.key === "+" || event.key === "=") {
+                event.preventDefault();
+                setZoom((z) => Math.max(0, z - 1));
+                return;
+            }
+            if (event.key === "-" || event.key === "_") {
+                event.preventDefault();
+                setZoom((z) => Math.min(3, z + 1));
+                return;
+            }
+
+            /* The room strip doubles as a hotbar: 1 to 6 travel. */
+            const slot = Number(event.key);
+            if (slot >= 1 && slot <= DESTINATIONS.length) {
+                event.preventDefault();
+                travelRef.current(DESTINATIONS[slot - 1].id);
             }
         };
 
@@ -564,6 +653,7 @@ const World = () => {
     const travel = useCallback(
         (id) => {
             const next = roomArrival(world, id);
+            sceneRef.current?.setPlayer(next, { snap: true });
             playerRef.current = next;
             setPlayer(next);
             keysRef.current.clear();
@@ -574,6 +664,19 @@ const World = () => {
         },
         [world],
     );
+    travelRef.current = travel;
+
+    useEffect(() => {
+        sceneRef.current?.setHighlight(started ? nearby : null);
+    }, [nearby, started, mode]);
+
+    /* The wheel zooms, like the Commons. */
+    const onWheel = useCallback((event) => {
+        if (!flagsRef.current.started || flagsRef.current.blocked) return;
+        setZoom((z) =>
+            Math.max(0, Math.min(3, z + (event.deltaY > 0 ? 1 : -1))),
+        );
+    }, []);
 
     const enter = () => {
         setStarted(true);
@@ -582,15 +685,17 @@ const World = () => {
 
     return (
         <div
-            className={`world-shell${started ? " is-exploring" : " is-intro"}`}
+            className={`world-shell is-${mode}${started ? " is-exploring" : " is-intro"}`}
         >
+            <div className="site3d" ref={sceneHostRef} aria-hidden="true" />
             <span className="world-probe" ref={probeRef} aria-hidden="true">
                 MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
             </span>
 
-            {/* Three planes: haze behind, the world, then foliage that
-                passes in front of you. They slide at different rates, which
-                is what makes the space read as deep rather than flat. */}
+            {/* The character renderer, for browsers without WebGL: haze
+                behind, the world, then foliage that passes in front of you.
+                With the 3D scene running these stay empty, and the stage is
+                only the focus target for the keyboard. */}
             <div
                 className="world-plane world-plane--far"
                 ref={farRef}
@@ -601,37 +706,37 @@ const World = () => {
                 ref={stageRef}
                 tabIndex={started ? 0 : -1}
                 role="group"
-                aria-label="Explorable workshop. Use arrow keys or WASD to walk, E to interact, M for map."
+                aria-label="Explorable workshop. Use arrow keys or WASD to walk, E to interact, M for map, 1 to 6 to travel between rooms."
+                onWheel={onWheel}
             />
             <div
                 className="world-plane world-plane--near"
                 ref={nearRef}
                 aria-hidden="true"
             />
-            <div className="world-crt" aria-hidden="true" />
-            <div className="world-vignette" aria-hidden="true" />
 
             <TopBar
                 region={region}
                 started={started}
+                phase={mode === "3d" ? phase : null}
                 onIndex={openIndex}
                 onMap={() => setMapOpen(true)}
                 onHome={() => setStarted(false)}
+                onZoom={
+                    mode === "3d"
+                        ? (step) =>
+                              setZoom((z) => Math.max(0, Math.min(3, z + step)))
+                        : null
+                }
             />
             {started && (
                 <>
-                    <RoomNav region={region} onTravel={travel} />
-                    <div className="world-location" aria-live="polite">
-                        <span>{region}</span>
-                        <small>
-                            Stand beside something that glows. Press E.
-                        </small>
-                    </div>
                     <PromptBar
                         prompt={prompt}
                         player={player}
                         onAct={interact}
                     />
+                    <RoomNav region={region} onTravel={travel} />
                     {touch && !panel && !mapOpen && (
                         <TouchPad
                             onPress={press}
@@ -643,12 +748,7 @@ const World = () => {
             )}
 
             {!started && (
-                <Intro
-                    world={world}
-                    onStart={enter}
-                    onIndex={openIndex}
-                    onTravel={travel}
-                />
+                <Intro onStart={enter} onIndex={openIndex} onTravel={travel} />
             )}
 
             {panel && (

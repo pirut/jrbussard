@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { cellMarkup } from "../lib/glyph";
+import Backdrop from "../site3d/Backdrop";
 import "./arcade.css";
 
 /*
@@ -150,6 +151,7 @@ export default function GameShell({
 }) {
     return (
         <main className="cab">
+            <Backdrop scene="arcade" dim />
             <header className="cab__bar">
                 <Link className="cab__back" to="/" state={{ room: "arcade" }}>
                     ◄ back to the arcade

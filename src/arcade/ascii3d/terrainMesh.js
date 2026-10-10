@@ -92,7 +92,7 @@ const GROUND_SET = {
     [SAND]: "path",
 };
 
-function hash(x, y, salt) {
+export function hash(x, y, salt) {
     let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(salt, 1442695041);
     h = Math.imul(h ^ (h >>> 13), 1274126177);
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
@@ -107,7 +107,7 @@ function proto(name, make) {
     }
     return PROTOS[name];
 }
-const P = {
+export const P = {
     cone: () => proto("cone", () => new THREE.ConeGeometry(0.5, 1, 7)),
     trunk: () => proto("trunk", () => new THREE.CylinderGeometry(0.08, 0.13, 1, 6)),
     blob: () => proto("blob", () => new THREE.IcosahedronGeometry(0.5, 0)),
@@ -118,7 +118,7 @@ const P = {
 };
 
 /* Collects triangles per material, then hands back one mesh for each. */
-class Batch {
+export class Batch {
     constructor() {
         this.parts = new Map();
     }
@@ -191,16 +191,16 @@ const m4 = new THREE.Matrix4();
 const q = new THREE.Quaternion();
 const e = new THREE.Euler();
 const color = new THREE.Color();
-function place(x, y, z, sx, sy, sz, ry = 0, rx = 0) {
+export function place(x, y, z, sx, sy, sz, ry = 0, rx = 0) {
     e.set(rx, ry, 0);
     q.setFromEuler(e);
     return m4.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, sz));
 }
-function tint(hex, amount) {
+export function tint(hex, amount) {
     return color.set(hex).multiplyScalar(amount);
 }
 
-function addTree(batch, x, y, h) {
+export function addTree(batch, x, y, h) {
     const r = hash(x, y, 11);
     const ox = x + (hash(x, y, 12) - 0.5) * 0.3;
     const oz = y + (hash(x, y, 13) - 0.5) * 0.3;
@@ -221,7 +221,7 @@ function addTree(batch, x, y, h) {
     }
 }
 
-function addRock(batch, x, y, h, resource) {
+export function addRock(batch, x, y, h, resource) {
     const r = hash(x, y, 21);
     const s = 0.8 + r * 0.45;
     const base = resource === "coal" ? "#5d6066" : "#9a9f97";
@@ -264,7 +264,7 @@ const TIP = new THREE.Color();
  * A meadow: thin blades, rooted dark and lit at the tips, leaning with the
  * wind. Up close these are what the ASCII pass turns into strokes.
  */
-function addBlades(batch, x, y, h, count, tall) {
+export function addBlades(batch, x, y, h, count, tall) {
     for (let i = 0; i < count; i += 1) {
         const r = hash(x, y, 100 + i);
         const bx = x - 0.5 + hash(x, y, 200 + i);
