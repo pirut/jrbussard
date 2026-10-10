@@ -28,7 +28,8 @@ cut by two-tile alleys, packed the way the Kowloon Walled City was. Walking,
 collisions and what each prop opens are all decided there. [`src/site3d/SiteScene.js`](src/site3d/SiteScene.js)
 only draws it, through the Commons' ASCII pass, with the camera riding
 behind and above JR (drag or `[` `]` to turn; it swings round to follow you
-into a side lane). The look is a Moscow that kept its churches: each room is a Kremlin-walled
+into a side lane, climbs where a lane is blind behind you, and cuts away
+bridges and washing that hang between it and you). The look is a Moscow that kept its churches: each room is a Kremlin-walled
 compound ([`compound.js`](src/site3d/compound.js)) with a landmark across the
 street behind it — a five-domed church behind the library, a stepped Seven
 Sisters tower behind the atrium, chimneys behind the foundry, a St Basil's
