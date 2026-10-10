@@ -61,7 +61,7 @@ function clamp(value, min, max) {
 
 function roomName(world, id) {
     const room = world.rooms.find((entry) => entry.id === id);
-    return room ? room.name : "THE WILDS";
+    return room ? room.name : "THE CITY";
 }
 
 /* Which prop is the player standing next to, if any. */
@@ -325,7 +325,7 @@ const World = () => {
     }, []);
 
     useEffect(() => {
-        document.title = "JR Bussard — an explorable workshop";
+        document.title = "JR Bussard — a city in characters";
     }, []);
 
     useEffect(() => {

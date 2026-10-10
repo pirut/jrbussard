@@ -212,6 +212,7 @@ const pickShader = /* glsl */ `
     uniform float uGain;
     uniform float uSharp;
     uniform float uEdge;
+    uniform float uInk;
     uniform float uRamp;
     uniform float uTime;
     uniform float uRain;
@@ -353,7 +354,7 @@ const pickShader = /* glsl */ `
         /* The scene's colour, lifted to read as ink on the dark. Figures keep
            their hue at full strength, so a purple coat stays purple rather
            than washing out to cream. */
-        vec3 ink = clamp(color * 1.5 + 0.03, 0.0, 1.0);
+        vec3 ink = clamp(color * 1.5 * uInk + 0.03, 0.0, 1.0);
         if (set == FIGURE) {
             float top = max(max(color.r, color.g), color.b);
             ink = clamp(color / max(top, 0.03) * (0.62 + top * 0.6), 0.0, 1.0);
@@ -477,6 +478,8 @@ export class AsciiPass {
                 uGain: { value: 0.95 },
                 uSharp: { value: 1.8 },
                 uEdge: { value: 0.5 },
+                /* How hard the scene's colour is lifted into ink. */
+                uInk: { value: 1 },
                 uRamp: { value: 1.7 },
                 uTime: { value: 0 },
                 uRain: { value: 0 },

@@ -32,10 +32,11 @@ import { disposeMaterials } from "./materials";
 /*
  * Camera distance and pitch at each zoom step. Close in, the camera drops
  * low behind you like a third-person game and the horizon comes into view;
- * pulled out, it rises toward a map.
+ * pulled out, it rises, but never to a map: the world is built tall, and a
+ * low camera is what lets the mountains and towers stand up.
  */
 export const ZOOMS = [5, 7.5, 11, 16];
-const PITCHES = [0.32, 0.46, 0.68, 0.92];
+const PITCHES = [0.2, 0.3, 0.44, 0.62];
 const NEAREST = 3.6;
 const FARTHEST = 19;
 
@@ -50,7 +51,7 @@ function pitchFor(distance) {
     }
     return PITCHES[PITCHES.length - 1] + (distance - ZOOMS[ZOOMS.length - 1]) * 0.015;
 }
-const FOV = 38;
+const FOV = 46;
 const MAX_LIGHTS = 6;
 
 /* Sky, sun and fill for each part of the day. Colours are sRGB hex. */
@@ -125,7 +126,7 @@ export default class AsciiWorld {
 
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x0b120d, 20, 40);
-        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.5, 120);
+        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.5, 170);
 
         this.hemi = new THREE.HemisphereLight(0xd3e6ff, 0x4a5a3a, 1);
         this.scene.add(this.hemi);
@@ -920,7 +921,7 @@ export default class AsciiWorld {
         this.hemi.intensity = p.hemi + flash;
         this.hemi.color.copy(p.sky);
         this.hemi.groundColor.copy(p.ground);
-        const fogFar = this.weather === "fog" ? this.distance * 1.6 + 8 : this.distance * 2.2 + 22;
+        const fogFar = this.weather === "fog" ? this.distance * 1.6 + 8 : this.distance * 2.4 + 28;
         this.scene.fog.color.copy(p.bg);
         this.scene.fog.near = this.distance * (this.weather === "fog" ? 0.4 : 0.9);
         this.scene.fog.far = fogFar;
@@ -984,7 +985,7 @@ export default class AsciiWorld {
         this.yaw = this.orbit ? goalYaw : this.yaw + (goalYaw - this.yaw) * Math.min(1, dt * 12);
         const ease = Math.min(1, dt * 8);
         this.distance += (this.distanceGoal - this.distance) * ease;
-        this.pitch = pitchFor(this.distance) + this.pitchBias;
+        this.pitch = Math.max(0.08, pitchFor(this.distance) + this.pitchBias);
 
         /* Camera sits behind screen-down, looking toward screen-up. Close in
            it aims above your head, so you stand in the lower third. */

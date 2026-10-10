@@ -2,11 +2,15 @@ import * as THREE from "three";
 import { AsciiPass, glyphCode } from "../arcade/ascii3d/asciiPass";
 import { disposeMaterials } from "../arcade/ascii3d/materials";
 import { buildSurvivor, buildCursor, pose } from "../arcade/ascii3d/models";
-import { Batch, P, place, tint, hash, addTree, addRock, addBlades, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
+import { Batch, P, place, tint, hash, addBlades, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
+import { alienSpire, cityTile, hybridTower, monolith, setbackTower, stalinTower, streetlamp, redStar } from "../arcade/ascii3d/architecture";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
 import { KIND } from "../world/tiles";
 import { fbm } from "../lib/noise";
 import { buildProp, buildTorch, disposeProps } from "./props";
+import { buildCompound, reservedTiles } from "./compound";
+import { Citizens } from "./citizens";
+import { buildVisitor } from "./visitor";
 
 /*
  * The workshop, in 3D, drawn in characters.
@@ -28,10 +32,14 @@ const ROAD = 0.05;
 /* Camera distance and pitch at each zoom step. The workshop is read at room
    scale, so even the closest step keeps most of a room in view. */
 export const ZOOMS = [11, 15, 20, 28];
-const PITCHES = [0.6, 0.72, 0.84, 0.98];
-const INTRO = { distance: 34, pitch: 0.92 };
-const FOV = 44;
-const MAX_LIGHTS = 8;
+const PITCHES = [0.28, 0.36, 0.46, 0.58];
+const INTRO = { distance: 44, pitch: 0.34 };
+const FOV = 46;
+const MAX_LIGHTS = 10;
+/* How far the camera's sightline climbs per tile toward it: a building can
+   be no taller than this times the open ground behind it, or it would hide
+   whoever walks there. */
+const SIGHT = 0.5;
 
 /* JR, as a survivor from the Commons. */
 const JR = {
@@ -39,6 +47,7 @@ const JR = {
 };
 
 const tmp = new THREE.Vector3();
+const tmp2 = new THREE.Vector3();
 
 function lerpAngle(a, b, t) {
     let d = b - a;
@@ -68,7 +77,7 @@ function rgbHex(rgb) {
 }
 
 export default class SiteScene {
-    constructor(container, world, { cellWidth = 6, cellHeight = 10, reducedMotion = false, phase = "dusk" } = {}) {
+    constructor(container, world, { cellWidth = 7, cellHeight = 12, reducedMotion = false, phase = "dusk" } = {}) {
         this.container = container;
         this.world = world;
         this.reducedMotion = reducedMotion;
@@ -103,7 +112,7 @@ export default class SiteScene {
 
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x0b120d, 30, 60);
-        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.5, 160);
+        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.5, 220);
 
         const p = PHASES[this.phaseName];
         this.hemi = new THREE.HemisphereLight(p.sky, p.ground, p.hemi);
@@ -130,8 +139,16 @@ export default class SiteScene {
         this.water.position.y = WATER_LEVEL;
         this.scene.add(this.water);
 
+        this.reserved = reservedTiles(world.rooms);
+        this.measureSkyline();
+        this.findLamps();
+        this.buildCompounds();
         this.buildProps();
         this.buildLabels();
+        this.citizens = new Citizens(this.scene, world, (x, y) => this.standHeight(x, y));
+        this.visitor = buildVisitor();
+        this.visitor.group.position.set(world.w / 2, 0, -6);
+        this.scene.add(this.visitor.group);
 
         this.player = buildSurvivor(JR);
         this.player.scale.setScalar(1.25);
@@ -191,6 +208,138 @@ export default class SiteScene {
         return x === room.x || y === room.y || x === room.x + room.w - 1 || y === room.y + room.h - 1;
     }
 
+    /* Open ground: where people can walk, and so where a building in
+       front must not stand taller than the sightline. */
+    isOpen(x, y) {
+        const kind = this.world.kindAt(x, y);
+        return !this.world.isSolid(x, y) || kind === KIND.WALL;
+    }
+
+    /*
+     * For every tile, the tallest a building there may be: the camera looks
+     * north, so what matters is the open ground north of it. The edge of the
+     * world has none, so the skyline there can be as tall as it likes.
+     */
+    measureSkyline() {
+        const { w, h } = this.world;
+        this.caps = new Float32Array(w * h);
+        for (let x = 0; x < w; x += 1) {
+            for (let y = 0; y < h; y += 1) {
+                let d = 60;
+                for (let k = 1; k < 60 && y - k >= 0; k += 1) {
+                    if (this.isOpen(x - 1, y - k) || this.isOpen(x, y - k) || this.isOpen(x + 1, y - k)) {
+                        d = k;
+                        break;
+                    }
+                }
+                this.caps[y * w + x] = 1.2 + d * SIGHT;
+            }
+        }
+    }
+
+    capAt(x, y) {
+        return this.caps[y * this.world.w + x] || 0;
+    }
+
+    /* A lamp every few tiles down each side of every road. */
+    findLamps() {
+        const world = this.world;
+        this.lamps = [];
+        this.lampAt = new Map();
+        for (let y = 1; y < world.h - 1; y += 1) {
+            for (let x = 1; x < world.w - 1; x += 1) {
+                if (world.kindAt(x, y) !== KIND.FLOOR || this.roomOf(x, y)) continue;
+                const out = [
+                    [0, -1],
+                    [0, 1],
+                    [-1, 0],
+                    [1, 0],
+                ].find(([dx, dy]) => world.kindAt(x + dx, y + dy) !== KIND.FLOOR && !this.roomOf(x + dx, y + dy));
+                if (!out || (out[0] ? y : x) % 5) continue;
+                const spot = { x: x + out[0] * 0.42, y: y + out[1] * 0.42, light: { y: 2.9, range: 7, color: 0xffc77a } };
+                this.lamps.push(spot);
+                this.lampAt.set(`${x},${y}`, spot);
+            }
+        }
+    }
+
+    buildCompounds() {
+        const batch = new Batch();
+        this.world.rooms.forEach((room) => {
+            buildCompound(batch, room, (x, y) => this.world.kindAt(x, y) !== KIND.WALL, ROOM_FLOOR);
+        });
+        this.compound = batch.meshes();
+        this.compound.forEach((m) => this.scene.add(m));
+    }
+
+    /* One lot of the city: the building that fills a solid outdoor tile. */
+    cityAt(batch, x, y, h, kind) {
+        const world = this.world;
+        const cap = this.capAt(x, y);
+        const edge = Math.min(x, y, world.w - 1 - x, world.h - 1 - y);
+        const faces = [];
+        if (this.isOpen(x, y + 1)) faces.push("s");
+        if (this.isOpen(x, y - 1)) faces.push("n");
+        if (this.isOpen(x + 1, y)) faces.push("e");
+        if (this.isOpen(x - 1, y)) faces.push("w");
+        if (!faces.length && cap > 4) faces.push("s");
+
+        /* Lots are 2x2, so neighbouring tiles rise together as buildings. */
+        const lx = x >> 1;
+        const ly = y >> 1;
+        const lot = hash(lx, ly, 81);
+        const solidLot = [0, 1].every((dy) => [0, 1].every((dx) => this.isCity(lx * 2 + dx, ly * 2 + dy)));
+        const lotCap = Math.min(this.capAt(lx * 2, ly * 2), this.capAt(lx * 2 + 1, ly * 2), this.capAt(lx * 2, ly * 2 + 1), this.capAt(lx * 2 + 1, ly * 2 + 1));
+
+        /* Now and then a lot carries a landmark instead of a block. */
+        if (solidLot && lotCap > 14 && lot < (edge < 6 ? 0.3 : 0.16)) {
+            if (x !== lx * 2 || y !== ly * 2) return;
+            const cx = lx * 2 + 0.5;
+            const cz = ly * 2 + 0.5;
+            batch.shape("solid", P.cube(), place(cx, h + 0.3, cz, 2, 0.6, 2), tint("#6e6a62", 1).clone());
+            const pick = hash(lx, ly, 82);
+            const room = Math.min(lotCap - 1, 28);
+            if (pick < 0.4) alienSpire(batch, cx, cz, h + 0.6, { h: Math.min(room, 14 + pick * 30), hue: Math.floor(pick * 9) });
+            else if (pick < 0.62) hybridTower(batch, cx, cz, h + 0.6, { scale: Math.min(0.6, room / 26), hue: Math.floor(pick * 7) });
+            else if (pick < 0.82) stalinTower(batch, cx, cz, h + 0.6, { scale: Math.min(0.55, room / 28), tiers: 4, crown: pick < 0.72 ? "star" : "cross" });
+            else monolith(batch, cx, cz, h + 0.6, { h: Math.min(room, 10 + pick * 8), hue: Math.floor(pick * 5) });
+            return;
+        }
+
+        if (kind === KIND.MOUNTAIN && edge >= 5) {
+            /* Out in the open, a lone solid tile is a monument. */
+            batch.shape("rock", P.cube(), place(x, h + 0.3, y, 0.9, 0.6, 0.9), tint("#7d7468", 1).clone());
+            batch.shape("solid", P.spire(), place(x, h + 0.6, y, 0.5, Math.min(cap, 4.5), 0.5), tint("#cfc3a6", 0.9).clone());
+            redStar(batch, x, h + 0.6 + Math.min(cap, 4.5), y, 0.5);
+            return;
+        }
+
+        const density = fbm(lx * 2, ly * 2, 0.045);
+        let want = 2.2 + Math.max(0, density - 0.5) * 26 + lot * 3.5;
+        if (edge < 6) want += (6 - edge) * 3.2;
+        const hex = ["#8f8778", "#a39782", "#7f8a8c", "#9a8c86", "#b0a48a"][Math.floor(hash(lx, ly, 84) * 5)];
+
+        /* A tall lot is one stepped building, not four blocks. */
+        if (solidLot && want > 7 && lotCap > 8) {
+            if (x !== lx * 2 || y !== ly * 2) return;
+            const crowns = ["star", "cross", "orb"];
+            setbackTower(batch, lx * 2 + 0.5, ly * 2 + 0.5, h, Math.min(want, (lotCap - 1) / 1.3), {
+                hex,
+                crown: crowns[Math.floor(hash(lx, ly, 85) * 3)],
+                hue: Math.floor(hash(lx, ly, 86) * 3),
+            });
+            return;
+        }
+        const height = Math.max(1.4, Math.min(cap, want));
+        const roof = height > cap - 1.2 ? 0 : Math.floor(hash(lx, ly, 83) * 5);
+        cityTile(batch, x, y, h, height, faces, { hex, roof: (x & 1) === 0 && (y & 1) === 1 ? roof : 0 });
+    }
+
+    isCity(x, y) {
+        const kind = this.world.kindAt(x, y);
+        return (kind === KIND.TREE || kind === KIND.MOUNTAIN) && !this.roomOf(x, y);
+    }
+
     buildChunk(cx, cy) {
         const world = this.world;
         const batch = new Batch();
@@ -203,27 +352,29 @@ export default class SiteScene {
                 const kind = world.kindAt(x, y);
                 const room = this.roomOf(x, y);
                 const lush = fbm(x, y, 0.055, 7);
-                let set = "grass";
+                const park = kind === KIND.GRASS && lush > 0.6;
+                let set = "path";
                 let top;
                 if (room) {
-                    set = "path";
                     /* Flagstones, kept dark so the floor reads as open
                        ground and what stands on it carries the picture. */
                     const flag = (Math.floor(x / 2) + Math.floor(y / 2)) % 2 ? 0.85 : 1;
                     top = mix("#4b4a42", `#${rgbHex(room.tint)}`, 0.22).multiplyScalar(flag * (0.88 + hash(x, y, 3) * 0.14));
                 } else if (kind === KIND.FLOOR) {
-                    set = "path";
-                    top = tint("#6d6553", 0.86 + hash(x, y, 4) * 0.2).clone();
-                } else if (kind === KIND.MOUNTAIN) {
-                    set = "rock";
-                    top = tint("#6f7684", 0.9).clone();
+                    /* Cobbled avenues. */
+                    top = tint("#5d5850", 0.82 + hash(x, y, 4) * 0.22).clone();
+                } else if (park) {
+                    set = "grass";
+                    top = tint("#3d5f36", 0.88 + hash(x, y, 5) * 0.14).clone();
                 } else {
-                    top = tint(lush < 0.42 ? "#4a5a38" : "#3d5f36", 0.88 + hash(x, y, 5) * 0.14).clone();
+                    /* Square paving for plazas and the ground under blocks. */
+                    const flag = (x + y) % 2 ? 0.9 : 1;
+                    top = tint("#4c4945", flag * (0.88 + hash(x, y, 5) * 0.12)).clone();
                 }
                 batch.quad(set, [x - 0.5, h, y - 0.5], [x - 0.5, h, y + 0.5], [x + 0.5, h, y + 0.5], [x + 0.5, h, y - 0.5], top);
 
-                /* Banks and steps wherever the neighbour sits lower. */
-                const bank = tint(room ? "#6d6858" : "#6b5d45", 0.8).clone();
+                /* Embankments and kerbs wherever the neighbour sits lower. */
+                const bank = tint(room ? "#6d6858" : "#77716a", 0.8).clone();
                 [
                     [0, 1, [x - 0.5, y + 0.5], [x + 0.5, y + 0.5]],
                     [0, -1, [x + 0.5, y - 0.5], [x - 0.5, y - 0.5]],
@@ -233,30 +384,24 @@ export default class SiteScene {
                     const n = this.groundAt(x + dx, y + dy);
                     const nh = n === null ? SEABED : n;
                     if (nh >= h) return;
-                    batch.quad(h - nh > 0.3 ? "rock" : set, [a[0], h, a[1]], [a[0], nh, a[1]], [b[0], nh, b[1]], [b[0], h, b[1]], bank);
+                    batch.quad("rock", [a[0], h, a[1]], [a[0], nh, a[1]], [b[0], nh, b[1]], [b[0], h, b[1]], bank);
                 });
 
                 if (kind === KIND.WALL && room) {
-                    if (this.isBorder(room, x, y)) {
-                        /* Room walls: tinted stone with a timber cap. */
-                        const stone = mix("#8f978f", `#${rgbHex(room.tint)}`, 0.3).multiplyScalar(0.85 + hash(x, y, 6) * 0.2);
-                        batch.shape("rock", P.cube(), place(x, h + 0.5, y, 1, 1.0, 1), stone);
-                        batch.shape("timber", P.cube(), place(x, h + 1.04, y, 1.04, 0.08, 1.04), tint("#7a5a3c", 1));
-                    } else {
-                        /* Inside, the same tiles are furniture: cases,
-                           counters, the housings of machines. */
+                    /* The border is the compound's; inside, wall tiles are
+                       furniture: cases, counters, the housings of machines. */
+                    if (!this.isBorder(room, x, y)) {
                         const wood = mix("#a07850", `#${rgbHex(room.tint)}`, 0.15).multiplyScalar(0.85 + hash(x, y, 7) * 0.15);
-                        batch.shape("timber", P.cube(), place(x, h + 0.42, y, 0.98, 0.84, 0.98), wood);
+                        batch.shape("timber", P.cube(), place(x, h + 0.6, y, 0.98, 1.2, 0.98), wood);
+                        batch.shape("timber", P.cube(), place(x, h + 1.24, y, 1.02, 0.08, 1.02), tint("#7a5a3c", 1));
                     }
-                } else if (kind === KIND.TREE) {
-                    addBlades(batch, x, y, h, 3, 0.8);
-                    addTree(batch, x, y, h);
-                } else if (kind === KIND.MOUNTAIN) {
-                    addRock(batch, x, y, h, null);
-                    if (hash(x, y, 8) < 0.5) batch.shape("rock", P.boulder(), place(x + 0.1, h + 0.85, y, 0.7, 0.6, 0.7, hash(x, y, 9) * 6), tint("#8a8f88", 0.9));
-                } else if (kind === KIND.GRASS) {
-                    addBlades(batch, x, y, h, lush < 0.42 ? 1 : 4, 1);
+                } else if (this.isCity(x, y)) {
+                    if (!this.reserved.has(`${x},${y}`)) this.cityAt(batch, x, y, h, kind);
+                } else if (park) {
+                    addBlades(batch, x, y, h, 4, 1);
                 }
+                const lamp = this.lampAt.get(`${x},${y}`);
+                if (lamp) streetlamp(batch, lamp.x, lamp.y, h, { double: hash(x, y, 9) < 0.3 });
             }
         }
         const group = new THREE.Group();
@@ -353,7 +498,7 @@ export default class SiteScene {
                 }
                 return;
             }
-            tmp.set(label.x, label.room ? 2.6 : label.y, label.z).project(this.camera);
+            tmp.set(label.x, label.room ? 4.2 : label.y, label.z).project(this.camera);
             if (tmp.z > 1 || Math.abs(tmp.x) > 1.1 || Math.abs(tmp.y) > 1.1) {
                 label.el.style.visibility = "hidden";
                 label.shown = false;
@@ -460,8 +605,11 @@ export default class SiteScene {
         const up = this.distance * Math.sin(pitch);
         const sx = -Math.sin(this.yaw);
         const sz = Math.cos(this.yaw);
-        this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + 0.8, this.focus.z + sz * back);
-        this.camera.lookAt(this.focus.x, this.focus.y + 0.8, this.focus.z);
+        /* Aim above the focus: low and looking up is what makes it tall.
+           On the front door the camera looks up into the skyline. */
+        const look = intro ? 7 : 2.8;
+        this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + look, this.focus.z + sz * back);
+        this.camera.lookAt(this.focus.x, this.focus.y + look, this.focus.z);
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
     }
@@ -469,15 +617,21 @@ export default class SiteScene {
     updateLighting() {
         const p = PHASES[this.phaseName];
         const bg = new THREE.Color(p.bg);
-        this.sun.intensity = p.sun;
+        /* The city at night is lit, not dark: a bright moon, a lifted
+           ambient and a hotter ASCII pass, so the stone still draws. */
+        const night = this.phaseName === "night";
+        this.sun.intensity = p.sun + (night ? 0.6 : 0);
+        this.ascii.uniforms.uGain.value = { night: 1.4, dusk: 1.25, dawn: 1.15, day: 1.0 }[this.phaseName];
+        this.ascii.uniforms.uInk.value = { night: 1.9, dusk: 1.7, dawn: 1.4, day: 1.1 }[this.phaseName];
         this.sun.color.set(p.sunColor);
         /* A touch brighter than the Commons: this is a site to read. */
-        this.hemi.intensity = p.hemi + (this.phaseName === "night" ? 0.3 : 0.18);
+        this.hemi.intensity = p.hemi + { night: 0.9, dusk: 0.7, dawn: 0.5, day: 0.3 }[this.phaseName];
         this.hemi.color.set(p.sky);
         this.hemi.groundColor.set(p.ground);
         this.scene.fog.color.copy(bg);
-        this.scene.fog.near = this.distance * 0.9;
-        this.scene.fog.far = this.distance * 2.1 + (this.mode === "intro" ? 34 : 20);
+        /* A haze that starts early and lets the towers fade into it. */
+        this.scene.fog.near = this.distance * 0.6;
+        this.scene.fog.far = this.distance * 1.7 + (this.mode === "intro" ? 40 : 26);
         this.renderer.setClearColor(bg, glyphCode(0));
         this.ascii.uniforms.uBackground.value.copy(bg).convertLinearToSRGB();
         this.ascii.uniforms.uNear.value = this.camera.near;
@@ -492,8 +646,12 @@ export default class SiteScene {
         this.props.forEach((prop) => {
             if (prop.light && prop.lit) lit.push({ pos: prop.group.position, light: prop.light, d: prop.group.position.distanceTo(this.focus) });
         });
+        this.lamps.forEach((lamp) => {
+            const d = Math.hypot(lamp.x - this.focus.x, lamp.y - this.focus.z);
+            if (d < 30) lit.push({ pos: tmp2.set(lamp.x, ROAD, lamp.y).clone(), light: lamp.light, d: d + 2 });
+        });
         lit.sort((x, y) => x.d - y.d);
-        const night = this.phaseName === "night" ? 1.6 : this.phaseName === "day" ? 0.6 : 1.1;
+        const glow = night ? 1.6 : this.phaseName === "day" ? 0.6 : 1.1;
         this.lightPool.forEach((light, i) => {
             const entry = lit[i];
             if (!entry) {
@@ -503,7 +661,7 @@ export default class SiteScene {
             const flicker = this.reducedMotion ? 1 : 0.88 + Math.sin(this.time * 13 + i * 3) * 0.07 + Math.sin(this.time * 7.3 + i) * 0.05;
             light.color.setHex(entry.light.color);
             light.distance = entry.light.range * 1.3;
-            light.intensity = 4 * flicker * night;
+            light.intensity = 4 * flicker * glow;
             light.position.copy(entry.pos);
             light.position.y += entry.light.y;
         });
@@ -552,6 +710,8 @@ export default class SiteScene {
         this.updateLighting();
         this.updateChunks();
         this.updateProps();
+        this.citizens.update(this.reducedMotion ? 0 : dt, this.time, this.focus);
+        this.visitor.update(this.reducedMotion ? 0 : this.time);
         this.updateSky();
         wind.uTime.value = this.reducedMotion ? 0 : this.time;
         if (!this.reducedMotion || !this.waterStill) {
@@ -574,6 +734,9 @@ export default class SiteScene {
             });
         });
         this.chunks.clear();
+        this.compound.forEach((m) => m.geometry.dispose());
+        this.citizens.dispose();
+        this.visitor.dispose();
         this.props.forEach((prop) => disposeProps(prop.group));
         this.torches.forEach((t) => disposeProps(t.group));
         this.ascii.dispose();

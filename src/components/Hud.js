@@ -18,7 +18,7 @@ const PHASE_GLYPH = { dawn: "◒", day: "○", dusk: "◓", night: "●" };
 
 /*
  * The front door. The world itself is the backdrop — the camera drifts over
- * the workshop — so this is only a title, a line, and the ways in.
+ * the city — so this is only a title, a line, and the ways in.
  */
 export function Intro({ onStart, onIndex, onTravel }) {
     return (
@@ -34,8 +34,8 @@ export function Intro({ onStart, onIndex, onTravel }) {
                 <p className="intro__tag">A small world. A working mind.</p>
                 <p className="intro__blurb">
                     I’m JR. I build systems, write things down, and make room
-                    for the occasional side quest. This site is a workshop you
-                    walk around in, modelled in 3D and drawn entirely in
+                    for the occasional side quest. This site is a city you get
+                    dropped into, modelled in 3D and drawn entirely in
                     characters.
                 </p>
                 <div className="intro__actions">
@@ -106,7 +106,7 @@ export function TopBar({
                     </span>
                     <span>
                         JR BUSSARD
-                        <small>an explorable workshop</small>
+                        <small>a city in characters</small>
                     </span>
                 </button>
                 {started && (

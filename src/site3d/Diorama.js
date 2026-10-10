@@ -3,8 +3,9 @@ import { AsciiPass, glyphCode } from "../arcade/ascii3d/asciiPass";
 import { disposeMaterials, material } from "../arcade/ascii3d/materials";
 import { buildSurvivor, pose } from "../arcade/ascii3d/models";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
-import { Batch, P, place, tint, hash, addTree, addBlades, wind } from "../arcade/ascii3d/terrainMesh";
+import { Batch, tint, hash, addTree, addBlades, wind } from "../arcade/ascii3d/terrainMesh";
 import { KIND } from "../world/tiles";
+import { alienSpire, church, kremlinTower, setbackTower, stalinTower, wallTile } from "../arcade/ascii3d/architecture";
 import { buildProp, buildTorch, disposeProps } from "./props";
 
 /*
@@ -27,9 +28,16 @@ function flagstones(batch, w, d) {
 function arcade(scene) {
     const batch = new Batch();
     flagstones(batch, 9, 5);
-    for (let x = -9; x <= 9; x += 1) {
-        batch.shape("rock", P.cube(), place(x, 0.7, -5, 1, 1.4, 1), tint("#8d7f93", 0.8 + hash(x, 0, 6) * 0.25).clone());
-    }
+    /* The back of the hall is a Kremlin wall with towers, and the city
+       climbing behind it. */
+    for (let x = -8; x <= 8; x += 1) wallTile(batch, x, -5, 0, 3.4, true);
+    kremlinTower(batch, -9, -5, 0, { w: 2.4, h: 6.4, crown: "star" });
+    kremlinTower(batch, 9, -5, 0, { w: 2.4, h: 6.4, crown: "cross" });
+    kremlinTower(batch, 0, -5, 0, { w: 2.2, h: 5.2, crown: "star" });
+    church(batch, -5, -9, 0, { scale: 1, belfry: 0 });
+    stalinTower(batch, 5, -10, 0, { scale: 0.8, crown: "cross" });
+    alienSpire(batch, 12, -12, 0, { h: 18, hue: 1 });
+    setbackTower(batch, -12, -12, 0, 10, { crown: "orb" });
     const ground = batch.meshes();
     ground.forEach((m) => scene.add(m));
     const props = [];
@@ -57,9 +65,9 @@ function arcade(scene) {
         return light;
     });
     return {
-        center: new THREE.Vector3(0, 0.8, -2),
-        distance: 9.5,
-        pitch: 0.42,
+        center: new THREE.Vector3(0, 2.2, -2),
+        distance: 11,
+        pitch: 0.22,
         sway: 0.45,
         phase: "night",
         update(t) {
@@ -84,8 +92,20 @@ function lost(scene) {
             const c = tint(d < 2.2 ? "#5a5240" : "#3d5f36", 0.88 + hash(x, z, 5) * 0.14).clone();
             batch.quad(d < 2.2 ? "path" : "grass", [x - 0.5, 0, z - 0.5], [x - 0.5, 0, z + 0.5], [x + 0.5, 0, z + 0.5], [x + 0.5, 0, z - 0.5], c);
             if (d >= 2.2) addBlades(batch, x, z, 0, 4, 1);
-            if (d > 5.5 && hash(x, z, 9) < 0.32) addTree(batch, x, z, 0);
+            if (d > 5.5 && (z < 1 || d > 14) && hash(x, z, 9) < 0.32) addTree(batch, x, z, 0);
         }
+    }
+    /* A skyline all the way round, beyond the trees. */
+    for (let i = 0; i < 14; i += 1) {
+        const a = (i / 14) * Math.PI * 2 + hash(i, 0, 3);
+        const r = 17 + hash(i, 1, 3) * 4;
+        const x = Math.cos(a) * r;
+        const z = Math.sin(a) * r;
+        const pick = hash(i, 2, 3);
+        if (pick < 0.3) alienSpire(batch, x, z, 0, { h: 12 + pick * 30, hue: i });
+        else if (pick < 0.6) setbackTower(batch, x, z, 0, 8 + pick * 6, { crown: ["star", "cross", "orb"][i % 3], hue: i });
+        else if (pick < 0.8) stalinTower(batch, x, z, 0, { scale: 0.7, tiers: 4, crown: i % 2 ? "star" : "cross" });
+        else church(batch, x, z, 0, { scale: 0.9, belfry: i % 2 ? 1 : 0 });
     }
     const ground = batch.meshes();
     ground.forEach((m) => scene.add(m));
@@ -104,9 +124,9 @@ function lost(scene) {
     wanderer.scale.setScalar(1.15);
     scene.add(wanderer);
     return {
-        center: new THREE.Vector3(0.3, 1.6, 0),
-        distance: 13,
-        pitch: 0.3,
+        center: new THREE.Vector3(0.3, 3.2, 0),
+        distance: 14,
+        pitch: 0.14,
         orbit: 0.07,
         phase: "dusk",
         update(t) {
@@ -147,7 +167,7 @@ export default class Diorama {
         this.set = (SETS[name] || SETS.lost)(this.scene);
         const p = PHASES[this.set.phase];
         const bg = new THREE.Color(p.bg);
-        this.scene.fog = new THREE.Fog(bg, this.set.distance * 1.1, this.set.distance * 2.6);
+        this.scene.fog = new THREE.Fog(bg, this.set.distance * 1.1, this.set.distance * 3.4);
         this.scene.add(new THREE.HemisphereLight(p.sky, p.ground, p.hemi + 0.25));
         const sun = new THREE.DirectionalLight(p.sunColor, p.sun);
         sun.position.set(-8, 12, 6);
@@ -155,7 +175,7 @@ export default class Diorama {
         this.scene.add(sun);
         this.renderer.setClearColor(bg, glyphCode(0));
 
-        this.camera = new THREE.PerspectiveCamera(42, 2, 0.5, 80);
+        this.camera = new THREE.PerspectiveCamera(46, 2, 0.5, 120);
         this.ascii = new AsciiPass();
         this.ascii.uniforms.uBackground.value.copy(bg).convertLinearToSRGB();
         this.ascii.uniforms.uNear.value = this.camera.near;

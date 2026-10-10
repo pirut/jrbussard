@@ -266,7 +266,7 @@ export function buildWorld() {
             const room = ROOMS.find(
                 (r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
             );
-            return room ? room.name : "THE WILDS";
+            return room ? room.name : "THE CITY";
         },
     };
 }
