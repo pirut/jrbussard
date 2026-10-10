@@ -39,6 +39,7 @@ const PITCHES = [0.3, 0.46, 0.56, 0.66];
 const INTRO = { distance: 13, pitch: 0.14 };
 const FOV = 52;
 const MAX_LIGHTS = 10;
+const GHOST_LAYER = 1;
 
 /* JR, as a survivor from the Commons. */
 const JR = {
@@ -149,6 +150,9 @@ export default class SiteScene {
 
         this.player = buildSurvivor(JR);
         this.player.scale.setScalar(1.1);
+        /* JR is also drawn alone, on a layer of their own, for the outline
+           that shows through whatever stands in the way. */
+        this.player.traverse((node) => node.layers.enable(GHOST_LAYER));
         this.scene.add(this.player);
         this.walker = {
             from: { ...world.spawn },
@@ -670,27 +674,22 @@ export default class SiteScene {
             const shoulder = this.shoulder;
             /* And rise a little there, to see down the lane over your head. */
             this.lift = (this.lift || 0) + ((tight ? 0.8 : 0) - (this.lift || 0)) * Math.min(1, dt * 4);
-            /* Walled in behind, as at the blind end of a lane: rather than
-               pull in onto your head, climb, since lanes are open to the
-               sky. Take the lowest angle that leaves most of the way back
-               clear. */
-            let climb = 0;
-            let reach = this.cameraReach(sx, sz, head, shoulder, pitch);
-            for (let k = 1; reach < 0.75 && pitch + k * 0.15 <= 1.4; k += 1) {
-                const r = this.cameraReach(sx, sz, head, shoulder, pitch + k * 0.15);
-                if (r > reach) {
-                    reach = r;
-                    climb = k * 0.15;
-                }
-            }
-            this.climb = (this.climb || 0) + (climb - (this.climb || 0)) * Math.min(1, dt * 3);
-            const tilt = pitch + this.climb;
+            const reach = this.cameraReach(sx, sz, head, shoulder, pitch);
             this.reach = this.reach === undefined || reach < this.reach ? reach : this.reach + (reach - this.reach) * Math.min(1, dt * 3);
             const d = this.distance * this.reach;
-            this.camera.position.set(this.focus.x + sx * d * Math.cos(tilt) + rx * shoulder, head + this.lift + d * Math.sin(tilt), this.focus.z + sz * d * Math.cos(tilt) + rz * shoulder);
-            /* Looking down from high up, aim nearer your feet. */
-            const ahead = (3 + this.distance * 0.2) * Math.max(0, 1 - this.climb * 1.1);
-            this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, head - 0.1 - this.climb * 1.2, this.focus.z - sz * ahead + rz * shoulder * 0.4);
+            this.camera.position.set(this.focus.x + sx * d * Math.cos(pitch) + rx * shoulder, head + this.lift + d * Math.sin(pitch), this.focus.z + sz * d * Math.cos(pitch) + rz * shoulder);
+            /* Facing a wall close ahead, aim short of it, so you stay in the
+               middle of the frame instead of sinking under its foot. */
+            let ahead = 3 + this.distance * 0.2;
+            for (let k = 1; k <= Math.ceil(ahead); k += 1) {
+                if (this.tileTop(Math.round(this.focus.x - sx * k), Math.round(this.focus.z - sz * k)) > 3) {
+                    ahead = Math.max(1, k - 0.5);
+                    break;
+                }
+            }
+            this.ahead = this.ahead === undefined ? ahead : this.ahead + (ahead - this.ahead) * Math.min(1, dt * 4);
+            ahead = this.ahead;
+            this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, head - 0.1, this.focus.z - sz * ahead + rz * shoulder * 0.4);
         }
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
@@ -816,6 +815,8 @@ export default class SiteScene {
         this.renderer.setRenderTarget(this.ascii.target);
         this.renderer.render(this.scene, this.camera);
         const u = this.ascii.uniforms;
+        u.uGhost.value = this.mode === "intro" ? 0 : 1;
+        if (u.uGhost.value) this.ascii.renderGhost(this.renderer, this.scene, this.camera, GHOST_LAYER);
         u.uJoints.value = 1;
         u.uInvProj.value.copy(this.camera.projectionMatrixInverse);
         u.uCamToWorld.value.copy(this.camera.matrixWorld);

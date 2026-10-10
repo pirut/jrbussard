@@ -242,6 +242,9 @@ const pickShader = /* glsl */ `
     uniform float uOutline;
     uniform vec2 uCellPx;
     uniform float uJoints;
+    uniform sampler2D tGhost;
+    uniform float uGhost;
+    uniform vec3 uGhostColor;
     uniform mat4 uInvProj;
     uniform mat4 uCamToWorld;
 
@@ -282,6 +285,12 @@ const pickShader = /* glsl */ `
         vec4 view = uInvProj * vec4(uv * 2.0 - 1.0, z, 1.0);
         vec4 world = uCamToWorld * vec4(view.xyz / view.w, 1.0);
         return world.xz + 0.5;
+    }
+
+    /* The depth of the one figure that must never be lost, drawn on its own. */
+    float ghostDepth(vec2 uv) {
+        float g = texture(tGhost, uv).r;
+        return g >= 1.0 ? 1e9 : (uNear * uFar) / (uFar - g * (uFar - uNear));
     }
 
     float setAt(vec2 cell) {
@@ -457,6 +466,22 @@ const pickShader = /* glsl */ `
             }
         }
 
+        /* You, behind something. Where a wall, a bridge or an overhang hides
+           JR, JR shows through it as a ghost in outline, so you never lose
+           yourself in the warren and nothing has to be cut away. */
+        if (uGhost > 0.0) {
+            float gd = ghostDepth(uv);
+            if (gd < 1e8 && d < gd - 0.3) {
+                vec2 sx = vec2(1.0 / uCells.x, 0.0);
+                vec2 sy = vec2(0.0, 1.0 / uCells.y);
+                bool edge = ghostDepth(uv + sx) > 1e8 || ghostDepth(uv - sx) > 1e8
+                         || ghostDepth(uv + sy) > 1e8 || ghostDepth(uv - sy) > 1e8;
+                glyph = edge ? ${idx("#")} : (mod(cell.x + cell.y, 2.0) < 1.0 ? ${idx(":")} : ${idx(".")});
+                ink = mix(ink * 0.4, uGhostColor, edge ? 0.95 : 0.6);
+                set = FIGURE;
+            }
+        }
+
         /* Open sky: stars and slow bands of cloud, pinned to the heading so
            they wheel past as the camera turns. */
         if (texture(tDepth, uv).r >= 0.99999) {
@@ -622,6 +647,9 @@ export class AsciiPass {
                    camera matrices below. */
                 uJoints: { value: 0 },
                 uInvProj: { value: new THREE.Matrix4() },
+                tGhost: { value: null },
+                uGhost: { value: 0 },
+                uGhostColor: { value: new THREE.Color(0xbfe6ff) },
                 uCamToWorld: { value: new THREE.Matrix4() },
             },
         });
@@ -676,6 +704,12 @@ export class AsciiPass {
             depthBuffer: true,
         });
         this.target.depthTexture = new THREE.DepthTexture(w, h);
+        if (this.ghost) {
+            this.ghost.depthTexture.dispose();
+            this.ghost.dispose();
+        }
+        this.ghost = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true });
+        this.ghost.depthTexture = new THREE.DepthTexture(w, h);
         this.pick = new THREE.WebGLRenderTarget(cols, rows, {
             minFilter: THREE.NearestFilter,
             magFilter: THREE.NearestFilter,
@@ -685,6 +719,7 @@ export class AsciiPass {
         const p = this.pickMaterial.uniforms;
         p.tColor.value = this.target.texture;
         p.tDepth.value = this.target.depthTexture;
+        p.tGhost.value = this.ghost.depthTexture;
         p.uCells.value.set(cols, rows);
         p.uCellPx.value.set(cellW, cellH);
         const d = this.drawMaterial.uniforms;
@@ -694,6 +729,17 @@ export class AsciiPass {
         d.uCells.value.set(cols, rows);
         d.uCellPx.value.set(cellW, cellH);
         d.uOffset.value.set(offX, offY);
+    }
+
+    /* Draw only what is on `layer` (JR) into the ghost target, for the
+       outline that shows through walls. */
+    renderGhost(renderer, scene, camera, layer) {
+        const mask = camera.layers.mask;
+        camera.layers.set(layer);
+        renderer.setRenderTarget(this.ghost);
+        renderer.clear(true, true, false);
+        renderer.render(scene, camera);
+        camera.layers.mask = mask;
     }
 
     render(renderer) {
@@ -712,6 +758,10 @@ export class AsciiPass {
             this.target.depthTexture.dispose();
             this.target.dispose();
             this.pick.dispose();
+        }
+        if (this.ghost) {
+            this.ghost.depthTexture.dispose();
+            this.ghost.dispose();
         }
         this.pickMaterial.dispose();
         this.drawMaterial.dispose();
