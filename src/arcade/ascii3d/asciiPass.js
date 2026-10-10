@@ -382,6 +382,9 @@ const pickShader = /* glsl */ `
             /* And a ceiling, where the curve is on: a sunlit wall stays a
                page of letters rather than a slab of @ and W. */
             if (uContrast > 1.0 && set != FIGURE) level = min(level, set == WATER ? ${LEVELS - 2}.0 : ${LEVELS - 3}.0);
+            /* Paving with its joints drawn needs only a light grain between
+               them; the joints and the light carry the floor. */
+            if (uJoints > 0.0 && set == PATH) level = min(level, 4.0);
             float shuffle = set == WATER ? floor(uTime * 0.6) : 0.0;
             float variant = floor(hash(cell + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
             choice = int(texelFetch(tShapes, ivec2(int(level * ${VARIANTS}.0 + variant), 2 + ${Object.keys(GLYPH_SETS).length} + setIndex), 0).r);
@@ -501,7 +504,11 @@ const pickShader = /* glsl */ `
             ink = mix(ink * 0.5, uRainColor, drop * 0.85);
         }
 
-        gl_FragColor = vec4(ink, glyph / 255.0);
+        /* Figures and lights also flag their cell, so the second pass backs
+           them with a stronger wash of their own colour: a person reads as a
+           coloured shape, a window as a lit pane. */
+        float body = (set == FIGURE || set == ${GLYPH_SETS.light}.0) && glyph != 0.0 && texture(tDepth, uv).r < 0.99999 ? 128.0 : 0.0;
+        gl_FragColor = vec4(ink, (glyph + body) / 255.0);
     }
 `;
 
@@ -556,12 +563,14 @@ const drawShader = /* glsl */ `
             return;
         }
         vec4 pick = texelFetch(tPick, ivec2(cell), 0);
-        float glyph = floor(pick.a * 255.0 + 0.5);
+        float code = floor(pick.a * 255.0 + 0.5);
+        float body = step(128.0, code);
+        float glyph = code - body * 128.0;
         vec2 local = fract(frag / uCellPx);
         vec2 at = vec2((glyph + local.x) / uCount, local.y);
         float mask = texture(tGlyphs, at).r;
         vec3 glow = uGlow > 0.0 ? spill(cell) * uGlow : vec3(0.0);
-        vec3 base = mix(uBackground, pick.rgb * 0.5, uFill) + glow * 0.55;
+        vec3 base = mix(uBackground, pick.rgb * 0.5, max(uFill, body * 0.55)) + glow * 0.55;
         gl_FragColor = vec4(mix(base, min(pick.rgb + glow * 0.35, 1.0), mask), 1.0);
     }
 `;
