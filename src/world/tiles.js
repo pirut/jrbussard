@@ -25,6 +25,8 @@ export const KIND = {
     BEACON: 15,
     STATUE: 16,
     CONSOLE: 17,
+    /* A city block: the tenements that pack the ground between rooms. */
+    BLOCK: 18,
 };
 
 export const PALETTE = {
@@ -47,6 +49,7 @@ export const PALETTE = {
     [KIND.BEACON]: [127, 215, 255],
     [KIND.STATUE]: [223, 230, 245],
     [KIND.CONSOLE]: [140, 232, 180],
+    [KIND.BLOCK]: [150, 140, 124],
 };
 
 export const PLAYER_COLOR = [255, 246, 213];
@@ -69,6 +72,7 @@ export const SOLID = new Set([
     KIND.BEACON,
     KIND.STATUE,
     KIND.CONSOLE,
+    KIND.BLOCK,
 ]);
 
 /* Props you can interact with, and the verb shown in the prompt. */
@@ -124,6 +128,7 @@ export const GLYPH = {
     [KIND.BEACON]: "◉",
     [KIND.STATUE]: "☻",
     [KIND.CONSOLE]: "¤",
+    [KIND.BLOCK]: "▓",
 };
 
 /* Frames for the animated kinds, cycled by (time + position).

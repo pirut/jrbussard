@@ -70,7 +70,7 @@ const FAMILIES = {
 const LEVELS = 10;
 const VARIANTS = 4;
 const RAMPS = [
-    /* solid */ ["    ", " .' ", ".,-'", ":;~^", "=+cr", "uvxz", "aeoq", "pdbk", "%&$8", "#@WM"],
+    /* solid */ ["    ", " .' ", ".,-'", ":;-:", "=+cr", "uvxz", "aeoq", "pdbk", "%&$8", "#@WM"],
     /* water */ ["    ", " .  ", ".-.,", "-~-.", "~~-~", "~=~~", "=~=~", "~=~=", "==~=", "===="],
     /* leaves */ ["    ", " .' ", ".,:'", ":;*,", "*+o;", "oca%", "%&o8", "&%8B", "@&B%", "@@B#"],
     /* grass */ [" .  ", " .,'", ",'`.", "',/\\", "/|\\'", "/\\|\"", "\\/|v", "|/\\v", "wvWv", "WwVW"],
@@ -212,7 +212,9 @@ const pickShader = /* glsl */ `
     uniform float uGain;
     uniform float uSharp;
     uniform float uEdge;
+    uniform float uInk;
     uniform float uRamp;
+    uniform float uContrast;
     uniform float uTime;
     uniform float uRain;
     uniform vec3 uRainColor;
@@ -311,14 +313,15 @@ const pickShader = /* glsl */ `
             for (int i = 0; i < 6; i++) lum[i] = pow(lum[i] / peak, sharp) * peak;
         }
 
-        /* Background cells touching a figure that stands in front of them go
-           quiet, which outlines the figure in empty space. */
+        /* Background cells beside or above a figure that stands in front of
+           them go quiet, which outlines the figure in empty space. Not the
+           cells under its feet: the ground it stands on stays drawn, so a
+           figure stands on something instead of floating in a gap. */
         float halo = 1.0;
         if (set != FIGURE) {
             vec2 step = 1.0 / uCells;
             if ((setAt(cell + vec2(1.0, 0.0)) == FIGURE && viewDepth(uv + vec2(step.x, 0.0)) < d) ||
                 (setAt(cell - vec2(1.0, 0.0)) == FIGURE && viewDepth(uv - vec2(step.x, 0.0)) < d) ||
-                (setAt(cell + vec2(0.0, 1.0)) == FIGURE && viewDepth(uv + vec2(0.0, step.y)) < d) ||
                 (setAt(cell - vec2(0.0, 1.0)) == FIGURE && viewDepth(uv - vec2(0.0, step.y)) < d)) {
                 halo = 0.25;
             }
@@ -344,7 +347,13 @@ const pickShader = /* glsl */ `
         } else {
             /* Flat: a density from the ramp, a character from the hash. */
             float mean = (lum[0] + lum[1] + lum[2] + lum[3] + lum[4] + lum[5]) / 6.0 * halo;
-            float level = floor(clamp(mean * uRamp, 0.0, 0.999) * ${LEVELS}.0);
+            /* A curve on the way in: dim faces thin out to dots, so the lit
+               ones and the edges stand clear of them. */
+            float curve = set == FIGURE ? 1.0 : uContrast;
+            float level = floor(pow(clamp(mean * uRamp, 0.0, 0.999), curve) * ${LEVELS}.0);
+            /* And a ceiling, where the curve is on: a sunlit wall stays a
+               page of letters rather than a slab of @ and W. */
+            if (uContrast > 1.0 && set != FIGURE) level = min(level, ${LEVELS - 2}.0);
             float shuffle = set == WATER ? floor(uTime * 0.6) : 0.0;
             float variant = floor(hash(cell + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
             choice = int(texelFetch(tShapes, ivec2(int(level * ${VARIANTS}.0 + variant), 2 + ${Object.keys(GLYPH_SETS).length} + setIndex), 0).r);
@@ -353,7 +362,7 @@ const pickShader = /* glsl */ `
         /* The scene's colour, lifted to read as ink on the dark. Figures keep
            their hue at full strength, so a purple coat stays purple rather
            than washing out to cream. */
-        vec3 ink = clamp(color * 1.5 + 0.03, 0.0, 1.0);
+        vec3 ink = clamp(color * 1.5 * uInk + 0.03, 0.0, 1.0);
         if (set == FIGURE) {
             float top = max(max(color.r, color.g), color.b);
             ink = clamp(color / max(top, 0.03) * (0.62 + top * 0.6), 0.0, 1.0);
@@ -477,7 +486,11 @@ export class AsciiPass {
                 uGain: { value: 0.95 },
                 uSharp: { value: 1.8 },
                 uEdge: { value: 0.5 },
+                /* How hard the scene's colour is lifted into ink. */
+                uInk: { value: 1 },
                 uRamp: { value: 1.7 },
+                /* Above 1, flat stretches thin out faster as they darken. */
+                uContrast: { value: 1 },
                 uTime: { value: 0 },
                 uRain: { value: 0 },
                 uRainColor: { value: new THREE.Color(0x9fb8d8) },

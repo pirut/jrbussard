@@ -111,27 +111,33 @@ export function buildWorld() {
     });
 
     /*
-     * 3. Woods. Grown from a noise field rather than sprinkled: a flat
-     * per-cell chance gives the same density everywhere, which reads as an
-     * even carpet. Sampling a smooth field instead gives thickets, thinning
-     * edges and clearings — the shapes that make ground look like landscape.
+     * 3. The city. Everything outdoors that is not a room, a road or water
+     * is packed with tenements, cut by a warren of one-tile alleys the way
+     * the Walled City was: two-tile north-south lanes every eight tiles, and
+     * between each pair of them east-west lanes at their own staggered rows, so
+     * every block is reachable and no two crossings line up. A two-tile
+     * apron stays open round every room, so each compound has a street.
      */
+    const LANE = 8;
+    const ROW = 7;
+    const laneOffset = (band) => Math.floor(mulberry32(9100 + band)() * ROW);
+    const isAlley = (x, y) => {
+        if ((x + 3) % LANE < 2) return true;
+        const band = Math.floor((x + 3) / LANE);
+        return (y + laneOffset(band)) % ROW < 2;
+    };
+    /* Behind every room, across its street, a precinct of solid lots with
+       no lanes through it: the ground its landmark stands on. */
+    const precincts = roomRects.map((r) => ({ x: r.x - 1, y: r.y - 8, w: r.w + 2, h: 6 }));
+    const nearWater = (x, y) =>
+        [-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => inBounds(x + dx, y + dy) && kinds[at(x + dx, y + dy)] === KIND.WATER));
     for (let y = 5; y < h - 5; y += 1) {
         for (let x = 5; x < w - 5; x += 1) {
             if (kinds[at(x, y)] !== KIND.GRASS) continue;
-            if (rectsOverlap(x, y, blocked, 3)) continue;
-
-            const density = fbm(x, y, 0.045);
-            if (density > 0.60) {
-                /* Deep in a thicket. */
-                set(x, y, KIND.TREE, rng() < 0.5 ? "♣" : "♠");
-            } else if (density > 0.50 && rng() < (density - 0.5) * 9) {
-                /* The ragged edge where wood gives way to open ground. */
-                set(x, y, KIND.TREE, rng() < 0.5 ? "♣" : "♠");
-            } else if (density < 0.30 && rng() < 0.03) {
-                /* The odd boulder out in the open. */
-                set(x, y, KIND.MOUNTAIN);
-            }
+            if (rectsOverlap(x, y, roomRects, 2) || rectsOverlap(x, y, roads, 0)) continue;
+            if (nearWater(x, y)) continue;
+            if (isAlley(x, y) && !rectsOverlap(x, y, precincts, 0)) continue;
+            set(x, y, KIND.BLOCK);
         }
     }
 
@@ -212,6 +218,34 @@ export function buildWorld() {
         }
     }
 
+    /* 7. Any scrap of lane the warren sealed off is built over, so every
+       alley you can see leads somewhere. */
+    const reached = new Uint8Array(size);
+    const stack = [at(SPAWN.x, SPAWN.y)];
+    reached[stack[0]] = 1;
+    while (stack.length) {
+        const i = stack.pop();
+        const x = i % w;
+        const y = (i / w) | 0;
+        [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+        ].forEach(([dx, dy]) => {
+            const j = at(x + dx, y + dy);
+            if (!inBounds(x + dx, y + dy) || reached[j] || SOLID.has(kinds[j])) return;
+            reached[j] = 1;
+            stack.push(j);
+        });
+    }
+    for (let y = 5; y < h - 5; y += 1) {
+        for (let x = 5; x < w - 5; x += 1) {
+            const i = at(x, y);
+            if (!reached[i] && !zones[i] && kinds[i] === KIND.GRASS && !nearWater(x, y)) set(x, y, KIND.BLOCK);
+        }
+    }
+
     /* Markers are numbered per room and per kind, in reading order, so the
        first bookshelf slot in the library holds the newest note. */
     markers.sort((a, b) => a.y - b.y || a.x - b.x);
@@ -266,7 +300,7 @@ export function buildWorld() {
             const room = ROOMS.find(
                 (r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
             );
-            return room ? room.name : "THE WILDS";
+            return room ? room.name : "THE CITY";
         },
     };
 }

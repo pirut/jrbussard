@@ -30,6 +30,7 @@ const CEIL_LIGHT = 0.95;
  * it out of the texture.
  */
 const GRAINED = new Set([
+    KIND.BLOCK,
     KIND.GRASS,
     KIND.TREE,
     KIND.MOUNTAIN,

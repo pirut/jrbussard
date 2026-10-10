@@ -1,22 +1,88 @@
-/* A field guide around the original character world. */
+/*
+ * The workshop, dressed like the Commons: the world fills the window and a
+ * few small panels float over its corners, in the same dark glass, hairline
+ * edges and monospace the game uses. Everything here sits over either the 3D
+ * scene (.site3d) or, without WebGL, the character renderer (.world-stage).
+ */
 .world-shell {
     --cell-font: clamp(15px, 1.6vw, 22px);
-    --void: #101713;
-    --ink: #f1eee2;
-    --dim: #a5afa3;
-    --gold: #dea974;
+    --void: #0b0f0c;
+    --ink: #e8e6d3;
+    --dim: #a4ad97;
+    --faint: #6f7a6b;
+    --gold: #d8b67c;
     --amber: #e9b985;
-    --sky: #b2c8ba;
-    --mint: #aabea5;
-    --edge: #536052;
-    --edge-soft: #354135;
+    --mint: #9fe0a8;
+    --edge: #46523f;
+    --edge-soft: #2e3b2d;
+    --glass: #0d140fdb;
+    --glass-solid: #111a13;
     position: fixed;
     inset: 0;
     overflow: hidden;
     isolation: isolate;
     background: var(--void);
     color: var(--ink);
+    font-family: var(--font-mono);
 }
+.world-shell kbd {
+    display: inline-block;
+    min-width: 1.6em;
+    padding: 1px 5px;
+    border: 1px solid var(--edge);
+    color: var(--gold);
+    font: inherit;
+    font-size: 0.92em;
+    line-height: 1.3;
+    text-align: center;
+}
+
+/* ── The world ───────────────────────────────────────────────────────── */
+
+.site3d {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: var(--void);
+}
+.site3d__canvas {
+    touch-action: none;
+}
+.is-2d .site3d {
+    display: none;
+}
+.site3d__labels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+.site3d__label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    translate: -50% -50%;
+    font: 500 11px/1 var(--font-mono);
+    letter-spacing: 0.06em;
+    color: #d8cfb2;
+    white-space: nowrap;
+    text-shadow:
+        0 0 3px #000,
+        0 0 6px #000,
+        0 1px 0 #000;
+    will-change: transform;
+    visibility: hidden;
+}
+.site3d__label--room {
+    padding: 4px 9px;
+    font-size: 12px;
+    letter-spacing: 0.32em;
+    color: var(--tint, var(--ink));
+    background: #090d0acc;
+    border: 1px solid color-mix(in srgb, var(--tint, #e8e6d3) 40%, transparent);
+    text-shadow: none;
+}
+
 .world-probe {
     position: absolute;
     top: -200vh;
@@ -30,10 +96,7 @@
 .world-stage,
 .world-plane {
     position: absolute;
-    top: 90px;
-    bottom: 156px;
-    left: 24px;
-    right: 24px;
+    inset: 0;
     font: var(--cell-font)/1 var(--font-mono);
     white-space: pre;
     letter-spacing: 0;
@@ -42,12 +105,20 @@
 }
 .world-stage {
     z-index: 1;
-    text-shadow: 0 0 2px currentColor;
     outline: none;
+    /* Dragging turns the camera, so the page must not pan instead. */
+    touch-action: none;
+    cursor: grab;
+}
+.world-stage:active {
+    cursor: grabbing;
+}
+.is-2d .world-stage {
+    text-shadow: 0 0 2px currentColor;
 }
 .world-stage:focus-visible {
     outline: 1px solid var(--edge);
-    outline-offset: -1px;
+    outline-offset: -4px;
 }
 .world-plane {
     pointer-events: none;
@@ -66,8 +137,7 @@
     white-space: pre;
 }
 .world__row i,
-.minimap i,
-.atlas__terrain i {
+.minimap i {
     display: inline-block;
     width: 1ch;
     overflow: hidden;
@@ -75,435 +145,398 @@
     text-align: center;
     font-variant-emoji: text;
 }
-.world-crt {
-    display: none;
-}
-.world-vignette {
-    position: absolute;
-    inset: 80px 0 150px;
-    z-index: 3;
-    pointer-events: none;
-    background: radial-gradient(
-        ellipse at center,
-        transparent 45%,
-        #101713d9 100%
-    );
-}
 .is-intro .world-stage,
-.is-intro .world-plane,
-.is-intro .world-vignette {
+.is-intro .world-plane {
     visibility: hidden;
 }
 
-/* The same restrained masthead stays with you in every room. */
+/* ── Floating panels ─────────────────────────────────────────────────── */
+
 .hud {
     position: absolute;
     z-index: 5;
-    left: 32px;
-    right: 32px;
-    display: flex;
-    align-items: center;
+    font-size: 12px;
 }
-.hud--top {
-    top: 0;
-    height: 82px;
-    gap: 32px;
-    border-bottom: 1px solid var(--edge);
-    background: var(--void);
+.hud--brand,
+.hud--actions {
+    top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--glass);
+    border: 1px solid var(--edge-soft);
+    backdrop-filter: blur(3px);
+}
+.hud--brand {
+    left: 14px;
+    max-width: min(340px, calc(100vw - 28px));
+}
+.hud--actions {
+    right: 14px;
+    align-items: flex-end;
 }
 .hud__brand {
     display: flex;
-    gap: 20px;
+    gap: 12px;
     align-items: center;
-    flex-shrink: 0;
-    font-size: 13px;
+    text-align: left;
     letter-spacing: 0.24em;
+    font-size: 12px;
+    color: var(--ink);
+}
+.hud__brand small,
+.hud__region small,
+.hud__phase small {
+    display: block;
+    margin-top: 3px;
+    color: var(--dim);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: none;
 }
 .hud__mark {
     display: grid;
     place-items: center;
-    width: 38px;
-    height: 38px;
-    border: 1px solid var(--ink);
-    border-radius: 50%;
-    font-size: 28px;
-    font-family: Georgia, serif;
-    font-style: italic;
-    line-height: 1;
-    letter-spacing: -0.1em;
-    padding-right: 3px;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-size: 17px;
+    letter-spacing: 0;
+}
+.hud__brand:hover .hud__mark {
+    background: var(--gold);
+    color: var(--void);
 }
 .hud__region {
-    flex: 1;
-    text-align: center;
-    font-size: 12px;
-    letter-spacing: 0.07em;
-    color: var(--dim);
-}
-.hud__actions {
-    display: flex;
-    align-items: center;
-    gap: 26px;
-    font-size: 12px;
-}
-.hud__actions button {
-    min-height: 44px;
-}
-.hud__actions button:hover,
-.hud__brand:hover {
-    color: var(--gold);
-}
-.hud__index {
-    color: var(--gold);
-}
-.hud__index span {
-    margin-left: 8px;
-    font-size: 18px;
-}
-.world-shell kbd {
-    font: inherit;
-    color: var(--ink);
-}
-.hud__actions kbd {
-    border: 1px solid var(--edge);
-    padding: 2px 5px;
-    margin-left: 5px;
-    color: var(--dim);
-}
-.hud--bottom {
-    bottom: 0;
-    min-height: 62px;
-    justify-content: space-between;
-    gap: 24px;
-    font-size: 11px;
+    margin: 0;
+    padding-top: 10px;
     border-top: 1px solid var(--edge-soft);
-    background: var(--void);
+    color: var(--gold);
+    font-size: 13px;
+    letter-spacing: 0.14em;
+}
+.hud__phase {
+    color: var(--ink);
+    text-align: right;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+}
+.hud__phase > span {
+    color: var(--gold);
+}
+.hud__buttons {
+    display: flex;
+    gap: 6px;
+}
+.hud__buttons button {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--edge);
+    background: #0b110dcc;
+    color: var(--ink);
+    font-size: 12px;
+}
+.hud__buttons button:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+}
+.hud__buttons kbd {
+    margin-left: 6px;
+    padding: 0 4px;
+    font-size: 10px;
+}
+.hud__buttons .hud__index {
+    color: var(--gold);
+}
+
+/* What you are standing beside, as a little toast over the hotbar. */
+.hud--prompt {
+    left: 0;
+    right: 0;
+    bottom: 96px;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
 }
 .hud__prompt {
-    color: var(--dim);
     display: flex;
-    gap: 12px;
+    gap: 10px;
     align-items: center;
-    min-height: 44px;
-    text-align: left;
+    max-width: min(560px, calc(100vw - 28px));
+    padding: 9px 14px;
+    color: var(--dim);
+    font-size: 12px;
+    white-space: nowrap;
+    text-shadow: 0 0 4px #000;
 }
-.hud__prompt kbd {
-    color: var(--gold);
+.hud__prompt > span {
+    color: var(--faint);
 }
 .hud__prompt.is-live {
+    pointer-events: auto;
+    background: var(--glass);
+    border: 1px solid var(--edge);
     color: var(--ink);
+    animation: prompt-in 0.16s ease both;
+}
+.hud__prompt.is-live span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--mint);
 }
 .hud__prompt.is-live:hover {
-    color: var(--gold);
+    border-color: var(--gold);
 }
 .hud__position {
-    color: var(--dim);
-    flex-shrink: 0;
-    letter-spacing: 0.1em;
-}
-.world-location {
-    position: absolute;
-    top: 108px;
-    left: 52px;
-    z-index: 4;
-    pointer-events: none;
-    background: #101713df;
-    padding: 14px 18px;
-    border-left: 2px solid var(--gold);
-}
-.world-location > span {
-    font-size: 12px;
-    letter-spacing: 0.14em;
-    color: var(--gold);
-}
-.world-location small {
-    display: block;
+    position: fixed;
+    right: 18px;
+    bottom: 26px;
+    color: var(--faint);
     font-size: 11px;
-    color: var(--dim);
-    margin-top: 6px;
 }
 
-/* Entrance: editorial left column, an atlas made from the actual world on the right. */
-.intro {
-    position: absolute;
-    inset: 82px 32px 0;
-    z-index: 4;
-    display: grid;
-    grid-template-columns: 42% 58%;
-    grid-template-rows: minmax(0, 1fr) 66px;
-}
-.intro__copy {
-    min-width: 0;
-    padding: clamp(44px, 12vh, 130px) 24px 35px 24px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-}
-.intro h1 {
-    margin: 0;
-    font-family: "Work Sans", sans-serif;
-    font-size: clamp(38px, 4.45vw, 76px);
-    line-height: 1.13;
-    font-weight: 450;
-    letter-spacing: -0.065em;
-    white-space: nowrap;
-}
-.intro h1 span {
-    color: var(--gold);
-}
-.intro__description {
-    margin-top: 46px;
-    max-width: 390px;
-}
-.intro__description::before {
-    content: "";
-    display: block;
-    width: 30px;
-    border-top: 1px solid var(--gold);
-    margin-bottom: 28px;
-}
-.intro__description > p {
-    margin: 0 0 34px;
-    font:
-        19px/1.8 Georgia,
-        "Times New Roman",
-        serif;
-    letter-spacing: 0.015em;
-}
-.intro__start {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 30px;
-    min-height: 58px;
-    padding: 14px 26px;
-    color: var(--void);
-    background: var(--gold);
-    font-size: 14px;
-    letter-spacing: 0.035em;
-    transition:
-        background 0.2s,
-        transform 0.2s;
-}
-.intro__start:hover {
-    background: #ebbc8c;
-    transform: translateY(-2px);
-}
-.intro__start span {
-    font-size: 22px;
-}
-.intro__browse {
-    display: block;
-    font-size: 12px;
-    letter-spacing: 0.035em;
-    margin-top: 15px;
-    min-height: 44px;
-    text-decoration: underline;
-    text-underline-offset: 6px;
-    text-decoration-color: var(--edge);
-}
-.intro__browse:hover {
-    color: var(--gold);
-}
-.intro__keys {
-    margin: auto 0 0;
-    padding-top: 28px;
-    font-size: 11px;
-    color: var(--dim);
-}
-.intro__keys span {
-    margin: 0 10px;
-}
-.intro__world {
-    position: relative;
-    min-width: 0;
-    min-height: 0;
-    display: grid;
-    align-items: center;
-    justify-items: center;
-    border-left: 1px solid var(--edge-soft);
-    margin: 24px 0;
-    overflow: hidden;
-    container-type: size;
-}
-.atlas {
-    position: relative;
-    width: min(100cqw, 99cqh);
-    aspect-ratio: 1;
-    flex-shrink: 0;
-}
-.atlas__terrain {
-    margin: 0;
-    position: absolute;
-    inset: 0;
-    font: min(0.8474cqw, 0.839cqh)/1 var(--font-mono);
-    letter-spacing: 0;
-    white-space: pre;
-    pointer-events: none;
-    user-select: none;
-    mask-image: radial-gradient(
-        ellipse at center,
-        black 48%,
-        #0008 75%,
-        transparent 100%
-    );
-}
-.atlas__row {
-    display: block;
-    height: 1em;
-}
-.atlas__terrain i {
-    vertical-align: top;
-}
-.atlas__room {
-    position: absolute;
-    transform: translate(-50%, -50%);
-    min-width: 90px;
-    min-height: 52px;
-    padding: 5px 9px;
-    background: #101713ee;
-    color: var(--gold);
-    transition:
-        color 0.2s,
-        background 0.2s;
-}
-.atlas__room span {
-    display: block;
-    font-size: 12px;
-    text-transform: capitalize;
-}
-.atlas__room b {
-    display: block;
-    font-size: 22px;
-    font-weight: 400;
-    line-height: 1.3;
-    color: var(--ink);
-}
-.atlas__room:hover {
-    background: #27352a;
-    color: #ffd1a0;
-    outline: 1px solid var(--gold);
-}
-.atlas__room[aria-label="Visit the atrium"] b {
-    color: var(--gold);
-    text-shadow: 0 0 20px #e8a864;
-}
-.intro__coordinates {
-    position: absolute;
-    right: 22px;
-    bottom: 4px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    pointer-events: none;
-}
-.intro__coordinates > span {
-    font-size: 32px;
-}
-.intro__coordinates p {
-    font-size: 10px;
-    letter-spacing: 0.08em;
-}
-.intro__coordinates small {
-    display: block;
-    font-size: 10px;
-    margin-top: 3px;
-    color: var(--dim);
-}
-.intro__footer {
-    grid-column: 1 / -1;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    padding: 0 6px;
-    border-top: 1px solid var(--edge);
-    color: var(--dim);
-    font-size: 10px;
-    letter-spacing: 0.13em;
-}
-.intro__footer > span:first-child {
-    text-transform: uppercase;
-}
-
-/* Travel is optional: walking and keyboard interactions remain the main mode. */
+/* The room strip, as a hotbar. */
 .room-nav {
     position: absolute;
     z-index: 5;
-    bottom: 62px;
-    left: 32px;
-    right: 32px;
+    left: 50%;
+    bottom: 14px;
+    translate: -50% 0;
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    border-top: 1px solid var(--edge-soft);
-    background: var(--void);
+    gap: 4px;
+    width: min(780px, calc(100vw - 28px));
+    padding: 4px;
+    background: var(--glass);
+    border: 1px solid var(--edge-soft);
 }
 .room-nav button {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+    min-height: 58px;
+    padding: 8px 10px;
+    border: 1px solid var(--edge-soft);
+    background: #0b110d;
     text-align: left;
+    color: var(--ink);
+    font-size: 12px;
     min-width: 0;
-    min-height: 92px;
-    padding: 12px 18px;
-    border-right: 1px solid var(--edge-soft);
-    color: var(--dim);
-    transition:
-        color 0.2s,
-        background 0.2s;
-    font-family: "Work Sans", sans-serif;
-    font-size: 15px;
-}
-.room-nav button:first-child {
-    border-left: 1px solid var(--edge-soft);
 }
 .room-nav button:hover {
-    color: var(--ink);
-    background: #1b261d;
+    border-color: var(--edge);
 }
 .room-nav button[aria-current] {
-    background: #1b261d;
-    color: var(--gold);
-    box-shadow: inset 0 2px var(--gold);
+    border-color: var(--gold);
+    background: #1a1f15;
+}
+.room-nav button > i {
+    position: absolute;
+    top: 3px;
+    left: 5px;
+    font-style: normal;
+    font-size: 9px;
+    color: var(--faint);
 }
 .room-nav__glyph {
-    font: 20px var(--font-mono);
+    flex-shrink: 0;
+    width: 1.4em;
     color: var(--gold);
+    font-size: 18px;
+    text-align: center;
+}
+.room-nav__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .room-nav small {
     display: block;
-    font: 10px/1.5 var(--font-mono);
+    margin-top: 2px;
     color: var(--dim);
-    margin-top: 5px;
-}
-.room-nav__arrow {
-    margin-left: auto;
-    font-family: var(--font-mono);
-    font-size: 16px;
+    font-size: 9px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-/* Reading panels share typography and navigation, while content remains live. */
+/* ── The front door ──────────────────────────────────────────────────── */
+
+.intro {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(28px, 6vh, 64px);
+    padding: 100px 20px 28px;
+    overflow-y: auto;
+    text-align: center;
+    background: radial-gradient(ellipse 46% 40% at 50% 44%, #0b0f0cc4 0%, #0b0f0c70 60%, transparent 100%);
+}
+.intro__card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 920px;
+}
+.intro__kicker {
+    margin: 0 0 22px;
+    color: var(--dim);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+}
+.intro__kicker span {
+    color: var(--gold);
+}
+.intro__title {
+    margin: 0 -0.26em 0 0;
+    white-space: nowrap;
+    color: #f6ebcb;
+    font: 400 clamp(34px, 7.4vw, 92px)/1 var(--font-mono);
+    letter-spacing: 0.26em;
+    text-shadow:
+        0 0 24px #d8b67c55,
+        0 0 2px #000;
+}
+.intro__tag {
+    margin: 22px 0 0;
+    color: var(--gold);
+    font-size: clamp(13px, 1.6vw, 16px);
+    letter-spacing: 0.12em;
+}
+.intro__blurb {
+    max-width: 520px;
+    margin: 18px 0 0;
+    color: #c4c9b8;
+    font:
+        15px/1.7 "Work Sans",
+        system-ui,
+        sans-serif;
+    text-shadow: 0 0 6px #000;
+}
+.intro__actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    margin-top: 30px;
+}
+.intro__start {
+    min-height: 48px;
+    padding: 12px 34px;
+    border: 1px solid var(--gold);
+    background: #0b0f0ccc;
+    color: #f6ebcb;
+    font-size: 13px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+}
+.intro__start:hover {
+    background: var(--gold);
+    color: var(--void);
+}
+.intro__browse {
+    color: var(--dim);
+    font-size: 12px;
+    text-decoration: underline;
+    text-underline-offset: 5px;
+    text-decoration-color: var(--edge);
+}
+.intro__browse:hover {
+    color: var(--ink);
+}
+.intro__keys {
+    margin: 22px 0 0;
+    color: var(--faint);
+    font-size: 11px;
+}
+.intro__keys span {
+    margin: 0 4px;
+}
+.intro__rooms {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+    width: min(900px, 100%);
+}
+.intro__rooms button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 56px;
+    padding: 8px 12px;
+    background: var(--glass);
+    border: 1px solid var(--edge-soft);
+    color: var(--ink);
+    text-align: left;
+    font-size: 12px;
+    min-width: 0;
+}
+.intro__rooms button:hover {
+    border-color: var(--gold);
+}
+.intro__rooms b {
+    color: var(--gold);
+    font-size: 18px;
+    font-weight: 400;
+}
+.intro__rooms small {
+    display: block;
+    margin-top: 2px;
+    color: var(--dim);
+    font-size: 9px;
+}
+
+/* ── Reading panels ──────────────────────────────────────────────────── */
+
 .panel-layer {
     position: absolute;
     inset: 0;
     z-index: 10;
     display: flex;
     justify-content: flex-end;
-    padding: 20px;
-    background: #070d0999;
-    backdrop-filter: blur(7px);
+    padding: 14px;
+    background: #05080680;
     animation: fade-in 0.18s ease both;
 }
 .panel {
+    position: relative;
     display: flex;
     flex-direction: column;
-    width: min(780px, 100%);
+    width: min(760px, 100%);
     max-height: 100%;
     min-width: 0;
-    background: #141d17;
+    background: var(--glass-solid);
     border: 1px solid var(--edge);
-    box-shadow: -30px 0 100px #0005;
-    animation: panel-in 0.24s ease both;
+    box-shadow: -30px 0 100px #0008;
+    animation: panel-in 0.22s ease both;
+}
+/* Corner ticks, so a panel reads as drawn on the same grid as the world. */
+.panel::before,
+.panel::after {
+    content: "+";
+    position: absolute;
+    color: var(--gold);
+    font-size: 12px;
+    line-height: 1;
+    pointer-events: none;
+}
+.panel::before {
+    top: -7px;
+    left: -4px;
+}
+.panel::after {
+    bottom: -6px;
+    right: -4px;
 }
 .panel:focus {
     outline: none;
@@ -514,108 +547,105 @@
     justify-content: space-between;
     flex-shrink: 0;
     gap: 20px;
-    min-height: 64px;
-    padding: 10px 28px;
-    border-bottom: 1px solid var(--edge);
+    min-height: 52px;
+    padding: 8px 22px;
+    border-bottom: 1px solid var(--edge-soft);
     color: var(--gold);
     font-size: 11px;
-    letter-spacing: 0.13em;
+    letter-spacing: 0.16em;
 }
 .panel__bar button {
-    min-height: 44px;
+    min-height: 40px;
     color: var(--dim);
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
 }
 .panel__bar button:hover {
     color: var(--ink);
 }
 .panel__scroll {
     overflow: auto;
-    padding: clamp(24px, 4vw, 54px);
+    padding: clamp(22px, 3.6vw, 44px);
     scrollbar-color: var(--edge) transparent;
 }
 .panel__meta {
-    margin: 0 0 16px;
+    margin: 0 0 14px;
     font-size: 10px;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--dim);
 }
+.panel__meta::before {
+    content: "// ";
+    color: var(--faint);
+}
 .panel__title {
-    margin: 0 0 28px;
-    color: var(--ink);
-    font:
-        450 clamp(28px, 3.2vw, 48px)/1.12 "Work Sans",
-        sans-serif;
-    letter-spacing: -0.05em;
+    margin: 0 0 26px;
+    color: #f6ebcb;
+    font: 400 clamp(24px, 2.8vw, 38px)/1.2 var(--font-mono);
+    letter-spacing: 0.02em;
     overflow-wrap: anywhere;
 }
-.panel--note .panel__title {
-    font-family: Georgia, serif;
-    font-weight: 400;
-    letter-spacing: -0.025em;
-    text-transform: none;
-}
 .panel__section {
-    margin: 40px 0 14px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--edge);
+    margin: 38px 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--edge-soft);
     color: var(--gold);
     font-size: 11px;
     font-weight: 400;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
 }
 .panel__lede {
-    color: var(--ink);
-    font:
-        21px/1.55 Georgia,
-        serif;
-    margin: 0 0 24px;
+    color: var(--gold);
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    margin: 0 0 22px;
 }
 .panel__prose,
 .panel__lines {
     font:
-        17px/1.85 "Work Sans",
+        16px/1.8 "Work Sans",
+        system-ui,
         sans-serif;
-    color: #c8d0c5;
-    margin: 0 0 25px;
+    color: #c8ccbd;
+    margin: 0 0 24px;
     overflow-wrap: anywhere;
 }
 .panel--note .panel__prose {
-    font:
-        19px/1.85 Georgia,
-        serif;
+    font-size: 17px;
+    line-height: 1.85;
 }
 .panel__lines {
     white-space: pre-wrap;
-    font-family: "Work Sans", sans-serif;
 }
-.panel--sign .panel__lines {
-    font: 12px/1.85 var(--font-mono);
+.panel--sign .panel__lines,
+.panel--about .panel__lines,
+.panel--contact .panel__lines {
+    font: 13px/1.85 var(--font-mono);
 }
 .panel__prose h1,
 .panel__prose h2,
 .panel__prose h3 {
     color: var(--ink);
-    font-family: "Work Sans", sans-serif;
-    line-height: 1.3;
-    margin: 32px 0 16px;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    line-height: 1.35;
+    margin: 32px 0 14px;
 }
 .panel__prose a {
     color: var(--gold);
     text-underline-offset: 4px;
 }
 .panel__prose code {
-    font: 0.82em/1.6 var(--font-mono);
+    font: 0.84em/1.6 var(--font-mono);
     padding: 2px 4px;
-    background: #233027;
+    background: #1d2a20;
 }
 .panel__prose pre {
     max-width: 100%;
     padding: 16px;
     overflow: auto;
-    background: #0c130e;
+    background: #0a100c;
     border: 1px solid var(--edge-soft);
 }
 .panel__prose img {
@@ -627,61 +657,69 @@
     max-width: 100%;
     overflow-x: auto;
     border-collapse: collapse;
-    font:
-        14px/1.6 "Work Sans",
-        sans-serif;
+    font-size: 14px;
 }
 .panel__prose td,
 .panel__prose th {
     padding: 10px;
-    border: 1px solid var(--edge);
+    border: 1px solid var(--edge-soft);
 }
 .panel__prose blockquote {
-    margin: 28px 0;
-    padding-left: 22px;
+    margin: 26px 0;
+    padding-left: 20px;
     border-left: 2px solid var(--gold);
     color: var(--ink);
 }
 .panel__bullets {
     font:
-        16px/1.8 "Work Sans",
+        15px/1.75 "Work Sans",
+        system-ui,
         sans-serif;
-    color: #c8d0c5;
-    padding-left: 20px;
-    margin: 0 0 28px;
+    color: #c8ccbd;
+    padding-left: 0;
+    margin: 0 0 26px;
+    list-style: none;
 }
 .panel__bullets li {
+    position: relative;
     margin: 10px 0;
+    padding-left: 22px;
 }
-.panel__bullets li::marker {
+.panel__bullets li::before {
+    content: ">";
+    position: absolute;
+    left: 0;
     color: var(--gold);
+    font-family: var(--font-mono);
 }
 .panel__tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px 20px;
+    gap: 8px;
     padding: 0;
-    margin: 24px 0;
+    margin: 22px 0;
     list-style: none;
     color: var(--dim);
     font-size: 11px;
 }
 .panel__tags li {
-    padding-bottom: 5px;
-    border-bottom: 1px solid var(--edge);
+    padding: 3px 8px;
+    border: 1px solid var(--edge-soft);
 }
 .panel__action {
     display: inline-block;
-    padding: 15px 20px;
+    padding: 12px 18px;
     margin: 5px 10px 5px 0;
-    background: var(--gold);
-    color: var(--void);
+    border: 1px solid var(--gold);
+    color: #f6ebcb;
     text-decoration: none;
     font-size: 12px;
+    letter-spacing: 0.08em;
     overflow-wrap: anywhere;
 }
 .panel__action:hover {
-    background: #ebbc8c;
+    background: var(--gold);
+    color: var(--void);
 }
 .panel__links {
     display: flex;
@@ -698,15 +736,13 @@
 .panel__index li {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 18px 0;
-    border-bottom: 1px solid var(--edge-soft);
+    gap: 6px;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--edge-soft);
 }
 .panel__index a,
 .panel__index button {
-    font:
-        500 18px/1.5 "Work Sans",
-        sans-serif;
+    font: 15px/1.5 var(--font-mono);
     text-align: left;
     text-decoration: none;
     color: var(--ink);
@@ -719,16 +755,17 @@
 .panel__index span {
     color: var(--dim);
     font:
-        14px/1.6 "Work Sans",
+        13px/1.6 "Work Sans",
+        system-ui,
         sans-serif;
 }
 .panel__pager {
     display: flex;
     justify-content: space-between;
     gap: 24px;
-    border-top: 1px solid var(--edge);
-    margin-top: 40px;
-    padding-top: 20px;
+    border-top: 1px solid var(--edge-soft);
+    margin-top: 36px;
+    padding-top: 18px;
 }
 .panel__pager button {
     max-width: 48%;
@@ -745,13 +782,13 @@
 }
 .panel--map .room-nav {
     position: static;
+    translate: none;
+    width: auto;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin-bottom: 28px;
+    margin-bottom: 26px;
+    padding: 0;
+    background: none;
     border: 0;
-}
-.panel--map .room-nav button {
-    border: 1px solid var(--edge-soft);
-    min-height: 80px;
 }
 .minimap {
     width: max-content;
@@ -767,7 +804,7 @@
     flex-wrap: wrap;
     gap: 12px 20px;
     padding: 0;
-    margin: 28px 0 0;
+    margin: 26px 0 0;
     list-style: none;
     font-size: 11px;
     color: var(--dim);
@@ -776,12 +813,14 @@
     color: var(--gold);
 }
 
+/* ── Touch ───────────────────────────────────────────────────────────── */
+
 .touch {
     position: absolute;
     z-index: 5;
     right: 16px;
     left: 16px;
-    bottom: 172px;
+    bottom: 150px;
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
@@ -802,7 +841,7 @@
     height: 44px;
     border: 1px solid var(--edge);
     color: var(--ink);
-    background: #101713ee;
+    background: var(--glass);
     touch-action: none;
     font-size: 20px;
 }
@@ -829,13 +868,13 @@
 }
 .touch__act {
     position: relative;
-    border-radius: 50%;
     width: 64px;
     height: 64px;
     border-color: var(--gold);
     color: var(--gold);
     pointer-events: auto;
 }
+
 @keyframes fade-in {
     from {
         opacity: 0;
@@ -854,261 +893,138 @@
         transform: translateX(0);
     }
 }
-
-@media (min-width: 1700px) {
-    .intro__copy {
-        padding-left: 56px;
+@keyframes prompt-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
     }
-    .intro h1 {
-        font-size: 80px;
-    }
-    .intro__description {
-        max-width: 450px;
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }
-@media (max-width: 1100px) {
-    .intro {
-        grid-template-columns: 44% 56%;
-    }
-    .intro__copy {
-        padding-left: 8px;
-        padding-right: 16px;
-    }
-    .intro h1 {
-        font-size: 4.3vw;
-    }
-    .intro__description {
-        margin-top: 32px;
-        max-width: 320px;
-    }
-    .intro__description > p {
-        font-size: 17px;
-    }
-    .room-nav button {
-        padding: 12px;
-        gap: 8px;
-        font-size: 13px;
-    }
-    .room-nav__arrow {
-        display: none;
+
+/* ── Smaller screens ─────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .intro__rooms {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .room-nav small {
-        font-size: 9px;
+        display: none;
     }
 }
 @media (max-width: 700px) {
-    .hud {
-        left: 20px;
-        right: 20px;
+    .hud--brand,
+    .hud--actions {
+        top: 10px;
+        padding: 9px 10px;
     }
-    .hud--top {
-        height: 72px;
-        gap: 12px;
+    .hud--brand {
+        left: 10px;
+        max-width: calc(100vw - 150px);
+    }
+    .hud--actions {
+        right: 10px;
     }
     .hud__brand {
         font-size: 10px;
-        letter-spacing: 0.12em;
-        gap: 10px;
+        letter-spacing: 0.16em;
+        gap: 9px;
+    }
+    .hud__brand small,
+    .hud__region small,
+    .hud__phase {
+        display: none;
     }
     .hud__mark {
-        width: 30px;
-        height: 30px;
-        font-size: 23px;
+        width: 26px;
+        height: 26px;
+        font-size: 14px;
     }
     .hud__region {
+        padding-top: 7px;
+        font-size: 11px;
+    }
+    .hud__buttons kbd {
         display: none;
     }
-    .hud__actions {
-        margin-left: auto;
-        gap: 12px;
-        font-size: 10px;
-    }
-    .hud__actions kbd {
-        display: none;
-    }
-    .is-intro {
-        overflow-y: auto;
-    }
-    .intro {
-        inset: 72px 20px auto;
-        min-height: calc(100dvh - 72px);
-        display: flex;
-        flex-direction: column;
-        overflow: visible;
-    }
-    .intro__copy {
-        padding: 44px 6px 24px;
-    }
-    .intro h1 {
-        font-size: clamp(34px, 9.6vw, 62px);
-        letter-spacing: -0.065em;
-    }
-    .intro__description {
-        margin-top: 24px;
-        max-width: 100%;
-    }
-    .intro__description::before {
-        margin-bottom: 18px;
-    }
-    .intro__description > p {
-        font-size: 17px;
-        line-height: 1.7;
-        margin-bottom: 24px;
-    }
-    .intro__start {
-        min-height: 54px;
-        padding: 12px 22px;
-        font-size: 13px;
-    }
-    .intro__browse {
-        margin-top: 6px;
-    }
-    .intro__keys {
-        padding-top: 20px;
-        font-size: 10px;
-    }
-    .intro__world {
-        flex: 0 0 auto;
-        width: 100%;
-        height: calc(100vw - 40px);
-        margin: 0 0 24px;
-        border-left: 0;
-        border-top: 1px solid var(--edge-soft);
-    }
-    .atlas__room {
-        min-width: 66px;
-        min-height: 44px;
-        padding: 3px 5px;
-    }
-    .atlas__room span {
-        font-size: 9px;
-    }
-    .atlas__room b {
-        font-size: 17px;
-    }
-    .intro__coordinates {
-        display: none;
-    }
-    .intro__footer {
-        min-height: 65px;
-        font-size: 8px;
-        letter-spacing: 0.04em;
+    .hud__buttons button {
+        min-width: 32px;
+        padding: 0 8px;
+        font-size: 11px;
     }
     .room-nav {
-        left: 16px;
-        right: 16px;
-        bottom: 54px;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        bottom: 10px;
+        width: calc(100vw - 20px);
+        gap: 3px;
+        padding: 3px;
     }
     .room-nav button {
-        min-height: 52px;
-        padding: 8px;
-        font-size: 12px;
-    }
-    .room-nav small {
-        display: none;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        min-height: 50px;
+        padding: 6px 2px 4px;
+        text-align: center;
+        font-size: 9px;
     }
     .room-nav__glyph {
         font-size: 16px;
     }
-    .room-nav button:nth-child(n + 4) {
-        border-top: 1px solid var(--edge-soft);
+    .room-nav__name {
+        max-width: 100%;
     }
-    .hud--bottom {
-        left: 16px;
-        right: 16px;
-        min-height: 54px;
-        font-size: 10px;
+    .hud--prompt {
+        bottom: 80px;
+    }
+    .hud__prompt {
+        font-size: 11px;
+    }
+    .hud__prompt.is-live span {
+        max-width: 200px;
     }
     .hud__position {
         display: none;
     }
-    .hud__prompt {
-        gap: 7px;
-        flex-wrap: wrap;
+    .touch {
+        bottom: 132px;
     }
-    .hud__prompt.is-live {
-        padding: 6px 0;
+    .intro {
+        justify-content: flex-start;
+        padding-top: 96px;
     }
-    .hud__prompt.is-live span {
-        max-width: 230px;
+    .intro__title {
+        margin-right: -0.12em;
+        letter-spacing: 0.12em;
+        font-size: clamp(30px, 10vw, 54px);
     }
-    .world-stage,
-    .world-plane {
-        top: 72px;
-        bottom: 164px;
-        left: 0;
-        right: 0;
+    .intro__blurb {
+        font-size: 14px;
     }
-    .world-location {
-        top: 84px;
-        left: 16px;
-        padding: 8px 12px;
-    }
-    .world-location small {
-        display: none;
-    }
-    .world-location > span {
-        font-size: 10px;
+    .intro__rooms button {
+        padding: 8px;
+        gap: 8px;
     }
     .panel-layer {
-        padding: 8px;
+        padding: 6px;
     }
     .panel__bar {
-        padding: 8px 18px;
-        min-height: 58px;
+        padding: 6px 16px;
+        min-height: 50px;
         font-size: 10px;
     }
     .panel__scroll {
-        padding: 26px 20px;
+        padding: 24px 18px;
     }
     .panel__title {
-        font-size: 31px;
-    }
-    .panel__index a,
-    .panel__index button {
-        font-size: 17px;
+        font-size: 24px;
     }
     .panel--note .panel__prose {
-        font-size: 18px;
+        font-size: 16px;
     }
     .panel--map .room-nav button {
-        padding: 8px;
         min-height: 50px;
-    }
-    .panel__action {
-        font-size: 11px;
-        padding: 14px;
-    }
-}
-@media (max-height: 740px) and (min-width: 701px) {
-    .intro__copy {
-        padding-top: 45px;
-        padding-bottom: 22px;
-    }
-    .intro__description {
-        margin-top: 26px;
-    }
-    .intro__description::before {
-        margin-bottom: 16px;
-    }
-    .intro__description > p {
-        margin-bottom: 22px;
-        font-size: 17px;
-    }
-    .intro__keys {
-        padding-top: 18px;
-    }
-    .intro__browse {
-        margin-top: 5px;
-    }
-}
-@media (max-height: 560px) and (min-width: 701px) {
-    .is-intro {
-        overflow-y: auto;
-    }
-    .intro {
-        min-height: 550px;
     }
 }
 

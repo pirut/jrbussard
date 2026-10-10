@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import "./arcade.css";
+import Backdrop from "../site3d/Backdrop";
 
 /*
  * THE NIGHT SHIFT — an idle operations game.
@@ -195,6 +196,7 @@ export default function Idle() {
 
     return (
         <main className="cab cab--idle">
+            <Backdrop scene="arcade" dim />
             <header className="cab__bar">
                 <Link className="cab__back" to="/" state={{ room: "arcade" }}>
                     ◄ back to the arcade

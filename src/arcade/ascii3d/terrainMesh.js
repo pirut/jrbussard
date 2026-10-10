@@ -4,6 +4,10 @@ import { resourceAt } from "../../lib/survival";
 import { shadeAt } from "../../lib/shade";
 import { material } from "./materials";
 import { glyphCode, GLYPH_SETS } from "./asciiPass";
+import { peakBuilding } from "./architecture";
+import { hash, P, place, tint } from "./shapes";
+
+export { hash, P, place, tint };
 
 /* Shared clock for everything that moves in the wind. */
 export const wind = { uTime: { value: 0 } };
@@ -61,13 +65,17 @@ function grassMaterial() {
 
 export const WATER_LEVEL = -0.22;
 const SEABED = -0.7;
-const TERRACE = 0.2;
+const TERRACE = 0.3;
 
+/* Land rises gently off the shore, then steeply toward the peaks, so the
+   lowlands stay walkable and the high ground stands up as mountains. */
 export function groundHeight(x, y) {
     const tile = tileAt(x, y);
     if (tile === WATER) return SEABED;
     if (tile === SAND) return -0.06;
-    const lift = Math.max(0, elevationAt(x, y) - 0.33) * 3.4;
+    const e = elevationAt(x, y);
+    const steep = Math.max(0, e - 0.6);
+    const lift = Math.max(0, e - 0.33) * 6 + steep * steep * 30;
     return Math.round(lift / TERRACE) * TERRACE;
 }
 
@@ -92,33 +100,8 @@ const GROUND_SET = {
     [SAND]: "path",
 };
 
-function hash(x, y, salt) {
-    let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(salt, 1442695041);
-    h = Math.imul(h ^ (h >>> 13), 1274126177);
-    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-/* Prototype shapes, unindexed once so they can be copied straight in. */
-const PROTOS = {};
-function proto(name, make) {
-    if (!PROTOS[name]) {
-        const g = make();
-        PROTOS[name] = g.index ? g.toNonIndexed() : g;
-    }
-    return PROTOS[name];
-}
-const P = {
-    cone: () => proto("cone", () => new THREE.ConeGeometry(0.5, 1, 7)),
-    trunk: () => proto("trunk", () => new THREE.CylinderGeometry(0.08, 0.13, 1, 6)),
-    blob: () => proto("blob", () => new THREE.IcosahedronGeometry(0.5, 0)),
-    boulder: () => proto("boulder", () => new THREE.DodecahedronGeometry(0.5, 0)),
-    gem: () => proto("gem", () => new THREE.OctahedronGeometry(0.5, 0)),
-    cube: () => proto("cube", () => new THREE.BoxGeometry(1, 1, 1)),
-    blade: () => proto("blade", () => new THREE.ConeGeometry(0.06, 1, 3)),
-};
-
 /* Collects triangles per material, then hands back one mesh for each. */
-class Batch {
+export class Batch {
     constructor() {
         this.parts = new Map();
     }
@@ -187,41 +170,40 @@ class Batch {
     }
 }
 
-const m4 = new THREE.Matrix4();
-const q = new THREE.Quaternion();
-const e = new THREE.Euler();
-const color = new THREE.Color();
-function place(x, y, z, sx, sy, sz, ry = 0, rx = 0) {
-    e.set(rx, ry, 0);
-    q.setFromEuler(e);
-    return m4.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, sz));
-}
-function tint(hex, amount) {
-    return color.set(hex).multiplyScalar(amount);
-}
-
-function addTree(batch, x, y, h) {
+export function addTree(batch, x, y, h) {
     const r = hash(x, y, 11);
     const ox = x + (hash(x, y, 12) - 0.5) * 0.3;
     const oz = y + (hash(x, y, 13) - 0.5) * 0.3;
-    const size = 0.85 + r * 0.5;
-    batch.shape("timber", P.trunk(), place(ox, h + 0.35 * size, oz, size, 0.7 * size, size), tint("#7a5a3c", 1));
+    const size = 0.9 + r * 0.55;
+    /* Tall and narrow: a forest should tower over whoever walks in it. */
+    const tall = 1.5 + hash(x, y, 15) * 0.9;
+    batch.shape("timber", P.trunk(), place(ox, h + 0.5 * size * tall, oz, size, size * tall, size), tint("#7a5a3c", 1));
     const leaf = 0.85 + hash(x, y, 14) * 0.3;
-    if (r < 0.55) {
-        /* A pine: three cones, each a little narrower. */
-        for (let i = 0; i < 3; i += 1) {
-            const w = (1.15 - i * 0.28) * size;
-            batch.shape("leaves", P.cone(), place(ox, h + (0.75 + i * 0.42) * size, oz, w, 0.75 * size, w, r * 6 + i), tint("#4f8a4a", leaf * (0.9 + i * 0.08)));
+    if (r < 0.6) {
+        /* A fir: a stack of cones, each a little narrower. */
+        const tiers = 4 + Math.floor(hash(x, y, 16) * 2);
+        for (let i = 0; i < tiers; i += 1) {
+            const w = (1.1 - i * (0.8 / tiers)) * size;
+            batch.shape("leaves", P.cone(), place(ox, h + (0.9 + i * 0.55) * size * (tall / 1.6), oz, w, 0.95 * size, w, r * 6 + i), tint("#4f8a4a", leaf * (0.88 + i * 0.05)));
         }
     } else {
-        /* A broadleaf: a lumpy crown on a taller trunk. */
-        batch.shape("timber", P.trunk(), place(ox, h + 0.95 * size, oz, size * 0.8, 0.6 * size, size * 0.8), tint("#7a5a3c", 0.9));
-        batch.shape("leaves", P.blob(), place(ox, h + 1.45 * size, oz, 1.25 * size, 1.0 * size, 1.25 * size, r * 9), tint("#6c9c4d", leaf));
-        batch.shape("leaves", P.blob(), place(ox + 0.18, h + 1.75 * size, oz - 0.1, 0.8 * size, 0.7 * size, 0.8 * size, r * 5), tint("#7cab58", leaf));
+        /* A broadleaf: a lumpy crown, high on a long trunk. */
+        const crown = h + 1.2 * size * tall;
+        batch.shape("timber", P.trunk(), place(ox, crown - 0.4 * size, oz, size * 0.8, 0.8 * size, size * 0.8), tint("#7a5a3c", 0.9));
+        batch.shape("leaves", P.blob(), place(ox, crown, oz, 1.3 * size, 1.4 * size, 1.3 * size, r * 9), tint("#6c9c4d", leaf));
+        batch.shape("leaves", P.blob(), place(ox + 0.18, crown + 0.55 * size, oz - 0.1, 0.9 * size, 1.0 * size, 0.9 * size, r * 5), tint("#7cab58", leaf));
     }
 }
 
-function addRock(batch, x, y, h, resource) {
+/* A crag: a needle of rock standing up out of the high ground. */
+export function addCrag(batch, x, y, h, height) {
+    const r = hash(x, y, 71);
+    const ox = x + (hash(x, y, 74) - 0.5) * 0.3;
+    batch.shape("rock", P.boulder(), place(ox, h + height * 0.42, y, 0.78, height, 0.72, r * 7), tint("#8b8f88", 0.82 + hash(x, y, 72) * 0.2));
+    batch.shape("rock", P.boulder(), place(ox + (r - 0.5) * 0.2, h + height * 0.9, y, 0.42, height * 0.4, 0.42, r * 3), tint("#9a9f97", 0.9));
+}
+
+export function addRock(batch, x, y, h, resource) {
     const r = hash(x, y, 21);
     const s = 0.8 + r * 0.45;
     const base = resource === "coal" ? "#5d6066" : "#9a9f97";
@@ -264,7 +246,7 @@ const TIP = new THREE.Color();
  * A meadow: thin blades, rooted dark and lit at the tips, leaning with the
  * wind. Up close these are what the ASCII pass turns into strokes.
  */
-function addBlades(batch, x, y, h, count, tall) {
+export function addBlades(batch, x, y, h, count, tall) {
     for (let i = 0; i < count; i += 1) {
         const r = hash(x, y, 100 + i);
         const bx = x - 0.5 + hash(x, y, 200 + i);
@@ -276,6 +258,38 @@ function addBlades(batch, x, y, h, count, tall) {
         TIP.set(r < 0.15 ? "#b9d08a" : "#79b46a").multiplyScalar(0.8 + hash(x, y, 500 + i) * 0.5);
         batch.blade(bx, h, bz, r * 6.28, 0.05 + r * 0.03, height, Math.cos(lean) * reach, Math.sin(lean) * reach, ROOT, TIP);
     }
+}
+
+/*
+ * Some chunks put a building on their highest summit: a tower, a chapel, a
+ * stepped spire. Only where a full 3x3 of unmined rock stands, so nobody
+ * can walk into it, and it comes down as soon as any of that rock is mined.
+ */
+function findPeak(cx, cy, cleared, heightOf) {
+    if (hash(cx, cy, 78) > 0.6) return null;
+    let best = null;
+    for (let y = cy * CHUNK + 1; y < (cy + 1) * CHUNK - 1; y += 1) {
+        for (let x = cx * CHUNK + 1; x < (cx + 1) * CHUNK - 1; x += 1) {
+            const e = elevationAt(x, y);
+            if (e < 0.76 || (best && e <= best.e)) continue;
+            let ok = true;
+            let low = Infinity;
+            let high = -Infinity;
+            for (let dy = -1; dy <= 1 && ok; dy += 1) {
+                for (let dx = -1; dx <= 1; dx += 1) {
+                    if (tileAt(x + dx, y + dy) !== ROCK || cleared.has(`${x + dx},${y + dy}`)) {
+                        ok = false;
+                        break;
+                    }
+                    const h = heightOf(x + dx, y + dy);
+                    low = Math.min(low, h);
+                    high = Math.max(high, h);
+                }
+            }
+            if (ok) best = { x, y, e, low, high };
+        }
+    }
+    return best;
 }
 
 /*
@@ -292,6 +306,7 @@ export function buildChunk(cx, cy, cleared) {
         if (!heights.has(k)) heights.set(k, groundHeight(x, y));
         return heights.get(k);
     };
+    const peak = findPeak(cx, cy, cleared, heightOf);
 
     for (let y = y0; y < y0 + CHUNK; y += 1) {
         for (let x = x0; x < x0 + CHUNK; x += 1) {
@@ -323,16 +338,26 @@ export function buildChunk(cx, cy, cleared) {
             else if (tile === TREE) addBlades(batch, x, y, h, 6, 0.8);
             else if (tile === SAND) addBlades(batch, x, y, h, 1, 0.6);
             if (tile === TREE) addTree(batch, x, y, h);
-            else if (tile === ROCK) addRock(batch, x, y, h, resource);
-            else if (tile === GRASS) addPlant(batch, x, y, h, resource);
+            else if (tile === ROCK) {
+                addRock(batch, x, y, h, resource);
+                /* On the mountains, rock stands up in crags. */
+                const e = elevationAt(x, y);
+                const near = peak && Math.abs(x - peak.x) <= 2 && Math.abs(y - peak.y) <= 2;
+                if (e > 0.74 && !near && (resource === "stone" || resource === "coal") && hash(x, y, 75) < 0.45) addCrag(batch, x, y, h, 1.4 + (e - 0.74) * 16 + hash(x, y, 73) * 1.6);
+            } else if (tile === GRASS) addPlant(batch, x, y, h, resource);
         }
+    }
+
+    if (peak) {
+        /* A plinth levels the summit, then the building goes on top. */
+        batch.shape("rock", P.cube(), place(peak.x, (peak.low + peak.high) / 2 + 0.1, peak.y, 2.8, peak.high - peak.low + 0.2, 2.8), tint("#8a8178", 0.95));
+        peakBuilding(batch, peak.x, peak.y, peak.high + 0.2, hash(cx, cy, 79));
     }
 
     const group = new THREE.Group();
     batch.meshes().forEach((m) => group.add(m));
     return group;
 }
-
 /*
  * The sea is one sheet that follows the camera, rippled every frame. Land
  * sits above it everywhere except where the generator put water.

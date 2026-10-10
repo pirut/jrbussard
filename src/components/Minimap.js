@@ -21,6 +21,7 @@ const PRIORITY = [
     { kind: KIND.FLOOR, ch: "·" },
     { kind: KIND.WATER, ch: "≈" },
     { kind: KIND.MOUNTAIN, ch: "▲" },
+    { kind: KIND.BLOCK, ch: "▓" },
     { kind: KIND.TREE, ch: "♠" },
     { kind: KIND.GRASS, ch: "," },
 ];

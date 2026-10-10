@@ -652,11 +652,16 @@ function flame(scale = 1) {
  * campfires whether they are lit.
  */
 const STRUCTURE_BUILDERS = {
+    /* Half-timbered, as in an old Slavic town: a stone footing, white
+       plaster between dark posts and braces, and a little tiled ridge. */
     wall: () => {
         const g = new THREE.Group();
-        g.add(box(1, 0.22, 1, STONE, "rock", 0, 0.11, 0));
-        g.add(box(0.96, 1.0, 0.96, TIMBER, "timber", 0, 0.72, 0));
-        g.add(box(1.0, 0.08, 1.0, TIMBER_DARK, "timber", 0, 1.26, 0));
+        g.add(box(1, 0.3, 1, STONE, "rock", 0, 0.15, 0));
+        g.add(box(0.9, 1.6, 0.9, "#e4dfd2", "solid", 0, 1.1, 0));
+        [-0.44, 0.44].forEach((x) => [-0.44, 0.44].forEach((z) => g.add(box(0.12, 1.6, 0.12, TIMBER_DARK, "timber", x, 1.1, z))));
+        g.add(box(1.0, 0.12, 1.0, TIMBER_DARK, "timber", 0, 1.1, 0));
+        g.add(box(1.0, 0.12, 1.0, TIMBER_DARK, "timber", 0, 1.9, 0));
+        g.add(part(geo("wallRidge", () => new THREE.ConeGeometry(0.72, 0.55, 4).rotateY(Math.PI / 4)), material("#9c4b3c", "rock"), 0, 2.23, 0));
         return g;
     },
     floor: (cell, ctx) => {
@@ -672,13 +677,15 @@ const STRUCTURE_BUILDERS = {
     },
     door: (cell) => {
         const g = new THREE.Group();
-        g.add(box(0.14, 1.3, 0.3, TIMBER_DARK, "timber", -0.43, 0.65, 0));
-        g.add(box(0.14, 1.3, 0.3, TIMBER_DARK, "timber", 0.43, 0.65, 0));
-        g.add(box(1.0, 0.14, 0.3, TIMBER_DARK, "timber", 0, 1.3, 0));
+        /* Tall timber posts and a gate under a little tent roof. */
+        g.add(box(0.16, 2.0, 0.4, TIMBER_DARK, "timber", -0.42, 1.0, 0));
+        g.add(box(0.16, 2.0, 0.4, TIMBER_DARK, "timber", 0.42, 1.0, 0));
+        g.add(box(1.0, 0.24, 0.42, TIMBER_DARK, "timber", 0, 2.0, 0));
+        g.add(part(geo("gateRoof", () => new THREE.ConeGeometry(0.62, 0.7, 4).rotateY(Math.PI / 4)), material("#9c4b3c", "rock"), 0, 2.47, 0));
         const hinge = new THREE.Group();
-        hinge.position.set(-0.36, 0, 0);
-        hinge.add(box(0.72, 1.16, 0.08, "#dec091", "timber", 0.36, 0.6, 0));
-        hinge.add(box(0.06, 0.06, 0.06, "#3a3a3a", "solid", 0.62, 0.6, 0.06));
+        hinge.position.set(-0.34, 0, 0);
+        hinge.add(box(0.68, 1.72, 0.08, "#dec091", "timber", 0.34, 0.88, 0));
+        hinge.add(box(0.06, 0.06, 0.06, "#3a3a3a", "solid", 0.6, 0.9, 0.06));
         g.add(hinge);
         g.userData.hinge = hinge;
         g.userData.open = cell.open ? 1 : 0;

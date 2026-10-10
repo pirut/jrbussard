@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CHUNK, WATER, tileAt } from "../../lib/terrain";
+import { CHUNK, WATER, TREE, ROCK, tileAt } from "../../lib/terrain";
 import { AsciiPass, glyphCode } from "./asciiPass";
 import { buildChunk, createWater, rippleWater, groundHeight, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
 import {
@@ -30,14 +30,15 @@ import { disposeMaterials } from "./materials";
  */
 
 /*
- * Camera distance and pitch at each zoom step. Close in, the camera drops
- * low behind you like a third-person game and the horizon comes into view;
- * pulled out, it rises toward a map.
+ * Camera distance and pitch at each zoom step. The camera rides over your
+ * right shoulder like a third-person game, low enough that the horizon and
+ * everything tall stays in view; pulling out lifts it a little, never to a
+ * map. Drag to look round; the keys walk relative to where it looks.
  */
-export const ZOOMS = [5, 7.5, 11, 16];
-const PITCHES = [0.32, 0.46, 0.68, 0.92];
-const NEAREST = 3.6;
-const FARTHEST = 19;
+export const ZOOMS = [3.4, 5, 7.5, 12];
+const PITCHES = [0.1, 0.16, 0.26, 0.4];
+const NEAREST = 2.6;
+const FARTHEST = 16;
 
 /* Pitch for any camera distance, between the zoom steps. */
 function pitchFor(distance) {
@@ -50,11 +51,11 @@ function pitchFor(distance) {
     }
     return PITCHES[PITCHES.length - 1] + (distance - ZOOMS[ZOOMS.length - 1]) * 0.015;
 }
-const FOV = 38;
+const FOV = 52;
 const MAX_LIGHTS = 6;
 
 /* Sky, sun and fill for each part of the day. Colours are sRGB hex. */
-const PHASES = {
+export const PHASES = {
     dawn: { sun: 1.3, sunColor: "#ffc796", hemi: 0.6, sky: "#a9b0d8", ground: "#3a3a36", bg: "#0d1020", angle: 0.5 },
     day: { sun: 1.7, sunColor: "#f6efe0", hemi: 0.8, sky: "#b9cdf0", ground: "#34443a", bg: "#0c1322", angle: 1.0 },
     dusk: { sun: 1.0, sunColor: "#ff9d6a", hemi: 0.5, sky: "#a68cb0", ground: "#3a3030", bg: "#110d1c", angle: 0.4 },
@@ -125,7 +126,7 @@ export default class AsciiWorld {
 
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x0b120d, 20, 40);
-        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.5, 120);
+        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.5, 170);
 
         this.hemi = new THREE.HemisphereLight(0xd3e6ff, 0x4a5a3a, 1);
         this.scene.add(this.hemi);
@@ -920,13 +921,16 @@ export default class AsciiWorld {
         this.hemi.intensity = p.hemi + flash;
         this.hemi.color.copy(p.sky);
         this.hemi.groundColor.copy(p.ground);
-        const fogFar = this.weather === "fog" ? this.distance * 1.6 + 8 : this.distance * 2.2 + 22;
+        const fogFar = this.weather === "fog" ? this.distance * 1.6 + 8 : this.distance * 2.4 + 28;
         this.scene.fog.color.copy(p.bg);
         this.scene.fog.near = this.distance * (this.weather === "fog" ? 0.4 : 0.9);
         this.scene.fog.far = fogFar;
         this.renderer.setClearColor(this.scene.fog.color, glyphCode(0));
         /* Colours live in linear space; the ASCII pass writes sRGB. */
         this.ascii.uniforms.uBackground.value.copy(p.bg).convertLinearToSRGB();
+        /* A wash of each cell's colour behind its character, so shapes read
+           as masses at a glance; more at night, when the type is thinner. */
+        this.ascii.uniforms.uFill.value = this.phaseName === "night" ? 0.3 : 0.22;
         this.ascii.uniforms.uNear.value = this.camera.near;
         this.ascii.uniforms.uFar.value = this.camera.far;
 
@@ -984,26 +988,57 @@ export default class AsciiWorld {
         this.yaw = this.orbit ? goalYaw : this.yaw + (goalYaw - this.yaw) * Math.min(1, dt * 12);
         const ease = Math.min(1, dt * 8);
         this.distance += (this.distanceGoal - this.distance) * ease;
-        this.pitch = pitchFor(this.distance) + this.pitchBias;
+        this.pitch = Math.max(0.04, pitchFor(this.distance) + this.pitchBias);
 
-        /* Camera sits behind screen-down, looking toward screen-up. Close in
-           it aims above your head, so you stand in the lower third. */
-        const back = this.distance * Math.cos(this.pitch);
-        const up = this.distance * Math.sin(this.pitch);
-        const lift = 0.6 + (1 - this.pitch) * 1.2;
+        /* Over the shoulder: behind you and a little to the right, aimed at
+           a point ahead of you at head height. */
         const sx = -Math.sin(this.yaw);
         const sz = Math.cos(this.yaw);
-        this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + lift, this.focus.z + sz * back);
+        const head = this.focus.y + 1.6;
+        const shoulder = 0.6 * Math.min(1, this.distance / 5);
+        /* Pull in rather than end up inside a tree or a hillside. */
+        const reach = this.cameraReach(sx, sz, head, shoulder);
+        this.reach = this.reach === undefined ? reach : reach < this.reach ? reach : this.reach + (reach - this.reach) * Math.min(1, dt * 3);
+        const d = this.distance * this.reach;
+        const back = d * Math.cos(this.pitch);
+        const up = d * Math.sin(this.pitch);
+        const lift = head - this.focus.y;
+        const rx = sz;
+        const rz = -sx;
+        this.camera.position.set(this.focus.x + sx * back + rx * shoulder, head + up, this.focus.z + sz * back + rz * shoulder);
         if (this.shake > 0 && !this.reducedMotion) {
             this.shake = Math.max(0, this.shake - dt);
             const k = this.shake * 0.35;
             this.camera.position.x += (Math.random() - 0.5) * k;
             this.camera.position.y += (Math.random() - 0.5) * k;
         }
-        this.camera.lookAt(this.focus.x, this.focus.y + lift, this.focus.z);
+        const ahead = 2.5 + this.distance * 0.2;
+        this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, this.focus.y + lift - 0.1, this.focus.z - sz * ahead + rz * shoulder * 0.4);
 
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
+    }
+
+    /*
+     * How much of the way back the camera can go before something stands in
+     * the way: walk the line from your head toward the camera tile by tile,
+     * and stop short of the first tree, rock or rise that is taller than it.
+     */
+    cameraReach(sx, sz, head, shoulder) {
+        const rise = Math.sin(this.pitch);
+        for (let k = 1; k <= 10; k += 1) {
+            const f = k / 10;
+            const dist = this.distance * f;
+            const x = Math.round(this.focus.x + sx * dist * Math.cos(this.pitch) + sz * shoulder * f);
+            const z = Math.round(this.focus.z + sz * dist * Math.cos(this.pitch) - sx * shoulder * f);
+            const tile = tileAt(x, z);
+            let top = Math.max(WATER_LEVEL, groundHeight(x, z)) + 0.4;
+            if (tile === TREE) top += 3.6;
+            else if (tile === ROCK) top += 1.6;
+            if (this.structures?.get?.(`${x},${z}`)?.kind === "wall") top += 2.2;
+            if (top > head + dist * rise) return Math.max(0.35, f - 0.12);
+        }
+        return 1;
     }
 
     updateCursor() {

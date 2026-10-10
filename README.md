@@ -1,7 +1,8 @@
 # jrbussard.com
 
-A personal site you walk around in. The whole thing is a character grid: you
-control an `@`, explore an overworld, and stand next to things to open them.
+A personal site you get dropped into: a city modelled in 3D and drawn entirely
+in characters, with the same renderer as the Commons (see below). You walk JR
+through its streets and stand next to things to open them.
 
 ```
         THE OBSERVATORY        live GitHub repos
@@ -13,17 +14,48 @@ control an `@`, explore an overworld, and stand next to things to open them.
          THE BEACON                          contact
 ```
 
-The entrance includes a clickable atlas drawn from the actual world geometry.
-Enter to walk, choose a room on the atlas, or open the index to browse directly.
+The front door is a slow flyover of the city with the ways in laid over it:
+enter and walk, jump straight to a room, or open the index to browse directly.
 
-Move with `WASD`/arrows, act with `E`, open the world map with `M`, close
-anything with `ESC`. Touch devices get a thumb pad. The room strip and map
-buttons take you beside that room's content on reachable ground. Returning
+Move with `WASD`/arrows, act with `E`, travel between rooms with `1`–`6` (the
+hotbar along the bottom), zoom with the wheel or `+`/`-`, open the world map
+with `M`, close anything with `ESC`. Touch devices get a thumb pad. Returning
 from a game brings you back to the Arcade.
+
+The world is still a tile grid ([`src/world/`](src/world/)): rooms, roads,
+lakes, the props worth touching, and between them a warren of tenement blocks
+cut by two-tile alleys, packed the way the Kowloon Walled City was. Walking,
+collisions and what each prop opens are all decided there. [`src/site3d/SiteScene.js`](src/site3d/SiteScene.js)
+only draws it, through the Commons' ASCII pass, with the camera riding
+behind and above JR (drag or `[` `]` to turn; it swings round to follow you
+into a side lane). The look is a Moscow that kept its churches: each room is a Kremlin-walled
+compound ([`compound.js`](src/site3d/compound.js)) with a landmark across the
+street behind it — a five-domed church behind the library, a stepped Seven
+Sisters tower behind the atrium, chimneys behind the foundry, a St Basil's
+behind the arcade — and the blocks ([`warren.js`](src/site3d/warren.js)) are
+stacks of mismatched storeys with a cornice between each, strung across with
+washing, cables, signs and covered bridges, topped with pinnacles, domes and
+spires that do not quite stand straight. A few lots hold something odder: a
+chapel on a tower's roof, a stack that drifts sideways as it climbs. Lanterns
+light the alleys, streetlamps the roads, and people walk all of it
+([`citizens.js`](src/site3d/citizens.js)). The buildings come from one kit
+shared with the Commons ([`architecture.js`](src/arcade/ascii3d/architecture.js)).
+Inside, a book on the shelf for every note, a turning star for every
+repository, lit cabinets, a lighthouse at the end of the pier, and the text
+painted on each room's floor floats over it in the page's own type. Props
+light up when there is something behind them and go cold when there is not.
+The sky follows the visitor's clock (`?phase=night`, `dusk`, `dawn` or `day`
+pins it).
+
+Three.js is loaded after first paint. If it will not load or WebGL will not
+start, the original character renderer ([`src/world/render.js`](src/world/render.js))
+draws the same world instead. The arcade cabinets and the page for a wrong
+turn get small 3D scenes of their own behind them ([`src/site3d/Diorama.js`](src/site3d/Diorama.js)),
+which are decoration only and simply absent without WebGL.
 
 The index lists every note, project, game, repository, and contact link. Reading
 panels keep keyboard focus inside while open and return it when closed.
-Reduced-motion preferences stop the world's decorative shimmer. The page also
+Reduced-motion preferences stop the world's drift and shimmer. The page also
 carries a screen-reader-only copy of the same content.
 
 ## The Arcade
@@ -83,8 +115,10 @@ steering pad and pedals.
 
 The world is a Three.js scene drawn entirely in characters
 ([`src/arcade/ascii3d/`](src/arcade/ascii3d/)). Terrain is terraced from the
-same elevation noise the tile kinds are cut from; trees, rocks, buildings,
-survivors and creatures are low-poly models built in code, and people and
+same elevation noise the tile kinds are cut from, gentle in the lowlands and
+steep toward the peaks, where crags stand up out of the rock and some summits
+carry a watchtower, a chapel or a stepped spire. The camera stays low so all
+of that stands up. Trees, rocks, buildings, survivors and creatures are low-poly models built in code, and people and
 animals are jointed rigs that walk between the tiles the server reports.
 
 It plays full-window, like a game: the world fills the screen and a small HUD
