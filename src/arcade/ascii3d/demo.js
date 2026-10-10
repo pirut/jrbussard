@@ -1,5 +1,5 @@
-import { isSolid, tileAt, WATER, inSafeZone } from "../../lib/terrain";
-import { STRUCTURES } from "../../lib/survival";
+import { isSolid, tileAt, WATER, TREE, ROCK, inSafeZone, withinReach } from "../../lib/terrain";
+import { STRUCTURES, resourceAt, ITEMS } from "../../lib/survival";
 
 /*
  * A pretend server, for when there is no real one.
@@ -20,7 +20,19 @@ const LOOKS = [
 ];
 const NAMES = ["salt_gull", "pale_ember", "low_kettle", "grey_wire"];
 const LINES = ["anyone seen iron?", "fire's lit at camp", "watch the wolves past the ridge", "/me waves", "bridge is done"];
-const PHASES = ["dusk", "night", "dawn", "day", "day"];
+/* A shortened day, so a visit sees it turn: seconds per phase. */
+const DAY = [
+    ["day", 150],
+    ["dusk", 40],
+    ["night", 100],
+    ["dawn", 35],
+];
+const DAY_LENGTH = DAY.reduce((sum, [, s]) => sum + s, 0);
+const PHASES = DAY.map(([name]) => name);
+/* Mostly fair, sometimes not, as on the server. */
+const WEATHERS = ["clear", "clear", "clear", "clear", "rain", "fog", "storm"];
+const MONSTER_HP = { rat: 8, wolf: 18, kobold: 14, troll: 40 };
+const MONSTER_XP = { rat: 4, wolf: 10, kobold: 8, troll: 30 };
 
 function rng(seed) {
     let s = seed >>> 0;
@@ -62,7 +74,7 @@ function nearestWater(fromX, fromY) {
     return null;
 }
 
-export function createDemo({ phase: fixedPhase } = {}) {
+export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
     const random = rng(7);
     const camp = findCamp();
     const cells = [];
@@ -100,7 +112,7 @@ export function createDemo({ phase: fixedPhase } = {}) {
 
     const players = [
         /* Start a few steps back, so the first view takes in the camp. */
-        { id: "you", name: "you", ...(isSolid(hx + 3, hy + 9) ? openNear(hx + 3, hy + 9) : { x: hx + 3, y: hy + 9 }), self: true, look: LOOKS[4], tools: { weapon: 1 } },
+        { id: "you", name: "wanderer", ...(isSolid(hx + 3, hy + 9) ? openNear(hx + 3, hy + 9) : { x: hx + 3, y: hy + 9 }), self: true, look: LOOKS[4], tools: { weapon: 1 } },
         ...NAMES.map((name, i) => ({
             id: name,
             name,
@@ -110,14 +122,36 @@ export function createDemo({ phase: fixedPhase } = {}) {
             look: LOOKS[i],
             tools: { weapon: i % 3 === 0 ? 2 : 0, armor: i === 1 ? 1 : i === 3 ? 2 : 0 },
         })),
-    ].map((p) => ({ ...p, level: 1 + Math.floor(random() * 6), hp: 30, saidText: "", saidUntil: 0 }));
+    ].map((p) => ({ ...p, level: p.self ? 1 : 1 + Math.floor(random() * 6), hp: 30, maxHp: 30, saidText: "", saidUntil: 0 }));
+    const you = players[0];
 
     const monsters = [
         { kind: "wolf", x: camp.x + 12, y: camp.y - 3 },
         { kind: "rat", x: camp.x - 6, y: camp.y + 9 },
         { kind: "kobold", x: camp.x + 9, y: camp.y + 11 },
         { kind: "troll", x: camp.x - 9, y: camp.y - 6 },
-    ].map((m) => ({ ...m, ...(isSolid(m.x, m.y) ? openNear(m.x, m.y) : {}), hp: 10, maxHp: 10 }));
+        { kind: "wolf", x: camp.x - 4, y: camp.y + 16 },
+        { kind: "rat", x: camp.x + 14, y: camp.y + 6 },
+    ].map((m) => ({ ...m, ...(isSolid(m.x, m.y) ? openNear(m.x, m.y) : {}), hp: MONSTER_HP[m.kind], maxHp: MONSTER_HP[m.kind] }));
+    const returning = [];
+    const chat = [{ name: "", text: "You wake at the edge of a camp. Nothing here is saved.", kind: "system" }];
+    const me = {
+        level: 1,
+        xp: 0,
+        gold: 0,
+        potions: 2,
+        kills: 0,
+        wood: 4,
+        stone: 2,
+        placed: 0,
+        inventory: {},
+        hunger: 100,
+        warmth: 100,
+        gathered: 0,
+        milestones: [],
+        home: null,
+    };
+    const xpNeeded = (level) => 20 + level * 15;
 
     const solidAt = (x, y) => {
         const c = cells.find((cell) => cell.x === x && cell.y === y);
@@ -145,6 +179,7 @@ export function createDemo({ phase: fixedPhase } = {}) {
         if (now - last < 450) return false;
         last = now;
         clock += 1;
+        if (now > you.saidUntil) you.saidText = "";
         players.forEach((p) => {
             if (p.self) return;
             if (random() < 0.45) {
@@ -156,16 +191,11 @@ export function createDemo({ phase: fixedPhase } = {}) {
             if (random() < 0.01 && now > p.saidUntil) {
                 p.saidText = LINES[Math.floor(random() * LINES.length)];
                 p.saidUntil = now + 4000;
+                say(p.name, p.saidText);
             }
             if (now > p.saidUntil) p.saidText = "";
         });
         monsters.forEach((m) => {
-            if (m.hp <= 0) {
-                /* Lie there a moment, then turn up somewhere else. */
-                m.deadFor = (m.deadFor || 0) + 1;
-                if (m.deadFor > 5) Object.assign(m, respawn(m), { hp: m.maxHp, deadFor: 0 });
-                return;
-            }
             const prey = nearest(players, m, 7);
             if (prey && m.kind !== "rat" && random() < 0.5) {
                 const dx = Math.sign(prey.x - m.x);
@@ -178,18 +208,47 @@ export function createDemo({ phase: fixedPhase } = {}) {
             }
         });
         /* Scuffles: anyone next to a monster trades blows with it. */
-        monsters.forEach((m) => {
-            if (m.hp <= 0) return;
+        monsters.slice().forEach((m) => {
             players.forEach((p) => {
+                if (m.hp <= 0 || p.hp <= 0) return;
                 if (Math.abs(p.x - m.x) + Math.abs(p.y - m.y) !== 1) return;
-                if (!p.self && random() < 0.35) m.hp = Math.max(0, m.hp - 2 - Math.floor(random() * 3));
-                if (random() < 0.3) p.hp = Math.max(12, p.hp - 3);
+                if (!p.self && random() < 0.35) wound(m, 2 + Math.floor(random() * 3), null);
+                if (random() < 0.3) {
+                    const bite = m.kind === "troll" ? 6 : m.kind === "rat" ? 2 : 3;
+                    p.hp = p.self ? Math.max(0, p.hp - bite) : Math.max(12, p.hp - bite);
+                }
             });
         });
         players.forEach((p) => {
-            if (p.hp < 30 && random() < 0.3) p.hp += 1;
+            if (p.hp > 0 && p.hp < p.maxHp && random() < (p.self ? 0.12 : 0.3)) p.hp += 1;
         });
+        /* The fallen come back, somewhere else, after a while. */
+        while (returning.length && returning[0].at <= clock) {
+            const { kind } = returning.shift();
+            const spot = respawn({ x: you.x, y: you.y });
+            monsters.push({ kind, ...spot, hp: MONSTER_HP[kind], maxHp: MONSTER_HP[kind] });
+        }
         return true;
+    }
+
+    function wound(m, amount, by) {
+        m.hp = Math.max(0, m.hp - amount);
+        if (m.hp > 0) return;
+        monsters.splice(monsters.indexOf(m), 1);
+        returning.push({ kind: m.kind, at: clock + 25 });
+        if (by === you) {
+            me.kills += 1;
+            me.xp += MONSTER_XP[m.kind];
+            me.gold += 2 + Math.floor(random() * 6);
+            if (m.kind === "wolf" || m.kind === "rat") me.inventory.meat = (me.inventory.meat || 0) + 1;
+            while (me.xp >= xpNeeded(me.level)) {
+                me.xp -= xpNeeded(me.level);
+                me.level += 1;
+                you.maxHp += 8;
+                you.hp = you.maxHp;
+                you.level = me.level;
+            }
+        }
     }
 
     function nearest(list, from, reach) {
@@ -214,17 +273,51 @@ export function createDemo({ phase: fixedPhase } = {}) {
         return { x: m.x, y: m.y };
     }
 
-    const started = Date.now();
+    /* Start late in the afternoon, so dusk comes on during a first visit. */
+    const started = Date.now() - 100 * 1000;
+    function phaseAt(now) {
+        if (PHASES.includes(fixedPhase)) return fixedPhase;
+        let t = (((now - started) / 1000) % DAY_LENGTH + DAY_LENGTH) % DAY_LENGTH;
+        for (const [name, length] of DAY) {
+            if (t < length) return name;
+            t -= length;
+        }
+        return "day";
+    }
+    let weather = WEATHERS.includes(fixedWeather) ? fixedWeather : "clear";
+    let weatherUntil = Date.now() + 70000;
+    function weatherAt(now) {
+        if (WEATHERS.includes(fixedWeather)) return fixedWeather;
+        if (now > weatherUntil) {
+            weather = WEATHERS[Math.floor(random() * WEATHERS.length)];
+            weatherUntil = now + 60000 + random() * 90000;
+        }
+        return weather;
+    }
+
     function snapshot(now = Date.now()) {
-        const phase = PHASES.includes(fixedPhase) ? fixedPhase : PHASES[Math.floor((now - started) / 24000) % PHASES.length];
         return {
             now,
-            phase,
-            weather: phase === "night" ? "storm" : clock % 400 > 300 ? "rain" : "clear",
+            phase: phaseAt(now),
+            weather: weatherAt(now),
             region: "the crossroads",
-            view: { x: players[0].x - 30, y: players[0].y - 14, w: 61, h: 29 },
+            view: { x: you.x - 30, y: you.y - 14, w: 61, h: 29 },
             online: players.length,
-            me: null,
+            me: {
+                session: "offline",
+                name: you.name,
+                x: you.x,
+                y: you.y,
+                hp: you.hp,
+                maxHp: you.maxHp,
+                xpNeeded: xpNeeded(me.level),
+                appearance: you.look,
+                tools: you.tools,
+                stations: [],
+                far: 0,
+                ...me,
+                inventory: { ...me.inventory },
+            },
             players: players.map((p) => ({
                 id: p.id,
                 name: p.name,
@@ -239,28 +332,132 @@ export function createDemo({ phase: fixedPhase } = {}) {
             })),
             monsters: monsters.map((m) => ({ ...m })),
             cells: cells.map((c) => ({ ...c })),
-            chat: [],
+            chat: chat.slice(-12).reverse(),
         };
     }
+
+    function say(name, text, kind = "chat") {
+        chat.push({ name, text, kind });
+        if (chat.length > 40) chat.shift();
+    }
+
+    /*
+     * The same calls the server takes, answered locally. Each returns the
+     * line the server would, or null.
+     */
+    const calls = {
+        move({ dx, dy }) {
+            if (you.hp <= 0 || Math.abs(dx) + Math.abs(dy) !== 1) return null;
+            const target = monsters.find((m) => m.x === you.x + dx && m.y === you.y + dy);
+            if (target) {
+                const swing = 3 + me.level * 2 + (you.tools.weapon || 0) * 4 + Math.floor(random() * 4);
+                const before = me.level;
+                wound(target, swing, you);
+                if (target.hp <= 0) return me.level > before ? `The ${target.kind} falls. You reach level ${me.level}.` : `The ${target.kind} falls.`;
+                return null;
+            }
+            tryStep(you, dx, dy);
+            return null;
+        },
+        harvest({ x, y }) {
+            if (!withinReach(you, x, y)) return "out of reach";
+            const item = resourceAt(x, y);
+            const tile = tileAt(x, y);
+            if (!item || item === "fish" || cells.some((c) => c.x === x && c.y === y)) return "nothing to gather there";
+            if (item === "wood") me.wood += 1;
+            else if (item === "stone") me.stone += 1;
+            else me.inventory[item] = (me.inventory[item] || 0) + 1;
+            me.gathered += 1;
+            /* Now and then the tree comes down or the rock gives out. */
+            if ((tile === TREE || tile === ROCK) && random() < 0.25) {
+                put(x, y, tile === TREE ? "stump" : "rubble", { ownerName: "" });
+                return `+1 ${ITEMS[item].name.toLowerCase()} · the ${tile === TREE ? "tree comes down" : "rock is spent"}`;
+            }
+            return `+1 ${ITEMS[item].name.toLowerCase()}`;
+        },
+        build({ x, y, kind, text }) {
+            if (!STRUCTURES[kind] || !withinReach(you, x, y)) return "out of reach";
+            const existing = cells.find((c) => c.x === x && c.y === y);
+            const cleared = existing && (existing.kind === "stump" || existing.kind === "rubble");
+            const overWater = tileAt(x, y) === WATER;
+            if ((existing && !cleared) || occupied(x, y)) return "something is already there";
+            if (isSolid(x, y) && !cleared && !(overWater && kind === "floor")) return "you cannot build there";
+            if (cleared) cells.splice(cells.indexOf(existing), 1);
+            put(x, y, kind, { ownerName: you.name, mine: true, text: text || "", fuelUntil: kind === "campfire" ? Infinity : 0 });
+            me.placed += 1;
+            if (kind === "campfire" && !me.milestones.includes("campfire")) me.milestones.push("campfire");
+            return `${STRUCTURES[kind].label.toLowerCase()} placed · free in the preview`;
+        },
+        demolish({ x, y }) {
+            const c = cells.find((cell) => cell.x === x && cell.y === y);
+            if (!c || !c.mine) return "not yours to remove";
+            cells.splice(cells.indexOf(c), 1);
+            return `${c.kind} removed`;
+        },
+        use({ x, y }) {
+            const c = cells.find((cell) => cell.x === x && cell.y === y);
+            if (!c) return null;
+            if (c.kind === "door") {
+                if (occupied(x, y)) return "someone is in the doorway";
+                c.open = !c.open;
+                return null;
+            }
+            if (c.kind === "sign") return c.text ? `the sign reads: "${c.text}"` : "a blank sign";
+            if (c.kind === "bedroll") {
+                me.home = { x, y };
+                return "camp set";
+            }
+            if (c.kind === "campfire") return "the fire crackles";
+            return null;
+        },
+        say({ text }) {
+            const line = String(text).slice(0, 160);
+            you.saidText = line;
+            you.saidUntil = Date.now() + 5000;
+            say(you.name, line);
+            return null;
+        },
+        drink() {
+            if (me.potions <= 0) return "no potions left";
+            me.potions -= 1;
+            you.hp = you.maxHp;
+            return "you feel restored";
+        },
+        eat({ item }) {
+            const have = me.inventory[item] || 0;
+            if (!have) return `no ${item === "meal" ? "meals" : item} to eat`;
+            me.inventory[item] = have - 1;
+            me.hunger = Math.min(100, me.hunger + (item === "meal" ? 45 : 12));
+            you.hp = Math.min(you.maxHp, you.hp + (item === "meal" ? 8 : 2));
+            return "that helps";
+        },
+        respawn() {
+            const home = me.home || { x: hx + 2, y: hy + 6 };
+            const spot = solidAt(home.x, home.y) || occupied(home.x, home.y) ? respawn(home) : home;
+            you.x = spot.x;
+            you.y = spot.y;
+            you.hp = you.maxHp;
+            me.gold = Math.floor(me.gold * 0.9);
+            return "you wake, sore but alive";
+        },
+        customize({ name, appearance }) {
+            if (name) you.name = String(name).slice(0, 16);
+            if (appearance) you.look = { ...you.look, ...appearance };
+            return null;
+        },
+        craft() {
+            return "crafting needs the shared world";
+        },
+        transfer() {
+            return "chests need the shared world";
+        },
+    };
 
     return {
         tick,
         snapshot,
-        step(dx, dy) {
-            return tryStep(players[0], dx, dy);
-        },
-        /* Hit whatever is next to you. */
-        strike() {
-            const me = players[0];
-            const m = monsters.find((c) => c.hp > 0 && Math.abs(c.x - me.x) + Math.abs(c.y - me.y) === 1);
-            if (!m) return false;
-            m.hp = Math.max(0, m.hp - 3);
-            return { dx: m.x - me.x, dy: m.y - me.y };
-        },
-        toggleDoorNear() {
-            const me = players[0];
-            const door = cells.find((c) => c.kind === "door" && Math.abs(c.x - me.x) + Math.abs(c.y - me.y) <= 2);
-            if (door) door.open = !door.open;
+        call(name, args = {}) {
+            return calls[name] ? calls[name](args) : null;
         },
     };
 }

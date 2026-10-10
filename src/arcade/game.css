@@ -1,0 +1,626 @@
+/*
+ * The Commons as a game: the world fills the window and everything else
+ * floats over it, out of the way of the middle of the screen.
+ */
+.commons-game {
+  --ink: #e8e6d3;
+  --dim: #a4ad97;
+  --gold: #d8b67c;
+  --edge: #46523f;
+  --edge-soft: #2e3b2d;
+  --panel: #0d150fe6;
+  --void: #070b09;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  background: var(--void);
+  color: var(--ink);
+  font:
+    13px/1.5 "Work Sans",
+    sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.commons-game button,
+.commons-game input {
+  font: inherit;
+  color: inherit;
+}
+.commons-game button {
+  cursor: pointer;
+}
+.commons-game button:focus-visible,
+.commons-game a:focus-visible,
+.commons-game summary:focus-visible,
+.commons-game input:focus-visible {
+  outline: 2px solid #e2c895;
+  outline-offset: 2px;
+}
+
+/* ── The world ─────────────────────────────────────────────────────── */
+
+.game-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  isolation: isolate;
+  touch-action: none;
+}
+.game-field,
+.game-field .ascii3d,
+.commons-game .ascii3d {
+  width: 100%;
+  height: 100%;
+}
+.commons-game .ascii3d {
+  background: var(--void);
+}
+.commons-game .ascii3d__canvas {
+  cursor: default;
+}
+.commons-game.is-building .ascii3d__canvas {
+  cursor: copy;
+}
+.commons-game.is-turning .ascii3d__canvas,
+.commons-game.is-turning {
+  cursor: grabbing;
+}
+
+/* A soft vignette so the HUD corners sit on darker ground. */
+.game-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 46%, transparent 55%, #0007 100%);
+}
+
+.game-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  margin: 0;
+  text-align: center;
+  font: 12px/1.6 var(--font-mono, monospace);
+  color: var(--dim);
+}
+.game-loading span {
+  font-size: 22px;
+  letter-spacing: 0.3em;
+  color: var(--gold);
+}
+
+/* ── HUD frame ─────────────────────────────────────────────────────── */
+
+.game-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  text-shadow: 0 1px 2px #000;
+}
+.game-hud > * {
+  pointer-events: auto;
+}
+.game-hud > .hud-notice,
+.game-hud > .hud-quest,
+.game-hud > .hud-chat {
+  pointer-events: none;
+}
+.game-hud > .hud-chat form {
+  pointer-events: auto;
+}
+.hud-vitals,
+.hud-world,
+.hud-quest,
+.hud-chat,
+.hud-bottom > * {
+  background: #070c09b8;
+  border: 1px solid #ffffff14;
+  backdrop-filter: blur(3px);
+}
+
+.hud-back {
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 11px;
+}
+.hud-back:hover {
+  color: var(--gold);
+}
+
+/* ── You, top left ─────────────────────────────────────────────────── */
+
+.hud-vitals {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 8px 12px 10px;
+  display: grid;
+  gap: 2px;
+  min-width: 250px;
+}
+.hud-name {
+  background: none;
+  border: 0;
+  padding: 2px 0 4px;
+  text-align: left;
+}
+.hud-name b {
+  color: #f1e3b4;
+  font-size: 14px;
+}
+.hud-name span {
+  color: var(--dim);
+}
+.hud-name:hover b {
+  text-decoration: underline;
+}
+.hud-meter {
+  display: grid;
+  grid-template-columns: 2.4ch auto 1fr;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+}
+.hud-meter > span {
+  color: var(--dim);
+  font-size: 10px;
+}
+.hud-meter em {
+  font-style: normal;
+  color: var(--dim);
+  font-size: 11px;
+}
+.game-bar {
+  color: #ffffff1f;
+  letter-spacing: -0.04em;
+  font-size: 12px;
+}
+.hud-meter--hp .game-bar i {
+  color: #e4675b;
+}
+.hud-meter--food .game-bar i {
+  color: #d9a85e;
+}
+.hud-meter--warm .game-bar i {
+  color: #e9cf7c;
+}
+.hud-meter--xp .game-bar i {
+  color: #8ac7d9;
+}
+.game-bar i {
+  font-style: normal;
+}
+
+/* ── The world, top right ──────────────────────────────────────────── */
+
+.hud-world {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 16px;
+  min-width: 230px;
+}
+.hud-sky b {
+  color: #f1e3b4;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.hud-sky span,
+.hud-where span {
+  display: block;
+  color: var(--dim);
+  font-size: 11px;
+}
+.hud-where {
+  grid-column: 1;
+}
+.hud-buttons {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  display: flex;
+  gap: 6px;
+  align-items: start;
+}
+.hud-buttons button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #ffffff26;
+  background: #0006;
+  color: var(--ink);
+}
+.hud-buttons button:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.hud-world .survival-map {
+  grid-column: 1 / -1;
+  border-top: 1px solid #ffffff14;
+  padding-top: 6px;
+  margin-top: 4px;
+  font-size: 10px;
+}
+.hud-world .survival-map-grid {
+  margin: 8px 0 4px;
+}
+
+/* ── Goal, under the world panel ───────────────────────────────────── */
+
+.hud-quest {
+  position: absolute;
+  top: 132px;
+  right: 12px;
+  width: 260px;
+  padding: 8px 12px;
+  display: grid;
+  gap: 2px;
+}
+.hud-quest span {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  color: var(--gold);
+}
+.hud-quest b {
+  font-weight: normal;
+  color: var(--ink);
+}
+.hud-quest small {
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* ── Chat, bottom left ─────────────────────────────────────────────── */
+
+.hud-chat {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: min(420px, calc(100% - 24px));
+  padding: 8px 12px;
+  background: linear-gradient(#070c0900, #070c09b8 40%);
+  border-color: transparent;
+}
+.hud-chat ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.hud-chat li {
+  overflow-wrap: anywhere;
+}
+.hud-chat .chat-system,
+.hud-chat .chat-weather {
+  color: var(--dim);
+}
+.hud-chat .chat-kill {
+  color: #e5c67e;
+}
+.hud-chat .chat-death {
+  color: #e4675b;
+}
+.hud-chat form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  border-top: 1px solid #ffffff26;
+  padding-top: 6px;
+}
+.hud-chat form span {
+  color: var(--gold);
+}
+.hud-chat input {
+  flex: 1;
+  background: none;
+  border: 0;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.hud-chat-hint {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: #ffffff55;
+}
+
+/* ── Target and hotbar, bottom middle ──────────────────────────────── */
+
+.hud-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.hud-bottom > * {
+  pointer-events: auto;
+}
+.hud-target {
+  margin: 0;
+  padding: 4px 12px;
+  display: flex;
+  gap: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.hud-target.is-empty {
+  visibility: hidden;
+}
+.hud-target b {
+  color: #f1e3b4;
+  font-weight: normal;
+}
+.hud-target span {
+  color: var(--dim);
+}
+.hud-hotbar {
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+}
+.hud-hotbar > i {
+  width: 1px;
+  margin: 2px 4px;
+  background: #ffffff26;
+}
+.hud-hotbar button {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid #ffffff1f;
+  background: #0007;
+  display: grid;
+  place-items: center;
+  font: 18px/1 var(--font-mono, monospace);
+}
+.hud-hotbar button:hover {
+  border-color: #ffffff59;
+}
+.hud-hotbar button.is-on {
+  border-color: var(--gold);
+  box-shadow: inset 0 0 0 1px var(--gold);
+}
+.hud-hotbar kbd {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  font: 9px/1 var(--font-mono, monospace);
+  color: #ffffff73;
+}
+.hud-hotbar small {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: 9px;
+  color: var(--dim);
+}
+
+/* ── Notices, dialogs, death ───────────────────────────────────────── */
+
+.hud-notice {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translate(-50%, 6px);
+  margin: 0;
+  padding: 6px 14px;
+  background: #070c09cc;
+  border: 1px solid #ffffff1f;
+  color: #f1e3b4;
+  opacity: 0;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+  white-space: nowrap;
+}
+.hud-notice.is-on {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.hud-window {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100% - 24px));
+  max-height: calc(100% - 140px);
+  overflow: auto;
+  background: #0b130dee;
+  border: 1px solid #70815d;
+  box-shadow: 0 20px 80px #000a;
+  padding: 18px 22px;
+  font-family: "Work Sans", sans-serif;
+  text-shadow: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.hud-window .fieldcraft {
+  border: 0;
+  padding: 0;
+}
+.hud-window .fieldcraft-content {
+  max-height: calc(100vh - 300px);
+  min-height: 0;
+}
+.hud-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: 0;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--dim);
+}
+.hud-close:hover {
+  color: var(--ink);
+}
+.hud-help h2 {
+  margin: 0 0 14px;
+  font:
+    normal 26px/1.1 Georgia,
+    serif;
+}
+.hud-help dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 7px 18px;
+  margin: 0;
+}
+.hud-help dt {
+  font-family: var(--font-mono, monospace);
+  color: var(--gold);
+}
+.hud-help dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+.hud-dead {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  background: radial-gradient(#3a0d0dcc, #000d);
+  text-align: center;
+}
+.hud-dead p {
+  margin: 0;
+  font:
+    normal 40px/1.1 Georgia,
+    serif;
+  color: #f0b4a8;
+}
+.hud-dead small {
+  color: var(--dim);
+}
+.hud-dead button,
+.game-start {
+  margin-top: 8px;
+  padding: 10px 26px;
+  border: 1px solid var(--gold);
+  background: #0008;
+  color: var(--gold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-family: var(--font-mono, monospace);
+}
+.hud-dead button:hover,
+.game-start:hover {
+  background: var(--gold);
+  color: #111;
+}
+
+/* ── Title screen over the orbiting world ──────────────────────────── */
+
+.game-title {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: radial-gradient(ellipse at 50% 50%, #0008 0%, #000b 80%);
+}
+.game-title .hud-back {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+}
+.game-title h1 {
+  margin: 0;
+  font: 300 clamp(34px, 7vw, 76px) / 1 var(--font-mono, monospace);
+  letter-spacing: 0.32em;
+  margin-right: -0.32em;
+  color: #f4e7bd;
+  text-shadow: 0 0 30px #d8b67c55;
+}
+.game-title p {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--dim);
+  line-height: 1.6;
+}
+.game-start {
+  font-size: 15px;
+  padding: 12px 34px;
+  animation: game-pulse 2.4s ease-in-out infinite;
+}
+.game-title small {
+  color: #ffffff66;
+  font: 11px var(--font-mono, monospace);
+}
+@keyframes game-pulse {
+  50% {
+    box-shadow: 0 0 24px #d8b67c55;
+  }
+}
+
+/* Nametags are a little quieter over a full-screen world. */
+.commons-game .commons-nametag {
+  font-family: var(--font-mono, monospace);
+}
+
+@media (max-width: 760px) {
+  .hud-vitals {
+    min-width: 0;
+    padding: 6px 8px;
+  }
+  .hud-world {
+    min-width: 0;
+    padding: 6px 8px;
+  }
+  .hud-world .survival-map,
+  .hud-quest,
+  .hud-chat ol {
+    display: none;
+  }
+  .hud-target {
+    white-space: normal;
+    text-align: center;
+  }
+  .hud-hotbar {
+    max-width: calc(100vw - 24px);
+    overflow-x: auto;
+  }
+  .hud-hotbar button {
+    flex: none;
+  }
+}
+@media (max-height: 560px) {
+  .hud-quest {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-start {
+    animation: none;
+  }
+  .hud-notice {
+    transition: none;
+  }
+}

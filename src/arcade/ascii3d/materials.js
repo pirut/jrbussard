@@ -59,6 +59,8 @@ export function asFigure(mat) {
     if (!figures.has(mat.uuid)) {
         const made = mat.clone();
         made.opacity = glyphCode(GLYPH_SETS.figure);
+        /* Rounded figures shade smoothly, into ramps rather than facets. */
+        made.flatShading = false;
         figures.set(mat.uuid, made);
     }
     return figures.get(mat.uuid);

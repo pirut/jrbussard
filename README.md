@@ -87,22 +87,32 @@ same elevation noise the tile kinds are cut from; trees, rocks, buildings,
 survivors and creatures are low-poly models built in code, and people and
 animals are jointed rigs that walk between the tiles the server reports.
 
-Each frame renders into a small offscreen target (two texels per character
-cell), then a full-screen shader picks one character per cell: depth jumps
-become line characters oriented along the edge, brightness picks a glyph from
-a ramp, and every material writes a code into alpha choosing its own ramp, so
-water still draws in `~`, leaves in `&` and grass in `,`. People and creatures
-draw brighter and are ringed in empty cells so they read against anything
-behind them, and rain, stars and cloud are drawn straight onto the character
-grid. Rigs bend at the knee and elbow, wind up and strike when they attack,
-flash on a hit and topple when they fall. Press `V` to see the
-plain render behind the glyphs, `[` `]` to turn the camera, scroll or `+` `−`
-to zoom.
+It plays full-window, like a game: the world fills the screen and a small HUD
+(vitals, sky and weather, the next goal, chat, a hotbar) floats over the
+corners. `F` or the ⤢ button goes properly full screen.
+
+Each frame renders into an offscreen target four by six texels per character
+cell, then two shader passes turn it into type. The first decides each cell:
+where the cell holds an edge it compares six brightness readings against the
+measured shape of every printable character and takes the closest; flat
+stretches take a density from a ramp instead, and every material writes a code
+into alpha choosing its own family and ramp, so water draws in `~`, grass in
+`/|\` and timber in `=`. Depth jumps outline people, creatures and buildings
+with strokes running along the edge. Figures keep their real colours and draw
+in symbols rather than letters, so they stand out from a world written in type.
+The second pass stamps each character from an atlas. Rain, stars and cloud are
+drawn straight onto the character grid.
+
+People and creatures are rounded, jointed rigs with faces. They bend at the knee
+and elbow, wind up and strike, flash and spill damage numbers on a hit, show a
+`[####--]` health bar when hurt, and topple when they fall. Press `V` to see
+the plain render behind the glyphs.
 
 Builds without `REACT_APP_CONVEX_URL` show a local stand-in camp
-([`demo.js`](src/arcade/ascii3d/demo.js)) that you can walk around, instead of
-an empty cabinet. Nothing there is saved. Add `?phase=night` (or `dusk`,
-`dawn`, `day`) to pin the time of day there.
+([`demo.js`](src/arcade/ascii3d/demo.js)) that plays the same way: its own
+day/night cycle, random weather, creatures to fight that come back, NPCs who
+talk. Nothing there is saved. Add `?phase=night` (or `dusk`, `dawn`, `day`) or
+`?weather=storm` (or `clear`, `rain`, `fog`) to pin the sky.
 
 The only part of this site with a server. It runs on **Convex**, chosen because
 reactive queries push state to every connected client with no websocket
@@ -139,10 +149,15 @@ plumbing — a mutation lands and everyone re-renders.
 - **Chat.** Shared chat with speech bubbles and `/me`, `/who`, `/where`, `/home`,
   `/help`. Keyboard, pointer and mobile movement controls use the same mutations.
 
-Controls: **WASD/arrows** move and attack adjacent creatures; **G** gathers or
-uses a station; **B** places the selected blueprint; **X** removes your structures;
-**E** eats; **Q** drinks a potion; **C/I/J** open Craft/Pack/Journal. On touchscreens,
-tap a tile to aim, then use Gather or Place. Click a nametag to inspect equipment.
+Controls: **WASD/arrows** walk (hold to keep going). **Left click** walks
+there, or goes and does the obvious thing: attacks a creature, chops a tree,
+mines a rock, opens a door, gathers. Hold the button to keep swinging.
+**Right drag** turns the camera, the **wheel** zooms. **Space** acts on what is
+in front of you; **1–0** pick a blueprint and **B** toggles build mode (click to
+place, right click to stop); **X** removes your structures; **E** eats; **Q**
+drinks a potion; **Tab** or **C/I/J** open Craft/Pack/Journal; **Enter** talks;
+**F** full screen; **H** lists all of this. On touchscreens, tap to do the same
+as a click. Click a nametag to inspect equipment.
 
 `npm run test:commons` runs isolated backend tests with `convex-test` (pinned to
 0.0.54 for compatibility with Convex 1.42). After cloning, run `npx convex codegen

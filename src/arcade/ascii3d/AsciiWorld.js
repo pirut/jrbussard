@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CHUNK, WATER, tileAt } from "../../lib/terrain";
-import { buildAtlas, createAsciiMaterial, glyphCode } from "./asciiPass";
+import { AsciiPass, glyphCode } from "./asciiPass";
 import { buildChunk, createWater, rippleWater, groundHeight, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
 import {
     buildSurvivor,
@@ -36,8 +36,21 @@ import { disposeMaterials } from "./materials";
  */
 export const ZOOMS = [5, 7.5, 11, 16];
 const PITCHES = [0.32, 0.46, 0.68, 0.92];
+const NEAREST = 3.6;
+const FARTHEST = 19;
+
+/* Pitch for any camera distance, between the zoom steps. */
+function pitchFor(distance) {
+    if (distance <= ZOOMS[0]) return PITCHES[0] - (ZOOMS[0] - distance) * 0.04;
+    for (let i = 1; i < ZOOMS.length; i += 1) {
+        if (distance <= ZOOMS[i]) {
+            const k = (distance - ZOOMS[i - 1]) / (ZOOMS[i] - ZOOMS[i - 1]);
+            return PITCHES[i - 1] + (PITCHES[i] - PITCHES[i - 1]) * k;
+        }
+    }
+    return PITCHES[PITCHES.length - 1] + (distance - ZOOMS[ZOOMS.length - 1]) * 0.015;
+}
 const FOV = 38;
-const SAMPLES = 2;
 const MAX_LIGHTS = 6;
 
 /* Sky, sun and fill for each part of the day. Colours are sRGB hex. */
@@ -72,6 +85,12 @@ export default class AsciiWorld {
         this.yaw = 0;
         this.zoom = 1;
         this.distance = ZOOMS[1];
+        this.distanceGoal = ZOOMS[1];
+        this.yawGoal = 0;
+        this.pitchBias = 0;
+        this.shake = 0;
+        this.predicted = null;
+        this.floaters = [];
         this.orbit = false;
         this.labels = new Map();
         this.players = new Map();
@@ -99,6 +118,10 @@ export default class AsciiWorld {
         canvas.style.height = "100%";
         canvas.style.display = "block";
         container.appendChild(canvas);
+        /* Damage numbers and health bars ride on top, in the page's type. */
+        this.fxLayer = document.createElement("div");
+        this.fxLayer.className = "ascii3d__fx";
+        container.appendChild(this.fxLayer);
 
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x0b120d, 20, 40);
@@ -137,15 +160,12 @@ export default class AsciiWorld {
         this.splashes = this.createSplashes();
         this.scene.add(this.splashes);
         this.embers = this.createEmbers();
+        this.sparks = this.createSparks();
+        this.scene.add(this.sparks);
         this.scene.add(this.embers);
 
-        /* The ASCII pass: a full-screen triangle reading the offscreen render. */
-        this.postScene = new THREE.Scene();
-        this.postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
-        this.postScene.add(this.quad);
-        this.target = null;
-        this.atlas = null;
+        /* The ASCII pass reads the offscreen render and draws characters. */
+        this.ascii = new AsciiPass();
 
         this.resize = this.resize.bind(this);
         this.frame = this.frame.bind(this);
@@ -179,37 +199,13 @@ export default class AsciiWorld {
         };
         this.renderer.setSize(width, height, false);
 
-        if (!this.atlas || this.atlas.cellW !== cellW || this.atlas.cellH !== cellH) {
-            if (this.atlas) this.atlas.texture.dispose();
-            this.atlas = { ...buildAtlas(cellW, cellH), cellW, cellH };
-            if (this.quad.material) this.quad.material.dispose();
-            this.quad.material = createAsciiMaterial(this.atlas);
-        }
-
-        if (this.target) {
-            this.target.depthTexture.dispose();
-            this.target.dispose();
-        }
-        this.target = new THREE.WebGLRenderTarget(cols * SAMPLES, rows * SAMPLES, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            depthBuffer: true,
-        });
-        this.target.depthTexture = new THREE.DepthTexture(cols * SAMPLES, rows * SAMPLES);
-
-        const u = this.quad.material.uniforms;
-        u.tColor.value = this.target.texture;
-        u.tDepth.value = this.target.depthTexture;
-        u.uCells.value.set(cols, rows);
-        u.uCellPx.value.set(cellW, cellH);
-        u.uOffset.value.set(this.grid.offX, this.grid.offY);
+        this.ascii.setSize(this.grid);
         this.camera.aspect = (cols * cellW) / (rows * cellH);
         this.camera.updateProjectionMatrix();
     }
 
     setCellSize(w, h) {
         this.cellCss = { w, h };
-        this.atlas = null;
         this.resize();
     }
 
@@ -233,16 +229,68 @@ export default class AsciiWorld {
         this.aimOk = ok;
     }
 
+    /* Snap to a quarter turn, the nearest way round. */
     setTurn(turn) {
         this.turn = ((turn % 4) + 4) % 4;
+        const goal = (this.turn * Math.PI) / 2;
+        let d = goal - this.yawGoal;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        this.yawGoal += d;
     }
 
     setZoom(zoom) {
         this.zoom = Math.max(0, Math.min(ZOOMS.length - 1, zoom));
+        this.distanceGoal = ZOOMS[this.zoom];
+    }
+
+    /* Free camera, for dragging with the mouse and the wheel. */
+    rotate(dyaw, dpitch = 0) {
+        this.yawGoal += dyaw;
+        this.pitchBias = Math.max(-0.22, Math.min(0.5, this.pitchBias + dpitch));
+    }
+
+    zoomBy(factor) {
+        this.distanceGoal = Math.max(NEAREST, Math.min(FARTHEST, this.distanceGoal * factor));
+    }
+
+    /* Which quarter of the compass the camera looks toward, for turning
+       screen directions into steps on the map (see controls.js). */
+    heading() {
+        const q = Math.round(this.yawGoal / (Math.PI / 2));
+        return ((q % 4) + 4) % 4;
+    }
+
+    /* Move yourself at once, before the server confirms, so walking feels
+       like walking. If the server disagrees for long, its answer wins. */
+    predictSelf(x, y) {
+        const self = this.selfEntity();
+        if (!self) return;
+        this.moveEntity(self, x, y, 0.17);
+        this.predicted = { x, y, until: this.time + 0.9 };
+    }
+
+    selfEntity() {
+        return [...this.players.values()].find((p) => p.data?.self) || null;
+    }
+
+    /* Words that rise off someone and fade: damage, gains, a level. */
+    floatText(x, y, text, kind = "gain", lift = 1.9) {
+        if (!this.fxLayer) return;
+        const el = document.createElement("span");
+        el.className = `ascii3d__float ascii3d__float--${kind}`;
+        el.textContent = text;
+        this.fxLayer.appendChild(el);
+        const h = this.entityHeight(Math.round(x), Math.round(y));
+        this.floaters.push({ el, x: x + (Math.random() - 0.5) * 0.4, y: h + lift, z: y, born: this.time });
+    }
+
+    floatSelf(text, kind = "gain") {
+        const self = this.selfEntity();
+        if (self) this.floatText(self.pos.x, self.pos.z, text, kind, 2.3);
     }
 
     setRaw(raw) {
-        this.quad.material.uniforms.uRaw.value = raw ? 1 : 0;
+        this.ascii.uniforms.uRaw.value = raw ? 1 : 0;
     }
 
     setOrbit(orbit) {
@@ -419,11 +467,18 @@ export default class AsciiWorld {
                 this.players.set(p.id, entity);
             }
             if (entity.data && p.hp < entity.data.hp) {
-                this.hit(entity);
+                this.hit(entity, entity.data.hp - p.hp, p.self ? "hurt" : "damage");
+                if (p.self) this.shake = 0.35;
                 /* Whatever bit them is probably standing next to them. */
                 this.strikeFrom(this.creatures, entity);
             }
             entity.data = p;
+            if (p.self && this.predicted) {
+                /* Ours already went there; wait for the server to agree. */
+                if (p.x === this.predicted.x && p.y === this.predicted.y) this.predicted = null;
+                else if (this.time < this.predicted.until) return;
+                else this.predicted = null;
+            }
             this.moveEntity(entity, p.x, p.y, 0.15);
         });
         [...this.players.keys()].forEach((id) => {
@@ -457,7 +512,7 @@ export default class AsciiWorld {
                 entity = pool[best];
                 pool[best] = null;
                 if (m.hp < entity.data.hp) {
-                    this.hit(entity);
+                    this.hit(entity, entity.data.hp - m.hp, "damage");
                     this.strikeFrom([...this.players.values()].filter((p) => !p.data?.self), entity);
                 }
             } else {
@@ -475,9 +530,118 @@ export default class AsciiWorld {
         this.creatures = next;
     }
 
-    hit(entity) {
+    hit(entity, amount = 0, kind = "damage") {
         entity.hurt = 1;
+        entity.hurtAt = this.time;
         entity.flashUntil = this.time + 0.09;
+        this.burst(entity.pos, entity.baseScale);
+        if (amount > 0) this.floatText(entity.pos.x, entity.pos.z, `-${amount}`, kind, 1.4 * entity.baseScale + 0.5);
+    }
+
+    /* A spray of sparks where a blow lands. */
+    burst(at, size = 1) {
+        const seeds = this.sparks.userData.seeds;
+        for (let n = 0; n < 8; n += 1) {
+            const i = this.sparks.userData.next;
+            this.sparks.userData.next = (i + 1) % seeds.length;
+            const a = Math.random() * Math.PI * 2;
+            const speed = 1.5 + Math.random() * 2;
+            seeds[i] = {
+                born: this.time,
+                x: at.x,
+                y: at.y + 0.8 * size,
+                z: at.z,
+                vx: Math.cos(a) * speed,
+                vy: 1 + Math.random() * 2.5,
+                vz: Math.sin(a) * speed,
+            };
+        }
+    }
+
+    createSparks() {
+        const count = 48;
+        const mesh = new THREE.InstancedMesh(
+            new THREE.BoxGeometry(0.06, 0.06, 0.06),
+            new THREE.MeshBasicMaterial({ color: 0xfff1c4, blending: THREE.NoBlending, transparent: false, opacity: glyphCode(4) }),
+            count,
+        );
+        mesh.userData.seeds = Array.from({ length: count }, () => null);
+        mesh.userData.next = 0;
+        mesh.frustumCulled = false;
+        return mesh;
+    }
+
+    updateSparks() {
+        const mesh = this.sparks;
+        const m = new THREE.Matrix4();
+        let any = false;
+        mesh.userData.seeds.forEach((s, i) => {
+            const t = s ? this.time - s.born : 1;
+            if (!s || t > 0.35) {
+                m.makeScale(0, 0, 0);
+            } else {
+                any = true;
+                const size = 1 - t / 0.35;
+                m.makeScale(size, size, size).setPosition(s.x + s.vx * t, s.y + s.vy * t - 6 * t * t, s.z + s.vz * t);
+            }
+            mesh.setMatrixAt(i, m);
+        });
+        mesh.visible = any;
+        mesh.instanceMatrix.needsUpdate = true;
+    }
+
+    /* Creatures' health, as a little bar of characters over the hurt. */
+    updateBars() {
+        const g = this.grid;
+        const w = g.cols * g.cellW;
+        const h = g.rows * g.cellH;
+        this.creatures.concat(this.leaving.filter((e) => e.bar)).forEach((e) => {
+            const data = e.data;
+            const show = data && data.maxHp && data.hp < data.maxHp && data.hp > 0 && !e.leftAt;
+            if (!show) {
+                if (e.bar) e.bar.style.visibility = "hidden";
+                return;
+            }
+            if (!e.bar) {
+                e.bar = document.createElement("span");
+                e.bar.className = "ascii3d__bar";
+                this.fxLayer.appendChild(e.bar);
+            }
+            const filled = Math.max(1, Math.round((data.hp / data.maxHp) * 8));
+            const text = `${"#".repeat(filled)}${"-".repeat(8 - filled)}`;
+            if (e.bar.dataset.text !== text) {
+                e.bar.dataset.text = text;
+                e.bar.textContent = `[${text}]`;
+            }
+            tmp.copy(e.pos);
+            tmp.y += 1.3 * e.baseScale + 0.4;
+            tmp.project(this.camera);
+            if (tmp.z > 1 || Math.abs(tmp.x) > 1.05 || Math.abs(tmp.y) > 1.05) {
+                e.bar.style.visibility = "hidden";
+                return;
+            }
+            e.bar.style.visibility = "visible";
+            e.bar.style.transform = `translate(${((g.offX + ((tmp.x + 1) / 2) * w) / g.dpr).toFixed(1)}px, ${((g.height - g.offY - ((tmp.y + 1) / 2) * h) / g.dpr).toFixed(1)}px)`;
+        });
+    }
+
+    updateFloaters() {
+        const g = this.grid;
+        const w = g.cols * g.cellW;
+        const h = g.rows * g.cellH;
+        this.floaters = this.floaters.filter((f) => {
+            const t = this.time - f.born;
+            if (t > 1.1) {
+                f.el.remove();
+                return false;
+            }
+            tmp.set(f.x, f.y + t * 0.9, f.z).project(this.camera);
+            const left = (g.offX + ((tmp.x + 1) / 2) * w) / g.dpr;
+            const top = (g.height - g.offY - ((tmp.y + 1) / 2) * h) / g.dpr;
+            f.el.style.opacity = String(t < 0.7 ? 1 : 1 - (t - 0.7) / 0.4);
+            f.el.style.transform = `translate(${left.toFixed(1)}px, ${top.toFixed(1)}px) scale(${t < 0.1 ? 1 + (0.1 - t) * 6 : 1})`;
+            return true;
+        });
     }
 
     /* The nearest of `from` within reach turns to `target` and swings. */
@@ -499,20 +663,32 @@ export default class AsciiWorld {
     /* Someone left or something died: shrink into the ground, then go. */
     leave(entity) {
         entity.leftAt = this.time;
-        flashModel(entity.model, false);
+        /* Something that was just being hit has been killed, not wandered
+           off: let it fall before it goes. */
+        const self = this.selfEntity();
+        const struckBySelf =
+            self && this.time - self.attackStart < 0.8 && Math.hypot(self.to.x - entity.to.x, self.to.y - entity.to.y) < 1.6;
+        entity.slain = (entity.hurtAt !== undefined && this.time - entity.hurtAt < 1.5) || Boolean(struckBySelf);
+        if (entity.slain && entity.data) entity.data = { ...entity.data, hp: 0 };
+        if (entity.bar) entity.bar.remove();
+        entity.bar = null;
         this.leaving.push(entity);
     }
 
-    updateLeaving() {
+    updateLeaving(dt) {
         this.leaving = this.leaving.filter((e) => {
-            const k = (this.time - e.leftAt) / 0.45;
+            const linger = e.slain ? 0.8 : 0;
+            const age = this.time - e.leftAt;
+            if (e.slain) this.updateEntity(e, dt);
+            if (age < linger) return true;
+            const k = (age - linger) / 0.45;
             if (k >= 1) {
                 this.scene.remove(e.model);
                 return false;
             }
             const scale = e.baseScale * (1 - k * k);
             e.model.scale.setScalar(Math.max(0.001, scale));
-            e.model.rotation.y += 0.25;
+            if (!e.slain) e.model.rotation.y += 0.25;
             return true;
         });
     }
@@ -600,14 +776,14 @@ export default class AsciiWorld {
     updateRain(dt) {
         const on = (this.weather === "rain" || this.weather === "storm") && !this.reducedMotion;
         this.updateSplashes(dt, on);
-        const u = this.quad.material.uniforms;
+        const u = this.ascii.uniforms;
         u.uTime.value = this.time;
         u.uRain.value = on ? (this.weather === "storm" ? 1 : 0.6) : 0;
     }
 
     /* Stars and cloud for the ASCII pass to draw where nothing else is. */
     updateSky(dt) {
-        const u = this.quad.material.uniforms;
+        const u = this.ascii.uniforms;
         const stars = { night: 1, dusk: 0.45, dawn: 0.3, day: 0 }[this.phaseName || "day"];
         const clouds = { clear: 0.15, fog: 0.5, rain: 0.75, storm: 1 }[this.weather || "clear"];
         const k = Math.min(1, dt * 0.8);
@@ -750,9 +926,9 @@ export default class AsciiWorld {
         this.scene.fog.far = fogFar;
         this.renderer.setClearColor(this.scene.fog.color, glyphCode(0));
         /* Colours live in linear space; the ASCII pass writes sRGB. */
-        this.quad.material.uniforms.uBackground.value.copy(p.bg).convertLinearToSRGB();
-        this.quad.material.uniforms.uNear.value = this.camera.near;
-        this.quad.material.uniforms.uFar.value = this.camera.far;
+        this.ascii.uniforms.uBackground.value.copy(p.bg).convertLinearToSRGB();
+        this.ascii.uniforms.uNear.value = this.camera.near;
+        this.ascii.uniforms.uFar.value = this.camera.far;
 
         /* The sun swings around a little with the time of day. */
         const a = p.angle;
@@ -804,11 +980,11 @@ export default class AsciiWorld {
         }
 
         if (this.orbit) this.turnAngle = (this.turnAngle ?? 0) + dt * 0.08;
-        const goalYaw = this.orbit ? this.turnAngle : (this.turn * Math.PI) / 2;
-        this.yaw = this.orbit ? goalYaw : lerpAngle(this.yaw, goalYaw, Math.min(1, dt * 7));
-        const ease = Math.min(1, dt * 6);
-        this.distance += (ZOOMS[this.zoom] - this.distance) * ease;
-        this.pitch = (this.pitch ?? PITCHES[this.zoom]) + (PITCHES[this.zoom] - (this.pitch ?? PITCHES[this.zoom])) * ease;
+        const goalYaw = this.orbit ? this.turnAngle : this.yawGoal;
+        this.yaw = this.orbit ? goalYaw : this.yaw + (goalYaw - this.yaw) * Math.min(1, dt * 12);
+        const ease = Math.min(1, dt * 8);
+        this.distance += (this.distanceGoal - this.distance) * ease;
+        this.pitch = pitchFor(this.distance) + this.pitchBias;
 
         /* Camera sits behind screen-down, looking toward screen-up. Close in
            it aims above your head, so you stand in the lower third. */
@@ -818,6 +994,12 @@ export default class AsciiWorld {
         const sx = -Math.sin(this.yaw);
         const sz = Math.cos(this.yaw);
         this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + lift, this.focus.z + sz * back);
+        if (this.shake > 0 && !this.reducedMotion) {
+            this.shake = Math.max(0, this.shake - dt);
+            const k = this.shake * 0.35;
+            this.camera.position.x += (Math.random() - 0.5) * k;
+            this.camera.position.y += (Math.random() - 0.5) * k;
+        }
         this.camera.lookAt(this.focus.x, this.focus.y + lift, this.focus.z);
 
         this.water.position.x = Math.round(this.focus.x);
@@ -849,7 +1031,7 @@ export default class AsciiWorld {
                 return;
             }
             tmp.copy(entity.pos);
-            tmp.y += 1.85;
+            tmp.y += 2.0;
             tmp.project(this.camera);
             if (tmp.z > 1 || Math.abs(tmp.x) > 1.05 || Math.abs(tmp.y) > 1.05) {
                 el.style.visibility = "hidden";
@@ -869,7 +1051,8 @@ export default class AsciiWorld {
 
         this.players.forEach((p) => this.updateEntity(p, dt));
         this.creatures.forEach((c) => this.updateEntity(c, dt));
-        this.updateLeaving();
+        this.updateLeaving(dt);
+        this.updateSparks();
         this.updateCamera(dt);
         this.updateChunks();
         this.updateLighting(dt);
@@ -893,11 +1076,13 @@ export default class AsciiWorld {
             this.waterStill = this.reducedMotion;
         }
 
-        this.renderer.setRenderTarget(this.target);
+        this.renderer.setRenderTarget(this.ascii.target);
         this.renderer.render(this.scene, this.camera);
-        this.renderer.setRenderTarget(null);
-        this.renderer.render(this.postScene, this.postCamera);
+        this.ascii.uniforms.uFlash.value = this.flash > 0.2 ? 1 : 0;
+        this.ascii.render(this.renderer);
         this.updateLabels();
+        this.updateBars();
+        this.updateFloaters();
     }
 
     dispose() {
@@ -905,12 +1090,8 @@ export default class AsciiWorld {
         this.observer.disconnect();
         this.chunks.forEach((c) => this.dropChunk(c));
         this.chunks.clear();
-        if (this.target) {
-            this.target.depthTexture.dispose();
-            this.target.dispose();
-        }
-        if (this.atlas) this.atlas.texture.dispose();
-        this.quad.material.dispose();
+        this.ascii.dispose();
+        this.fxLayer.remove();
         disposeMaterials();
         this.renderer.dispose();
         this.renderer.domElement.remove();
