@@ -935,6 +935,9 @@ export default class AsciiWorld {
         /* Flat walls thin out as they darken, so cabins read as timber
            rather than as slabs of # and %. */
         this.ascii.uniforms.uContrast.value = 1.3;
+        /* The wash behind the type follows the picture, as on the site. */
+        this.ascii.uniforms.uSmooth.value = 1;
+        this.ascii.uniforms.uSmoothGain.value = 1.4;
         this.ascii.uniforms.uNear.value = this.camera.near;
         this.ascii.uniforms.uFar.value = this.camera.far;
 

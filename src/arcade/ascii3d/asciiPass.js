@@ -90,7 +90,7 @@ const RAMPS = [
     /* rock */ ["    ", " .' ", ".:-'", ":-=;", "=;:=", "+=-=", "*=+*", "#*%+", "%#$%", "#@%&"],
     /* timber */ ["    ", " .  ", ". -.", "-.-.", "-:-=", "=-:-", "=-=+", "+=-=", "=+=#", "#=+="],
     /* path */ ["    ", "    ", " .  ", ". . ", ".,. ", ",.:.", ":.,:", ";:.:", "=;:=", "=:=;"],
-    /* figure */ ["    ", " .' ", ".:-'", ":-=;", "=+-=", "+*=+", "*o+*", "#*%o", "%#@%", "@#%@"],
+    /* figure */ ["    ", " .. ", ".:.:", ":-:-", "=-=-", "+=+=", "*+*+", "#*#*", "%#%#", "@%@%"],
     /* light */ ["    ", " .. ", ".:.:", ":-:-", "=-=+", "+=+*", "*+#*", "#\u25aa#\u25aa", "\u25aa\u25a0\u25aa\u25a0", "\u25a0\u25a0\u25a0\u25a0"],
 ];
 
@@ -387,6 +387,9 @@ const pickShader = /* glsl */ `
             if (uJoints > 0.0 && set == PATH) level = min(level, 4.0);
             float shuffle = set == WATER ? floor(uTime * 0.6) : 0.0;
             float variant = floor(hash(cell + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
+            /* Figures weave rather than scatter: a cloth of two characters
+               alternating, so a coat reads as one material. */
+            if (set == FIGURE) variant = mod(cell.x + cell.y, 2.0);
             choice = int(texelFetch(tShapes, ivec2(int(level * ${VARIANTS}.0 + variant), 2 + ${Object.keys(GLYPH_SETS).length} + setIndex), 0).r);
         }
 
@@ -526,6 +529,8 @@ const drawShader = /* glsl */ `
     uniform vec3 uBackground;
     uniform float uFill;
     uniform float uGlow;
+    uniform float uSmooth;
+    uniform float uSmoothGain;
     uniform float uRaw;
 
     const float CODES = ${CODES.toFixed(1)};
@@ -570,7 +575,15 @@ const drawShader = /* glsl */ `
         vec2 at = vec2((glyph + local.x) / uCount, local.y);
         float mask = texture(tGlyphs, at).r;
         vec3 glow = uGlow > 0.0 ? spill(cell) * uGlow : vec3(0.0);
-        vec3 base = mix(uBackground, pick.rgb * 0.5, max(uFill, body * 0.55)) + glow * 0.55;
+        /* The wash behind the characters: the cell's own colour, or, with
+           uSmooth, the picture itself under the grid, so light falls off in
+           gradients across a wall rather than in steps of one cell. */
+        vec3 wash = pick.rgb * 0.5;
+        if (uSmooth > 0.0 && body < 0.5) {
+            vec3 under = pow(max(texture(tColor, frag / (uCells * uCellPx)).rgb, 0.0), vec3(1.0 / 2.2));
+            wash = mix(wash, min(under * uSmoothGain, 1.0) * 0.5, uSmooth);
+        }
+        vec3 base = mix(uBackground, wash, max(uFill, body * 0.7)) + glow * 0.55;
         gl_FragColor = vec4(mix(base, min(pick.rgb + glow * 0.35, 1.0), mask), 1.0);
     }
 `;
@@ -641,6 +654,8 @@ export class AsciiPass {
                 uBackground: { value: new THREE.Color(0x0b120d) },
                 uFill: { value: 0.1 },
                 uGlow: { value: 0 },
+                uSmooth: { value: 0 },
+                uSmoothGain: { value: 2.5 },
                 uRaw: { value: 0 },
             },
         });

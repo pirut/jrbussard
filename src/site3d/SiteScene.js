@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { AsciiPass, glyphCode } from "../arcade/ascii3d/asciiPass";
-import { disposeMaterials } from "../arcade/ascii3d/materials";
+import { cutaway, disposeMaterials } from "../arcade/ascii3d/materials";
 import { buildSurvivor, buildCursor, pose } from "../arcade/ascii3d/models";
 import { Batch, P, place, tint, hash, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
 import { streetlamp } from "../arcade/ascii3d/architecture";
@@ -652,6 +652,7 @@ export default class SiteScene {
         const sx = -Math.sin(this.yaw);
         const sz = Math.cos(this.yaw);
         if (intro) {
+            cutaway.uCutOn.value = 0;
             /* The front door looks up into the skyline. */
             const back = this.distance * Math.cos(pitch);
             const up = this.distance * Math.sin(pitch);
@@ -685,11 +686,20 @@ export default class SiteScene {
             }
             this.climb = (this.climb || 0) + (climb - (this.climb || 0)) * Math.min(1, dt * 3);
             const tilt = pitch + this.climb;
-            this.reach = this.reach === undefined || reach < this.reach ? reach : this.reach + (reach - this.reach) * Math.min(1, dt * 3);
+            /* Close in quickly when something comes behind, but not in one
+               jump, and ease back out slowly, so passing a doorway or a
+               crossing lane does not make the view lurch. */
+            if (this.reach === undefined) this.reach = reach;
+            else this.reach += (reach - this.reach) * Math.min(1, dt * (reach < this.reach ? 14 : 2.5));
             const d = this.distance * this.reach;
             this.camera.position.set(this.focus.x + sx * d * Math.cos(tilt) + rx * shoulder, head + this.lift + d * Math.sin(tilt), this.focus.z + sz * d * Math.cos(tilt) + rz * shoulder);
             /* Looking down from high up, aim nearer your feet. */
             const ahead = (3 + this.distance * 0.2) * Math.max(0, 1 - this.climb * 1.1);
+            /* Carve away whatever overhead stands between the camera and
+               you. */
+            cutaway.uCutOn.value = 1;
+            cutaway.uCutFrom.value.copy(this.camera.position);
+            cutaway.uCutTo.value.set(this.focus.x, this.focus.y + 1.7, this.focus.z);
             this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, head - 0.1 - this.climb * 1.2, this.focus.z - sz * ahead + rz * shoulder * 0.4);
         }
         this.water.position.x = Math.round(this.focus.x);
@@ -707,7 +717,11 @@ export default class SiteScene {
         this.ascii.uniforms.uInk.value = { night: 1.9, dusk: 1.8, dawn: 1.6, day: 1.5 }[this.phaseName];
         /* Each cell's colour also washes its background, so walls and
            towers read as solid masses with type on them, not as type alone. */
-        this.ascii.uniforms.uFill.value = night ? 0.34 : 0.28;
+        this.ascii.uniforms.uFill.value = night ? 0.45 : 0.4;
+        /* And that wash follows the picture under the grid, not the cell,
+           so walls keep crisp edges and light falls off in gradients. */
+        this.ascii.uniforms.uSmooth.value = 1;
+        this.ascii.uniforms.uSmoothGain.value = this.ascii.uniforms.uInk.value * 1.4;
         /* Windows and lanterns spill a wash onto the stone around them. */
         this.ascii.uniforms.uGlow.value = { night: 1.3, dusk: 1.0, dawn: 0.6, day: 0.25 }[this.phaseName];
         /* A gentler ramp: close walls fill the view down an alley, and at
@@ -839,6 +853,7 @@ export default class SiteScene {
         this.torches.forEach((t) => disposeProps(t.group));
         this.ascii.dispose();
         this.labelLayer.remove();
+        cutaway.uCutOn.value = 0;
         disposeMaterials();
         this.renderer.dispose();
         this.renderer.domElement.remove();
