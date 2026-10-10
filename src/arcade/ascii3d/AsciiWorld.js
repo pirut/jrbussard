@@ -931,6 +931,7 @@ export default class AsciiWorld {
         /* A wash of each cell's colour behind its character, so shapes read
            as masses at a glance; more at night, when the type is thinner. */
         this.ascii.uniforms.uFill.value = this.phaseName === "night" ? 0.3 : 0.22;
+        this.ascii.uniforms.uGlow.value = this.phaseName === "night" ? 1.2 : 0.5;
         this.ascii.uniforms.uNear.value = this.camera.near;
         this.ascii.uniforms.uFar.value = this.camera.far;
 

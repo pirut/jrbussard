@@ -130,7 +130,7 @@ export default class SiteScene {
         this.scene.add(this.hemi, this.sun, this.sun.target);
         this.lightPool = [];
         for (let i = 0; i < MAX_LIGHTS; i += 1) {
-            const light = new THREE.PointLight(0xffb46b, 0, 8, 1.2);
+            const light = new THREE.PointLight(0xffb46b, 0, 8, 2);
             this.scene.add(light);
             this.lightPool.push(light);
         }
@@ -670,12 +670,27 @@ export default class SiteScene {
             const shoulder = this.shoulder;
             /* And rise a little there, to see down the lane over your head. */
             this.lift = (this.lift || 0) + ((tight ? 0.8 : 0) - (this.lift || 0)) * Math.min(1, dt * 4);
-            const reach = this.cameraReach(sx, sz, head, shoulder, pitch);
+            /* Walled in behind, as at the blind end of a lane: rather than
+               pull in onto your head, climb, since lanes are open to the
+               sky. Take the lowest angle that leaves most of the way back
+               clear. */
+            let climb = 0;
+            let reach = this.cameraReach(sx, sz, head, shoulder, pitch);
+            for (let k = 1; reach < 0.75 && pitch + k * 0.15 <= 1.4; k += 1) {
+                const r = this.cameraReach(sx, sz, head, shoulder, pitch + k * 0.15);
+                if (r > reach) {
+                    reach = r;
+                    climb = k * 0.15;
+                }
+            }
+            this.climb = (this.climb || 0) + (climb - (this.climb || 0)) * Math.min(1, dt * 3);
+            const tilt = pitch + this.climb;
             this.reach = this.reach === undefined || reach < this.reach ? reach : this.reach + (reach - this.reach) * Math.min(1, dt * 3);
             const d = this.distance * this.reach;
-            this.camera.position.set(this.focus.x + sx * d * Math.cos(pitch) + rx * shoulder, head + this.lift + d * Math.sin(pitch), this.focus.z + sz * d * Math.cos(pitch) + rz * shoulder);
-            const ahead = 3 + this.distance * 0.2;
-            this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, head - 0.1, this.focus.z - sz * ahead + rz * shoulder * 0.4);
+            this.camera.position.set(this.focus.x + sx * d * Math.cos(tilt) + rx * shoulder, head + this.lift + d * Math.sin(tilt), this.focus.z + sz * d * Math.cos(tilt) + rz * shoulder);
+            /* Looking down from high up, aim nearer your feet. */
+            const ahead = (3 + this.distance * 0.2) * Math.max(0, 1 - this.climb * 1.1);
+            this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, head - 0.1 - this.climb * 1.2, this.focus.z - sz * ahead + rz * shoulder * 0.4);
         }
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
@@ -688,18 +703,20 @@ export default class SiteScene {
            ambient and a hotter ASCII pass, so the stone still draws. */
         const night = this.phaseName === "night";
         this.sun.intensity = p.sun + (night ? 0.6 : 0);
-        this.ascii.uniforms.uGain.value = { night: 1.4, dusk: 1.15, dawn: 1.1, day: 0.95 }[this.phaseName];
-        this.ascii.uniforms.uInk.value = { night: 1.9, dusk: 1.7, dawn: 1.4, day: 1.1 }[this.phaseName];
+        this.ascii.uniforms.uGain.value = { night: 1.4, dusk: 1.25, dawn: 1.2, day: 1.2 }[this.phaseName];
+        this.ascii.uniforms.uInk.value = { night: 1.9, dusk: 1.8, dawn: 1.6, day: 1.5 }[this.phaseName];
         /* Each cell's colour also washes its background, so walls and
            towers read as solid masses with type on them, not as type alone. */
-        this.ascii.uniforms.uFill.value = night ? 0.18 : 0.14;
+        this.ascii.uniforms.uFill.value = night ? 0.34 : 0.28;
+        /* Windows and lanterns spill a wash onto the stone around them. */
+        this.ascii.uniforms.uGlow.value = { night: 1.3, dusk: 1.0, dawn: 0.6, day: 0.25 }[this.phaseName];
         /* A gentler ramp: close walls fill the view down an alley, and at
            full strength their flat faces drown the edges in letters. */
         this.ascii.uniforms.uRamp.value = 1.55;
         this.ascii.uniforms.uContrast.value = 1.5;
         this.sun.color.set(p.sunColor);
         /* A touch brighter than the Commons: this is a site to read. */
-        this.hemi.intensity = p.hemi + { night: 0.9, dusk: 0.7, dawn: 0.5, day: 0.3 }[this.phaseName];
+        this.hemi.intensity = p.hemi + { night: 0.5, dusk: 0.5, dawn: 0.45, day: 0.3 }[this.phaseName];
         this.hemi.color.set(p.sky);
         this.hemi.groundColor.set(p.ground);
         this.scene.fog.color.copy(bg);
@@ -725,7 +742,7 @@ export default class SiteScene {
             if (d < 30) lit.push({ pos: tmp2.set(lamp.x, ROAD, lamp.y).clone(), light: lamp.light, d: d + 2 });
         });
         lit.sort((x, y) => x.d - y.d);
-        const glow = night ? 1.6 : this.phaseName === "day" ? 0.6 : 1.1;
+        const glow = night ? 2 : this.phaseName === "day" ? 0.6 : 1.4;
         this.lightPool.forEach((light, i) => {
             const entry = lit[i];
             if (!entry) {
@@ -734,8 +751,10 @@ export default class SiteScene {
             }
             const flicker = this.reducedMotion ? 1 : 0.88 + Math.sin(this.time * 13 + i * 3) * 0.07 + Math.sin(this.time * 7.3 + i) * 0.05;
             light.color.setHex(entry.light.color);
-            light.distance = entry.light.range * 1.3;
-            light.intensity = 4 * flicker * glow;
+            light.distance = entry.light.range * 1.5;
+            /* Falling off with the square of distance, so each lamp lights a pool
+               and the stone between lamps stays dark. */
+            light.intensity = 7 * flicker * glow;
             light.position.copy(entry.pos);
             light.position.y += entry.light.y;
         });
@@ -749,6 +768,9 @@ export default class SiteScene {
         u.uCloudColor.value.setHex(this.phaseName === "day" ? 0x3c4a66 : 0x283350);
         const hfov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect);
         u.uSkyShift.value = (-this.yaw / hfov) * this.grid.cols;
+        u.uSkyTurn.value = ((Math.PI * 2) / hfov) * this.grid.cols;
+        u.uMoon.value = { night: 1, dusk: 0.55, dawn: 0, day: 0 }[this.phaseName];
+        u.uHorizon.value.setHex({ night: 0x3a2a48, dusk: 0x5a3238, dawn: 0x4a3a3a, day: 0x4a6890 }[this.phaseName]);
     }
 
     updateProps() {
@@ -793,6 +815,10 @@ export default class SiteScene {
         }
         this.renderer.setRenderTarget(this.ascii.target);
         this.renderer.render(this.scene, this.camera);
+        const u = this.ascii.uniforms;
+        u.uJoints.value = 1;
+        u.uInvProj.value.copy(this.camera.projectionMatrixInverse);
+        u.uCamToWorld.value.copy(this.camera.matrixWorld);
         this.ascii.render(this.renderer);
         this.updateLabels();
     }

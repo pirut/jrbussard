@@ -42,7 +42,7 @@ function cone(b, set, proto, x, y, z, r, h, hex, k = 1, ry = 0) {
 /* An Orthodox cross: an upright, the main bar, the short title bar above
    and the footrest below. Gilded and unlit, so it shows against any sky. */
 export function cross(b, x, y, z, s = 1) {
-    const g = "solid:glow";
+    const g = "light:glow";
     block(b, g, x, y, z, 0.07 * s, 0.95 * s, 0.07 * s, GOLD);
     block(b, g, x, y + 0.62 * s, z, 0.46 * s, 0.07 * s, 0.07 * s, GOLD);
     block(b, g, x, y + 0.8 * s, z, 0.24 * s, 0.06 * s, 0.06 * s, GOLD);
@@ -76,10 +76,10 @@ function windows(b, x, y, z, w, d, rows, cols, h, face = 1) {
             const off = -w / 2 + step * (i + 0.5);
             const tall = (h / rows) * 0.42;
             if (face === 1 || face === -1) {
-                block(b, lit ? "solid:glow" : "solid", x + off, wy, z + face * (d / 2 + 0.01), step * 0.34, tall, 0.04, hex, lit ? 0.85 : 1);
+                block(b, lit ? "light:glow" : "solid", x + off, wy, z + face * (d / 2 + 0.01), step * 0.34, tall, 0.04, hex, lit ? 0.85 : 1);
             } else {
                 const s = face === "e" ? 1 : -1;
-                block(b, lit ? "solid:glow" : "solid", x + s * (d / 2 + 0.01), wy, z + off, 0.04, tall, step * 0.34, hex, lit ? 0.85 : 1);
+                block(b, lit ? "light:glow" : "solid", x + s * (d / 2 + 0.01), wy, z + off, 0.04, tall, step * 0.34, hex, lit ? 0.85 : 1);
             }
         }
     }
@@ -249,7 +249,7 @@ export function church(b, x, z, y, { scale = 1, dome = GOLD, small = dome, domes
         block(b, "solid", bx, y + 4.2 * s, bz, bw * 1.08, 0.12, bw * 1.08, STONE_TRIM);
         /* Open arches of the belfry, glowing where the bells hang. */
         [-1, 1].forEach((f) => block(b, "solid", bx + f * bw * 0.4, y + 4.3 * s, bz, 0.16, 1.2 * s, bw * 0.9, wall));
-        block(b, "solid:glow", bx, y + 4.4 * s, bz, bw * 0.5, 0.8 * s, bw * 0.5, "#c99a55", 0.8);
+        block(b, "light:glow", bx, y + 4.4 * s, bz, bw * 0.5, 0.8 * s, bw * 0.5, "#c99a55", 0.8);
         block(b, "solid", bx, y + 5.5 * s, bz, bw, 0.3, bw, wall);
         cone(b, "solid", P.tent, bx, y + 5.8 * s, bz, bw * 0.48, 3.2 * s, VERDIGRIS);
         const t = onion(b, bx, y + 9 * s, bz, 0.22 * s, small, { drum: 0.1, drumHex: small, crossed: true });
@@ -315,7 +315,7 @@ export function observatoryDome(b, x, z, y, { scale = 1 } = {}) {
     windows(b, x, y + 0.6, z, 2.6 * s, 3 * s, 3, 3, 4 * s);
     block(b, "solid", x, y + 5 * s, z, 3.3 * s, 0.2, 3.3 * s, STONE_TRIM);
     b.shape("solid", P.blob(), place(x, y + 5.2 * s, z, 3 * s, 2.6 * s, 3 * s), col("#7d8fb8"));
-    block(b, "solid:glow", x, y + 5.6 * s, z + 1.2 * s, 0.4 * s, 1.6 * s, 0.4, "#9fb7ff", 0.8);
+    block(b, "light:glow", x, y + 5.6 * s, z + 1.2 * s, 0.4 * s, 1.6 * s, 0.4, "#9fb7ff", 0.8);
     return y + 6.5 * s;
 }
 
@@ -338,7 +338,7 @@ export function streetlamp(b, x, z, y, { double = false } = {}) {
     const arms = double ? [-1, 1] : [1];
     arms.forEach((s) => {
         block(b, "solid", x + s * 0.28, y + 3.2, z, 0.56, 0.06, 0.06, iron);
-        block(b, "solid:glow", x + s * 0.52, y + 2.85, z, 0.2, 0.32, 0.2, "#ffd38a");
+        block(b, "light:glow", x + s * 0.52, y + 2.85, z, 0.2, 0.32, 0.2, "#ffd38a");
         cone(b, "solid", P.tent, x + s * 0.52, y + 3.04, z, 0.16, 0.18, iron);
     });
     b.shape("solid", P.spire(), place(x, y + 3.3, z, 0.12, 0.35, 0.12), col(iron));

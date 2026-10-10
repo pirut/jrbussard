@@ -38,6 +38,8 @@ export const GLYPH_SETS = {
     timber: 6,
     path: 7,
     figure: 8,
+    /* Things that give off light: windows, lanterns, signs. */
+    light: 9,
 };
 const CODES = 16;
 
@@ -46,15 +48,25 @@ export function glyphCode(set) {
     return (set + 0.5) / CODES;
 }
 
-/* Every printable character, space first. */
-const GLYPHS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("");
+/* Every printable character, space first, then two solid squares for
+   things that shine. */
+const GLYPHS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("") + "\u25aa\u25a0";
+
+/* The squares belong to light alone. */
+const SQUARES = "\u25aa\u25a0";
 
 /* Characters a set may draw with. Sets not listed may use any. */
 const FAMILIES = {
+    /* Built things draw in strokes and marks, never letters, so a wall reads
+       as masonry rather than as a page of type. */
+    solid: " .,:;'`\"-_=+*#%|/\\()<>^~![]{}",
+    rock: " .,:;'`\"-_=+*#%@&$|/\\()<>^~!",
+    light: " .:-=+*#\u25aa\u25a0",
     water: " ~-=_.,'`^:",
+    leaves: " .,:;'`\"*+o%&@#^~()",
     grass: " /\\|'\",.`:;vVwWyY!il",
     fire: " *^'\".,:+xX%#&@`",
-    timber: " =-_|:.'#+HhIl[]",
+    timber: " =-_|:.'#+[]",
     path: " .,:;-_='\"`",
     /* Figures draw in symbols, not letters, so a person stands out from a
        world written in type. */
@@ -70,20 +82,21 @@ const FAMILIES = {
 const LEVELS = 10;
 const VARIANTS = 4;
 const RAMPS = [
-    /* solid */ ["    ", " .' ", ".,-'", ":;-:", "=+cr", "uvxz", "aeoq", "pdbk", "%&$8", "#@WM"],
+    /* solid */ ["    ", " .' ", ".,-'", ":;-:", "=:;=", "+=-=", "+*=+", "*#+*", "#%*#", "%#%#"],
     /* water */ ["    ", " .  ", ".-.,", "-~-.", "~~-~", "~=~~", "=~=~", "~=~=", "==~=", "===="],
-    /* leaves */ ["    ", " .' ", ".,:'", ":;*,", "*+o;", "oca%", "%&o8", "&%8B", "@&B%", "@@B#"],
+    /* leaves */ ["    ", " .' ", ".,:'", ":;*,", "*+o;", "o*+%", "%&o*", "&%*&", "@&%&", "@@%#"],
     /* grass */ [" .  ", " .,'", ",'`.", "',/\\", "/|\\'", "/\\|\"", "\\/|v", "|/\\v", "wvWv", "WwVW"],
     /* fire */ ["    ", " .' ", ".'*.", "*+'*", "+*^*", "*%+*", "%*&*", "&%@*", "@&%@", "@@#@"],
-    /* rock */ ["    ", " .' ", ".:-'", ":-=;", "=ncr", "nuqe", "dbpq", "8$%&", "#%$B", "M#@W"],
-    /* timber */ ["    ", " .- ", ".-:-", "-=:-", "=-=:", "==+=", "=#=+", "#=#=", "##=#", "#H##"],
-    /* path */ ["    ", " .  ", ". .,", ".,.:", ":.,:", "::;.", ";:=:", "=;:=", "==#=", "#=##"],
+    /* rock */ ["    ", " .' ", ".:-'", ":-=;", "=;:=", "+=-=", "*=+*", "#*%+", "%#$%", "#@%&"],
+    /* timber */ ["    ", " .  ", ". -.", "-.-.", "-:-=", "=-:-", "=-=+", "+=-=", "=+=#", "#=+="],
+    /* path */ ["    ", "    ", " .  ", ". . ", ".,. ", ",.:.", ":.,:", ";:.:", "=;:=", "=:=;"],
     /* figure */ ["    ", " .' ", ".:-'", ":-=;", "=+-=", "+*=+", "*o+*", "#*%o", "%#@%", "@#%@"],
+    /* light */ ["    ", " .. ", ".:.:", ":-:-", "=-=+", "+=+*", "*+#*", "#\u25aa#\u25aa", "\u25aa\u25a0\u25aa\u25a0", "\u25a0\u25a0\u25a0\u25a0"],
 ];
 
 /* Brightness gain per set: ground and walls stay airy, figures carry the
    picture. Index by set number. */
-const GAINS = [1.25, 1.2, 1.15, 1.0, 1.4, 1.15, 1.05, 1.05, 0.9];
+const GAINS = [1.25, 1.2, 1.15, 1.0, 1.4, 1.15, 1.05, 1.05, 0.9, 1.3];
 
 const REGIONS_X = 2;
 const REGIONS_Y = 3;
@@ -171,7 +184,7 @@ function buildShapeTexture() {
         data.set([s[4], s[5], 0, 0], (n + i) * 4);
         names.forEach((name) => {
             const family = FAMILIES[name];
-            const allowed = !family || family.includes(ch) ? 1 : 0;
+            const allowed = (family ? family.includes(ch) : !SQUARES.includes(ch)) ? 1 : 0;
             data[((2 + GLYPH_SETS[name]) * n + i) * 4] = allowed;
         });
     });
@@ -222,9 +235,15 @@ const pickShader = /* glsl */ `
     uniform float uClouds;
     uniform vec3 uCloudColor;
     uniform float uSkyShift;
+    uniform float uSkyTurn;
+    uniform vec3 uHorizon;
+    uniform float uMoon;
     uniform float uFlash;
     uniform float uOutline;
     uniform vec2 uCellPx;
+    uniform float uJoints;
+    uniform mat4 uInvProj;
+    uniform mat4 uCamToWorld;
 
     const int COUNT = ${GLYPHS.length};
     const float CODES = ${CODES.toFixed(1)};
@@ -233,6 +252,7 @@ const pickShader = /* glsl */ `
     const float SOLID = ${GLYPH_SETS.solid.toFixed(1)};
     const float TIMBER = ${GLYPH_SETS.timber.toFixed(1)};
     const float ROCK = ${GLYPH_SETS.rock.toFixed(1)};
+    const float PATH = ${GLYPH_SETS.path.toFixed(1)};
     const float GAINS[${GAINS.length}] = float[${GAINS.length}](${GAINS.map((g) => g.toFixed(2)).join(", ")});
 
     float hash(vec2 p) {
@@ -254,6 +274,14 @@ const pickShader = /* glsl */ `
     float viewDepth(vec2 uv) {
         float d = texture(tDepth, uv).r;
         return (uNear * uFar) / (uFar - d * (uFar - uNear));
+    }
+
+    /* Where on the ground a point of the screen lands, in world units. */
+    vec2 groundAt(vec2 uv) {
+        float z = texture(tDepth, uv).r * 2.0 - 1.0;
+        vec4 view = uInvProj * vec4(uv * 2.0 - 1.0, z, 1.0);
+        vec4 world = uCamToWorld * vec4(view.xyz / view.w, 1.0);
+        return world.xz + 0.5;
     }
 
     float setAt(vec2 cell) {
@@ -353,7 +381,7 @@ const pickShader = /* glsl */ `
             float level = floor(pow(clamp(mean * uRamp, 0.0, 0.999), curve) * ${LEVELS}.0);
             /* And a ceiling, where the curve is on: a sunlit wall stays a
                page of letters rather than a slab of @ and W. */
-            if (uContrast > 1.0 && set != FIGURE) level = min(level, ${LEVELS - 2}.0);
+            if (uContrast > 1.0 && set != FIGURE) level = min(level, set == WATER ? ${LEVELS - 2}.0 : ${LEVELS - 3}.0);
             float shuffle = set == WATER ? floor(uTime * 0.6) : 0.0;
             float variant = floor(hash(cell + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
             choice = int(texelFetch(tShapes, ivec2(int(level * ${VARIANTS}.0 + variant), 2 + ${Object.keys(GLYPH_SETS).length} + setIndex), 0).r);
@@ -394,6 +422,38 @@ const pickShader = /* glsl */ `
             }
         }
 
+        /* Paving. Every tile of ground is a flag or a sett, and the joints
+           between them run off in perspective, which gives the floor a
+           scale and says how far away things stand. Only where a joint is
+           finer than a cell; further off the joints would merge to noise. */
+        if (uJoints > 0.0 && set == PATH) {
+            vec2 hx = vec2(0.5 / uCells.x, 0.0);
+            vec2 hy = vec2(0.0, 0.5 / uCells.y);
+            vec2 gl = groundAt(uv - hx);
+            vec2 gr = groundAt(uv + hx);
+            vec2 gd = groundAt(uv - hy);
+            vec2 gu = groundAt(uv + hy);
+            vec2 gc = groundAt(uv);
+            vec2 span = max(abs(gr - gl), abs(gu - gd));
+            for (int k = 0; k < 2; k++) {
+                vec2 g = k == 0 ? vec2(gr.x - gl.x, gu.x - gd.x) : vec2(gr.y - gl.y, gu.y - gd.y);
+                float v = k == 0 ? gc.x : gc.y;
+                /* A joint runs through this cell if one lies within half a
+                   cell of its middle, measured the long way, so a slanting
+                   joint takes one cell a row rather than two. */
+                float reach = 0.5 * max(abs(g.x), abs(g.y));
+                if (abs(g.x) + abs(g.y) > 0.4 || abs(v - floor(v + 0.5)) > reach) continue;
+                g /= uCellPx;
+                float ang = atan(abs(g.y), abs(g.x));
+                if (ang < 0.5) glyph = ${idx("|")};
+                else if (ang > 1.2) glyph = ${idx("_")};
+                else glyph = g.x * g.y > 0.0 ? ${idx("\\")} : ${idx("/")};
+                float near = 1.0 - smoothstep(0.15, 0.4, max(span.x, span.y));
+                ink = ink * (0.75 + 0.3 * near * uJoints) + 0.03 * near * uJoints;
+                break;
+            }
+        }
+
         /* Open sky: stars and slow bands of cloud, pinned to the heading so
            they wheel past as the camera turns. */
         if (texture(tDepth, uv).r >= 0.99999) {
@@ -403,7 +463,27 @@ const pickShader = /* glsl */ `
             float cover = clouds - (0.66 - uClouds * 0.3);
             float h = hash(floor(sc));
             glyph = 0.0;
-            if (cover > 0.0) {
+            /* The glow a lit city throws up into the haze above it, washed
+               behind the stars rather than drawn. */
+            ink = uHorizon * pow(1.0 - uv.y, 1.6);
+            /* And a moon, fixed to one heading. Cells are taller than they
+               are wide, so the disc is measured in cell heights. */
+            float mdx = mod(sc.x - uSkyTurn * 0.08 + uSkyTurn * 0.5, uSkyTurn) - uSkyTurn * 0.5;
+            vec2 md = vec2(mdx * 0.58, cell.y - uCells.y * 0.86);
+            float mr = length(md) / 4.0;
+            if (uMoon > 0.0 && mr < 1.0) {
+                float shade = 1.0 - mr * mr * 0.4 - noise(cell * 0.6 + 3.0) * 0.4;
+                glyph = shade > 0.7 ? ${idx("@")} : shade > 0.52 ? ${idx("%")} : ${idx("*")};
+                /* The rim is drawn as strokes along the curve. */
+                if (mr > 0.8) {
+                    float a = atan(abs(md.y), abs(md.x));
+                    glyph = a > 1.1 ? ${idx("-")} : a < 0.45 ? ${idx("|")} : md.x * md.y > 0.0 ? ${idx("\\")} : ${idx("/")};
+                }
+                ink = vec3(0.96, 0.92, 0.8) * (0.7 + shade * 0.3) * uMoon;
+            } else if (uMoon > 0.0 && mr < 3.0) {
+                ink += vec3(0.75, 0.78, 0.9) * pow(1.0 - (mr - 1.0) / 2.0, 2.0) * 0.9 * uMoon;
+                if (h < 0.022 * uStars && mr > 1.6) glyph = ${idx(".")};
+            } else if (cover > 0.0) {
                 float k = hash(sc + 9.1);
                 glyph = cover > 0.12 ? (k < 0.5 ? ${idx("~")} : ${idx("=")}) : (k < 0.5 ? ${idx("-")} : ${idx(".")});
                 ink = uCloudColor * (0.55 + cover * 1.5) + uFlash * 0.6;
@@ -438,7 +518,30 @@ const drawShader = /* glsl */ `
     uniform float uCount;
     uniform vec3 uBackground;
     uniform float uFill;
+    uniform float uGlow;
     uniform float uRaw;
+
+    const float CODES = ${CODES.toFixed(1)};
+
+    /* Light spilling from windows, lanterns and fire onto what is around
+       them: a soft wash behind the characters, gathered from a ring of
+       samples about the cell. Only sets that shine contribute. */
+    vec3 spill(vec2 cell) {
+        vec3 sum = vec3(0.0);
+        for (int r = 1; r <= 2; r++) {
+            float rad = float(r) * 1.6;
+            for (int i = 0; i < 8; i++) {
+                float a = float(i) * 0.7854 + float(r) * 0.39;
+                vec2 at = (cell + 0.5 + vec2(cos(a), sin(a) * 0.6) * rad) / uCells;
+                vec4 c = texture(tColor, at);
+                float set = floor(c.a * CODES);
+                if (set == ${GLYPH_SETS.light}.0 || set == ${GLYPH_SETS.fire}.0) {
+                    sum += pow(max(c.rgb, 0.0), vec3(1.0 / 2.2)) / float(r);
+                }
+            }
+        }
+        return sum / 12.0;
+    }
 
     void main() {
         vec2 frag = gl_FragCoord.xy - uOffset;
@@ -457,8 +560,9 @@ const drawShader = /* glsl */ `
         vec2 local = fract(frag / uCellPx);
         vec2 at = vec2((glyph + local.x) / uCount, local.y);
         float mask = texture(tGlyphs, at).r;
-        vec3 base = mix(uBackground, pick.rgb * 0.5, uFill);
-        gl_FragColor = vec4(mix(base, pick.rgb, mask), 1.0);
+        vec3 glow = uGlow > 0.0 ? spill(cell) * uGlow : vec3(0.0);
+        vec3 base = mix(uBackground, pick.rgb * 0.5, uFill) + glow * 0.55;
+        gl_FragColor = vec4(mix(base, min(pick.rgb + glow * 0.35, 1.0), mask), 1.0);
     }
 `;
 
@@ -498,9 +602,18 @@ export class AsciiPass {
                 uClouds: { value: 0 },
                 uCloudColor: { value: new THREE.Color(0x2a3550) },
                 uSkyShift: { value: 0 },
+                /* How many cells the sky moves through in a full turn. */
+                uSkyTurn: { value: 1000 },
+                uHorizon: { value: new THREE.Color(0x000000) },
+                uMoon: { value: 0 },
                 uFlash: { value: 0 },
                 uOutline: { value: 0.035 },
                 uCellPx: { value: new THREE.Vector2(8, 14) },
+                /* Above 0, the joints of the paving are drawn. Needs the
+                   camera matrices below. */
+                uJoints: { value: 0 },
+                uInvProj: { value: new THREE.Matrix4() },
+                uCamToWorld: { value: new THREE.Matrix4() },
             },
         });
         this.drawMaterial = new THREE.ShaderMaterial({
@@ -518,6 +631,7 @@ export class AsciiPass {
                 uCount: { value: GLYPHS.length },
                 uBackground: { value: new THREE.Color(0x0b120d) },
                 uFill: { value: 0.1 },
+                uGlow: { value: 0 },
                 uRaw: { value: 0 },
             },
         });
