@@ -113,18 +113,18 @@ export function buildWorld() {
     /*
      * 3. The city. Everything outdoors that is not a room, a road or water
      * is packed with tenements, cut by a warren of one-tile alleys the way
-     * the Walled City was: north-south lanes every seven tiles, and between
-     * each pair of them east-west lanes at their own staggered rows, so
+     * the Walled City was: two-tile north-south lanes every eight tiles, and
+     * between each pair of them east-west lanes at their own staggered rows, so
      * every block is reachable and no two crossings line up. A two-tile
      * apron stays open round every room, so each compound has a street.
      */
-    const LANE = 7;
-    const ROW = 6;
+    const LANE = 8;
+    const ROW = 7;
     const laneOffset = (band) => Math.floor(mulberry32(9100 + band)() * ROW);
     const isAlley = (x, y) => {
-        if ((x + 3) % LANE === 0) return true;
+        if ((x + 3) % LANE < 2) return true;
         const band = Math.floor((x + 3) / LANE);
-        return (y + laneOffset(band)) % ROW === 0;
+        return (y + laneOffset(band)) % ROW < 2;
     };
     /* Behind every room, across its street, a precinct of solid lots with
        no lanes through it: the ground its landmark stands on. */

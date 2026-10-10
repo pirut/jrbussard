@@ -32,9 +32,11 @@ const ROAD = 0.05;
 /* Camera distance and pitch at each zoom step. Exploring, the camera rides
    over JR's right shoulder, low, so the city towers over you; the front door
    is a wide, slow flyover instead. Same scheme as the Commons. */
-export const ZOOMS = [3.6, 5.5, 8.5, 13];
-const PITCHES = [0.12, 0.2, 0.28, 0.4];
-const INTRO = { distance: 44, pitch: 0.34 };
+export const ZOOMS = [5, 8, 11, 15];
+const PITCHES = [0.3, 0.46, 0.56, 0.66];
+/* The front door stands in the atrium and looks up at the towers, rather
+   than down on a sea of roofs. */
+const INTRO = { distance: 13, pitch: 0.14 };
 const FOV = 52;
 const MAX_LIGHTS = 10;
 
@@ -61,8 +63,7 @@ function pitchFor(distance) {
             return PITCHES[i - 1] + (PITCHES[i] - PITCHES[i - 1]) * k;
         }
     }
-    const k = Math.min(1, (distance - ZOOMS[ZOOMS.length - 1]) / (INTRO.distance - ZOOMS[ZOOMS.length - 1]));
-    return PITCHES[PITCHES.length - 1] + (INTRO.pitch - PITCHES[PITCHES.length - 1]) * k;
+    return PITCHES[PITCHES.length - 1];
 }
 
 function mix(a, b, k) {
@@ -86,10 +87,10 @@ export default class SiteScene {
         this.zoom = 1;
         this.distance = INTRO.distance;
         this.distanceGoal = INTRO.distance;
-        this.yaw = 0.6;
+        this.yaw = 0;
         this.yawGoal = 0;
         this.pitchBias = 0;
-        this.focus = new THREE.Vector3(world.spawn.x, 0, world.spawn.y - 4);
+        this.focus = new THREE.Vector3(world.spawn.x, 0, world.spawn.y - 9);
         this.counts = {};
         this.highlight = null;
         this.chunks = new Map();
@@ -147,7 +148,7 @@ export default class SiteScene {
         this.citizens = new Citizens(this.scene, world, (x, y) => this.standHeight(x, y));
 
         this.player = buildSurvivor(JR);
-        this.player.scale.setScalar(1.25);
+        this.player.scale.setScalar(1.1);
         this.scene.add(this.player);
         this.walker = {
             from: { ...world.spawn },
@@ -335,7 +336,7 @@ export default class SiteScene {
                 } else {
                     /* Worn setts down the alleys, darker where it is wet. */
                     const wet = hash(x, y, 6) < 0.18 ? 0.7 : 1;
-                    top = tint("#4c4945", wet * (0.86 + hash(x, y, 5) * 0.14)).clone();
+                    top = tint("#8a8274", wet * (0.86 + hash(x, y, 5) * 0.14)).clone();
                 }
                 batch.quad(set, [x - 0.5, h, y - 0.5], [x - 0.5, h, y + 0.5], [x + 0.5, h, y + 0.5], [x + 0.5, h, y - 0.5], top);
 
@@ -366,8 +367,11 @@ export default class SiteScene {
                 } else if (!room && !world.isSolid(x, y)) {
                     /* An alley: walls either side, and the city strung
                        across the gap overhead. */
+                    const lane = (dx, dy) => this.isCity(x - dx, y - dy) && !this.isCity(x + dx, y + dy) && this.isCity(x + 2 * dx, y + 2 * dy);
                     if (this.isCity(x - 1, y) && this.isCity(x + 1, y)) alleyClutter(batch, x, y, h, "x", Math.min(this.heightAt(x - 1, y), this.heightAt(x + 1, y)));
                     else if (this.isCity(x, y - 1) && this.isCity(x, y + 1)) alleyClutter(batch, x, y, h, "z", Math.min(this.heightAt(x, y - 1), this.heightAt(x, y + 1)));
+                    else if (lane(1, 0)) alleyClutter(batch, x + 0.5, y, h, "x", Math.min(this.heightAt(x - 1, y), this.heightAt(x + 2, y)), 2);
+                    else if (lane(0, 1)) alleyClutter(batch, x, y + 0.5, h, "z", Math.min(this.heightAt(x, y - 1), this.heightAt(x, y + 2)), 2);
                 }
                 const lamp = this.lampAt.get(`${x},${y}`);
                 if (lamp && lamp.wall) wallLantern(batch, lamp.x, lamp.y, h + lamp.light.y, lamp.wall[0], lamp.wall[1]);
@@ -469,8 +473,8 @@ export default class SiteScene {
             /* Room names mark rooms you are not in; the floor text belongs
                to the room around you. The front door shows neither, so the
                title has the picture to itself. */
-            const show = !intro && (label.room ? d > 12 && this.inSight(label.x, label.z) : d < 16);
-            const opacity = label.room ? Math.min(1, (d - 12) / 6) : Math.min(1, (16 - d) / 4);
+            const show = !intro && (label.room ? d > 12 && this.inSight(label.x, label.z) : d < 9);
+            const opacity = label.room ? Math.min(1, (d - 12) / 6) : Math.min(1, (9 - d) / 3);
             if (!show || opacity <= 0) {
                 if (label.shown) {
                     label.el.style.visibility = "hidden";
@@ -636,22 +640,23 @@ export default class SiteScene {
 
     updateCamera(dt) {
         const intro = this.mode === "intro";
-        const goal = intro ? tmp.set(this.world.spawn.x, 0, this.world.spawn.y - 4) : this.player.position;
+        const goal = intro ? tmp.set(this.world.spawn.x, 0, this.world.spawn.y - 9) : this.player.position;
         this.focus.lerp(goal, Math.min(1, dt * (intro ? 0.8 : 9)));
         if (intro) {
-            if (!this.reducedMotion) this.yaw += dt * 0.05;
+            /* A slow look from side to side, not a full turn. */
+            this.yaw = this.reducedMotion ? 0 : Math.sin(this.time * 0.07) * 0.35;
             this.yawGoal = 0;
         } else this.yaw = lerpAngle(this.yaw, this.yawGoal, Math.min(1, dt * 10));
         this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * (intro ? 1.5 : 4));
-        const pitch = Math.max(0.04, pitchFor(this.distance) + (intro ? 0 : this.pitchBias));
+        const pitch = intro ? INTRO.pitch : Math.max(0.04, pitchFor(this.distance) + this.pitchBias);
         const sx = -Math.sin(this.yaw);
         const sz = Math.cos(this.yaw);
         if (intro) {
             /* The front door looks up into the skyline. */
             const back = this.distance * Math.cos(pitch);
             const up = this.distance * Math.sin(pitch);
-            this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + 7, this.focus.z + sz * back);
-            this.camera.lookAt(this.focus.x, this.focus.y + 7, this.focus.z);
+            this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + 2.5, this.focus.z + sz * back);
+            this.camera.lookAt(this.focus.x, this.focus.y + 6, this.focus.z);
         } else {
             /* Over the shoulder: behind and a little right, aimed at a
                point ahead at head height. */
@@ -687,7 +692,7 @@ export default class SiteScene {
         this.ascii.uniforms.uInk.value = { night: 1.9, dusk: 1.7, dawn: 1.4, day: 1.1 }[this.phaseName];
         /* Each cell's colour also washes its background, so walls and
            towers read as solid masses with type on them, not as type alone. */
-        this.ascii.uniforms.uFill.value = night ? 0.4 : 0.32;
+        this.ascii.uniforms.uFill.value = night ? 0.18 : 0.14;
         /* A gentler ramp: close walls fill the view down an alley, and at
            full strength their flat faces drown the edges in letters. */
         this.ascii.uniforms.uRamp.value = 1.55;

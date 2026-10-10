@@ -24,11 +24,11 @@ from a game brings you back to the Arcade.
 
 The world is still a tile grid ([`src/world/`](src/world/)): rooms, roads,
 lakes, the props worth touching, and between them a warren of tenement blocks
-cut by one-tile alleys, packed the way the Kowloon Walled City was. Walking,
+cut by two-tile alleys, packed the way the Kowloon Walled City was. Walking,
 collisions and what each prop opens are all decided there. [`src/site3d/SiteScene.js`](src/site3d/SiteScene.js)
-only draws it, through the Commons' ASCII pass, with the camera over JR's
-shoulder (drag or `[` `]` to turn; it swings round to follow you into a side
-lane). The look is a Moscow that kept its churches: each room is a Kremlin-walled
+only draws it, through the Commons' ASCII pass, with the camera riding
+behind and above JR (drag or `[` `]` to turn; it swings round to follow you
+into a side lane). The look is a Moscow that kept its churches: each room is a Kremlin-walled
 compound ([`compound.js`](src/site3d/compound.js)) with a landmark across the
 street behind it — a five-domed church behind the library, a stepped Seven
 Sisters tower behind the atrium, chimneys behind the foundry, a St Basil's

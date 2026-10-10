@@ -313,14 +313,15 @@ const pickShader = /* glsl */ `
             for (int i = 0; i < 6; i++) lum[i] = pow(lum[i] / peak, sharp) * peak;
         }
 
-        /* Background cells touching a figure that stands in front of them go
-           quiet, which outlines the figure in empty space. */
+        /* Background cells beside or above a figure that stands in front of
+           them go quiet, which outlines the figure in empty space. Not the
+           cells under its feet: the ground it stands on stays drawn, so a
+           figure stands on something instead of floating in a gap. */
         float halo = 1.0;
         if (set != FIGURE) {
             vec2 step = 1.0 / uCells;
             if ((setAt(cell + vec2(1.0, 0.0)) == FIGURE && viewDepth(uv + vec2(step.x, 0.0)) < d) ||
                 (setAt(cell - vec2(1.0, 0.0)) == FIGURE && viewDepth(uv - vec2(step.x, 0.0)) < d) ||
-                (setAt(cell + vec2(0.0, 1.0)) == FIGURE && viewDepth(uv + vec2(0.0, step.y)) < d) ||
                 (setAt(cell - vec2(0.0, 1.0)) == FIGURE && viewDepth(uv - vec2(0.0, step.y)) < d)) {
                 halo = 0.25;
             }

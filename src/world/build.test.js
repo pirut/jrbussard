@@ -111,7 +111,7 @@ describe("the overworld", () => {
                 else if (!world.isSolid(x, y) && !seen[y * world.w + x]) lost += 1;
             }
         }
-        expect(blocks).toBeGreaterThan((world.w - 10) * (world.h - 10) * 0.4);
+        expect(blocks).toBeGreaterThan((world.w - 10) * (world.h - 10) * 0.3);
         expect(lost).toBe(0);
     });
 });

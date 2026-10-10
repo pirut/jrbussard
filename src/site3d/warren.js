@@ -72,9 +72,11 @@ export function tenement(b, x, z, y, h, open, lot, { crown = true } = {}) {
         const jz = (open.s ? jut : 0) - (open.n ? jut : 0);
         const wx = 1 + (open.e ? jut : 0) + (open.w ? jut : 0);
         const wz = 1 + (open.s ? jut : 0) + (open.n ? jut : 0);
-        box(b, "solid", x + jx / 2, by, z + jz / 2, wx, bh, wz, skin, 0.86 + hash(x, z + band, 214) * 0.18);
+        /* Kept dark: the walls are the canyon, and what reads in it is the
+           light — windows, lanterns, signs and the lane floor. */
+        box(b, "timber", x + jx / 2, by, z + jz / 2, wx, bh, wz, skin, 0.72 + hash(x, z + band, 214) * 0.16);
         /* A cornice to close the band: the line the ASCII turns into "-". */
-        box(b, "solid", x + jx / 2, by + bh - 0.08, z + jz / 2, wx + 0.08, 0.1, wz + 0.08, STONE_TRIM, 0.8);
+        box(b, "solid", x + jx / 2, by + bh - 0.08, z + jz / 2, wx + 0.08, 0.1, wz + 0.08, STONE_TRIM, 0.6);
 
         for (const f of Object.keys(OUT)) {
             if (!open[f]) continue;
@@ -87,19 +89,21 @@ export function tenement(b, x, z, y, h, open, lot, { crown = true } = {}) {
                 for (let i = 0; i < 2; i += 1) {
                     const along = i ? 0.24 : -0.24;
                     const r = hash(x * 7 + i + k * 3, z * 5 + s, f.charCodeAt(0) + band);
-                    const lit = r < 0.48;
+                    /* Few enough lit that each reads as a window, not a wall
+                       of light seen edge on down a lane. */
+                    const lit = r < 0.24;
                     const hex = lit ? LIGHTS[Math.floor(hash(x + k, z + i, 215) * LIGHTS.length)] : "#24242a";
-                    panel(b, lit ? "solid:glow" : "solid", f, cx, sy + 0.24, cz, half, along, 0.2, 0.42, hex, lit ? 0.55 + r : 1);
+                    panel(b, lit ? "solid:glow" : "solid", f, cx, sy + 0.24, cz, half, along, 0.2, 0.42, hex, lit ? 0.5 + r * 1.5 : 1);
                 }
                 /* Now and then a cage over a window, or a box humming. */
                 const extra = hash(x * 11 + k, z * 3 + s, 216 + f.charCodeAt(0));
                 const [ox, oz] = OUT[f];
-                if (extra < 0.12) {
+                if (extra < 0.05) {
                     const along = extra < 0.06 ? -0.24 : 0.24;
                     const px = cx + ox * (half + 0.12) + (ox ? 0 : along);
                     const pz = cz + oz * (half + 0.12) + (ox ? along : 0);
                     box(b, "timber", px, sy + 0.12, pz, ox ? 0.24 : 0.36, 0.5, ox ? 0.36 : 0.24, "#4a4844");
-                } else if (extra < 0.2) {
+                } else if (extra < 0.08) {
                     const px = cx + ox * (half + 0.08) + (ox ? 0 : -0.3);
                     const pz = cz + oz * (half + 0.08) + (oz ? 0 : -0.3);
                     box(b, "rock", px, sy + 0.05, pz, 0.2, 0.16, 0.2, "#b8b4a8", 0.8);
@@ -156,29 +160,31 @@ export function roofline(b, x, z, top, pick, lot) {
  * The street furniture strung across an alley: what makes a lane feel lived
  * over rather than merely walked. `across` is "x" when the walls are east
  * and west (so things span along x), "z" when they are north and south.
- * `room` is how high the walls either side stand.
+ * `room` is how high the walls either side stand, `width` how far apart.
  */
-export function alleyClutter(b, x, z, y, across, room) {
-    const pick = hash(x, z, 231);
+export function alleyClutter(b, x, z, y, across, room, width = 1) {
+    const pick = hash(Math.floor(x), Math.floor(z), 231);
     const span = (yy, thick, deep, hex, set = "solid") =>
-        across === "x" ? box(b, set, x, yy, z, 1.04, thick, deep, hex) : box(b, set, x, yy, z, deep, thick, 1.04, hex);
+        across === "x" ? box(b, set, x, yy, z, width + 0.04, thick, deep, hex) : box(b, set, x, yy, z, deep, thick, width + 0.04, hex);
     /* Cables, almost everywhere, at heights nobody planned. */
     const cables = Math.floor(hash(x, z, 232) * 3);
-    for (let i = 0; i < cables; i += 1) span(y + 3.4 + hash(x + i, z, 233) * Math.max(1, room - 4), 0.03, 0.03, "#2c2c30");
+    /* Everything strung across sits either just over your head or well over
+       the camera, never in the band the camera rides through. */
+    for (let i = 0; i < cables; i += 1) span(y + 7 + hash(x + i, z, 233) * Math.max(1, room - 7), 0.03, 0.03, "#2c2c30");
 
-    if (pick < 0.13 && room > 5) {
+    if (pick < 0.13 && room > 9) {
         /* A covered bridge between the two sides, lit. */
-        const by = y + 3.6 + Math.floor(hash(x, z, 234) * 4) * STOREY;
+        const by = y + 7.2 + Math.floor(hash(x, z, 234) * Math.max(1, room - 9)) * STOREY;
         span(by, 0.8, 0.8, SKINS[Math.floor(hash(x, z, 235) * SKINS.length)], "solid");
         span(by + 0.8, 0.08, 0.9, STONE_TRIM, "solid");
         const face = across === "x" ? ["s", "n"] : ["e", "w"];
-        face.forEach((f) => [-0.25, 0.25].forEach((along) => panel(b, "solid:glow", f, x, by + 0.22, z, 0.4, along, 0.18, 0.34, WINDOW, 0.75)));
+        face.forEach((f) => [-0.25, 0.25].forEach((along) => panel(b, "solid:glow", f, x, by + 0.22, z, 0.4, along * width, 0.18, 0.34, WINDOW, 0.75)));
     } else if (pick < 0.42) {
         /* Washing on a line. */
-        const ly = y + 2.8 + hash(x, z, 236) * 2.2;
+        const ly = y + 2.9 + hash(x, z, 236) * 0.8;
         span(ly, 0.02, 0.02, "#d8d0c0");
         for (let i = 0; i < 3; i += 1) {
-            const o = -0.3 + i * 0.3 + (hash(x + i, z, 237) - 0.5) * 0.1;
+            const o = (-0.3 + i * 0.3) * width + (hash(x + i, z, 237) - 0.5) * 0.1;
             const hex = CLOTH[Math.floor(hash(x, z + i, 238) * CLOTH.length)];
             const ch = 0.25 + hash(x + i, z + i, 239) * 0.25;
             if (across === "x") box(b, "leaves", x + o, ly - ch, z, 0.2, ch, 0.02, hex);
@@ -188,10 +194,11 @@ export function alleyClutter(b, x, z, y, across, room) {
     if (hash(x, z, 240) < 0.3) {
         /* A sign hung off one wall, out over the lane. */
         const s = hash(x, z, 241) < 0.5 ? -1 : 1;
-        const sy = y + 2.4 + hash(x, z, 242) * 1.6;
+        const sy = y + 2.4 + hash(x, z, 242) * 0.9;
         const hex = ["#e0584a", "#e6b768", "#9fd0a0", "#e07a9a"][Math.floor(hash(x, z, 243) * 4)];
-        if (across === "x") box(b, "solid:glow", x + s * 0.34, sy, z, 0.3, 0.6, 0.05, hex, 0.8);
-        else box(b, "solid:glow", x, sy, z + s * 0.34, 0.05, 0.6, 0.3, hex, 0.8);
+        const out = width / 2 - 0.16;
+        if (across === "x") box(b, "solid:glow", x + s * out, sy, z, 0.3, 0.6, 0.05, hex, 0.8);
+        else box(b, "solid:glow", x, sy, z + s * out, 0.05, 0.6, 0.3, hex, 0.8);
     }
 }
 
