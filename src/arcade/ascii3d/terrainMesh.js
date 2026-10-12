@@ -3,6 +3,7 @@ import { tileAt, elevationAt, GRASS, TREE, WATER, ROCK, ROAD, SAND, CHUNK } from
 import { resourceAt } from "../../lib/survival";
 import { shadeAt } from "../../lib/shade";
 import { material } from "./materials";
+import { cutaway } from "./iso";
 import { glyphCode, GLYPH_SETS } from "./asciiPass";
 import { peakBuilding } from "./architecture";
 import { hash, P, place, tint } from "./shapes";
@@ -45,7 +46,7 @@ function grassMaterial() {
             );
     };
     windMaterial.customProgramCacheKey = () => "commons-grass";
-    return windMaterial;
+    return cutaway(windMaterial);
 }
 
 /*

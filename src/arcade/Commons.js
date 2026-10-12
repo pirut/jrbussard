@@ -27,7 +27,8 @@ import { playerColor } from "../lib/appearance";
 import { Fieldcraft, Compass } from "./CommonsPanels";
 import CharacterCreator, { CharacterPortrait } from "./CommonsCharacter";
 import AsciiField from "./ascii3d/AsciiField";
-import { screenStep } from "./ascii3d/controls";
+import { gridStep } from "./ascii3d/controls";
+import { ISO_YAW, screenToMap } from "./ascii3d/iso";
 import { passability, findPath } from "./ascii3d/navigation";
 import { createDemo } from "./ascii3d/demo";
 import "./arcade.css";
@@ -361,10 +362,10 @@ const WEATHER_WORD = {
  * The game itself: a field that fills the window, a HUD over it, and
  * keyboard and mouse controls in the manner of any action RPG.
  *
- *   WASD / arrows    walk (hold to keep walking), relative to the camera
+ *   WASD / arrows    walk (hold to keep walking), up the screen and so on
  *   left click       walk there, or go and chop, mine, open, attack
  *   hold left        keep attacking or gathering
- *   right drag       turn the camera; wheel zooms
+ *   [ ]              turn the camera a quarter; wheel zooms
  *   space            act on what is in front of you
  *   B, 1–9           build; click to place, right click or Esc to stop
  *   E / Q            eat / drink a potion
@@ -444,6 +445,8 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
   const facingRef = useRef({ dx: 0, dy: 1 });
   const planRef = useRef(null);
   const heldRef = useRef([]);
+  /* How far a diagonal walk is behind on each axis (see gridStep). */
+  const stairRef = useRef({ x: 0, y: 0 });
   const mouseRef = useRef({ held: false, last: 0 });
 
   useEffect(() => {
@@ -630,11 +633,20 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       const held = heldRef.current;
       if (held.length) {
         planRef.current = null;
-        const [sx, sy] = MOVES[held[held.length - 1]];
-        const [dx, dy] = screenStep(fieldApi.current?.heading() ?? 0, sx, sy);
-        stepBy(dx, dy);
+        /* Every key held counts, so W and D together walk up and to the
+           right of the screen, which from the isometric corner is due
+           north on the map. */
+        const sx = Math.sign(held.reduce((sum, k) => sum + MOVES[k][0], 0));
+        const sy = Math.sign(held.reduce((sum, k) => sum + MOVES[k][1], 0));
+        const dir = screenToMap(fieldApi.current?.heading() ?? ISO_YAW, sx, sy);
+        if (!dir[0] && !dir[1]) return;
+        const from = here();
+        const nav = passability(stateRef.current);
+        const [dx, dy] = gridStep(dir, stairRef.current, (x, y) => nav.free(from.x + x, from.y + y));
+        if (dx || dy) stepBy(dx, dy);
         return;
       }
+      stairRef.current = { x: 0, y: 0 };
       const plan = planRef.current;
       if (plan) {
         if (plan.steps.length) {
@@ -870,7 +882,6 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       drag.y = event.clientY;
       drag.moved += Math.abs(dx) + Math.abs(dy);
       if (drag.moved > 4 && !dragging) setDragging(true);
-      fieldApi.current?.rotate(-dx * 0.0065, dy * 0.004);
       return;
     }
     if (event.pointerType !== "touch") setHover(pick(event));
@@ -937,7 +948,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         ref={stageRef}
         className="game-stage"
         role="application"
-        aria-label="The Commons. WASD to walk, click to act, right-drag to turn the camera, H for help."
+        aria-label="The Commons. WASD to walk, click to act, brackets to turn the camera, H for help."
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -1203,7 +1214,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
                 <dd>walk there, or go and chop, mine, open, attack</dd>
                 <dt>hold left</dt>
                 <dd>keep swinging</dd>
-                <dt>right drag · wheel</dt>
+                <dt>[ ] · wheel</dt>
                 <dd>turn the camera · zoom</dd>
                 <dt>space</dt>
                 <dd>act on what's in front of you</dd>
@@ -1250,7 +1261,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
             click to play
           </button>
           <small>
-            WASD to walk · click to act · right drag to look · F for full screen
+            WASD to walk · click to act · [ ] to turn · F for full screen
           </small>
         </div>
       )}
