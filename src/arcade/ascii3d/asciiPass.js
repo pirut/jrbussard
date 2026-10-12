@@ -247,6 +247,7 @@ const pickShader = /* glsl */ `
     uniform vec3 uGhostColor;
     uniform mat4 uInvProj;
     uniform mat4 uCamToWorld;
+    uniform float uOrtho;
 
     const int COUNT = ${GLYPHS.length};
     const float CODES = ${CODES.toFixed(1)};
@@ -274,9 +275,20 @@ const pickShader = /* glsl */ `
         return pow(max(c, 0.0), vec3(1.0 / 2.2));
     }
 
+    /* Depth along the view. An orthographic camera stores it linearly. */
+    float linearDepth(float d) {
+        return uOrtho > 0.5 ? uNear + d * (uFar - uNear) : (uNear * uFar) / (uFar - d * (uFar - uNear));
+    }
+
     float viewDepth(vec2 uv) {
-        float d = texture(tDepth, uv).r;
-        return (uNear * uFar) / (uFar - d * (uFar - uNear));
+        return linearDepth(texture(tDepth, uv).r);
+    }
+
+    /* How big a jump in depth is, for finding silhouettes. In perspective
+       it is relative to how far off it is; looking straight down the
+       isometric diagonal everything is equally far, so a fixed scale. */
+    float depthJump(float jump, float d) {
+        return uOrtho > 0.5 ? jump / 9.0 : jump / d;
     }
 
     /* Where on the ground a point of the screen lands, in world units. */
@@ -290,7 +302,7 @@ const pickShader = /* glsl */ `
     /* The depth of the one figure that must never be lost, drawn on its own. */
     float ghostDepth(vec2 uv) {
         float g = texture(tGhost, uv).r;
-        return g >= 1.0 ? 1e9 : (uNear * uFar) / (uFar - g * (uFar - uNear));
+        return g >= 1.0 ? 1e9 : linearDepth(g);
     }
 
     float setAt(vec2 cell) {
@@ -424,7 +436,7 @@ const pickShader = /* glsl */ `
             float limit = set == FIGURE ? uOutline : uOutline * 2.5;
             /* Only the near side of the jump, so each outline belongs to the
                thing in front. */
-            if ((far - d) / d > limit && (d - near) < (far - d) * 0.5) {
+            if (depthJump(far - d, d) > limit && (d - near) < (far - d) * 0.5) {
                 vec2 g = vec2((dr - dl) / uCellPx.x, (du - dd) / uCellPx.y);
                 float a = atan(abs(g.y), abs(g.x));
                 if (a < 0.42) glyph = ${idx("|")};
@@ -452,9 +464,18 @@ const pickShader = /* glsl */ `
                 float v = k == 0 ? gc.x : gc.y;
                 /* A joint runs through this cell if one lies within half a
                    cell of its middle, measured the long way, so a slanting
-                   joint takes one cell a row rather than two. */
+                   joint takes one cell a row rather than two. From above,
+                   flags are two tiles across and the joints finer, or the
+                   floor turns to wickerwork. */
                 float reach = 0.5 * max(abs(g.x), abs(g.y));
-                if (abs(g.x) + abs(g.y) > 0.4 || abs(v - floor(v + 0.5)) > reach) continue;
+                if (uOrtho > 0.5) {
+                    v *= 0.5;
+                    g *= 0.5;
+                    reach *= 0.45;
+                }
+                /* Seen from above every cell spans a good part of a tile
+                   on the slant, so the isometric view allows more. */
+                if (abs(g.x) + abs(g.y) > (uOrtho > 0.5 ? 0.9 : 0.4) || abs(v - floor(v + 0.5)) > reach) continue;
                 g /= uCellPx;
                 float ang = atan(abs(g.y), abs(g.x));
                 if (ang < 0.5) glyph = ${idx("|")};
@@ -651,6 +672,8 @@ export class AsciiPass {
                 uGhost: { value: 0 },
                 uGhostColor: { value: new THREE.Color(0xbfe6ff) },
                 uCamToWorld: { value: new THREE.Matrix4() },
+                /* 1 for an orthographic (isometric) camera. */
+                uOrtho: { value: 0 },
             },
         });
         this.drawMaterial = new THREE.ShaderMaterial({

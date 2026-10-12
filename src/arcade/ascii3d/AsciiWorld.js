@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CHUNK, WATER, TREE, ROCK, tileAt } from "../../lib/terrain";
+import { CHUNK, WATER, tileAt } from "../../lib/terrain";
 import { AsciiPass, glyphCode } from "./asciiPass";
 import { buildChunk, createWater, rippleWater, groundHeight, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
 import {
@@ -14,6 +14,7 @@ import {
     disposeModel,
 } from "./models";
 import { disposeMaterials } from "./materials";
+import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera } from "./iso";
 
 /*
  * The Commons, as a 3D scene drawn in characters.
@@ -30,28 +31,16 @@ import { disposeMaterials } from "./materials";
  */
 
 /*
- * Camera distance and pitch at each zoom step. The camera rides over your
- * right shoulder like a third-person game, low enough that the horizon and
- * everything tall stays in view; pulling out lifts it a little, never to a
- * map. Drag to look round; the keys walk relative to where it looks.
+ * How much of the field fits on screen, top to bottom, in tiles, at each
+ * zoom step. The camera is isometric (see iso.js), as in the survival games
+ * this borrows its feel from: high off one corner, looking down at thirty
+ * degrees, turned only a quarter at a time with [ and ]. Whatever stands
+ * between it and you, trees and walls and hills, is cut down so you can
+ * always see yourself.
  */
-export const ZOOMS = [3.4, 5, 7.5, 12];
-const PITCHES = [0.1, 0.16, 0.26, 0.4];
-const NEAREST = 2.6;
-const FARTHEST = 16;
-
-/* Pitch for any camera distance, between the zoom steps. */
-function pitchFor(distance) {
-    if (distance <= ZOOMS[0]) return PITCHES[0] - (ZOOMS[0] - distance) * 0.04;
-    for (let i = 1; i < ZOOMS.length; i += 1) {
-        if (distance <= ZOOMS[i]) {
-            const k = (distance - ZOOMS[i - 1]) / (ZOOMS[i] - ZOOMS[i - 1]);
-            return PITCHES[i - 1] + (PITCHES[i] - PITCHES[i - 1]) * k;
-        }
-    }
-    return PITCHES[PITCHES.length - 1] + (distance - ZOOMS[ZOOMS.length - 1]) * 0.015;
-}
-const FOV = 52;
+export const ZOOMS = [8, 11, 15, 21];
+const NEAREST = 6;
+const FARTHEST = 30;
 const MAX_LIGHTS = 6;
 
 /* Sky, sun and fill for each part of the day. Colours are sRGB hex. */
@@ -83,12 +72,11 @@ export default class AsciiWorld {
         this.aim = null;
         this.aimOk = true;
         this.turn = 0;
-        this.yaw = 0;
+        this.yaw = ISO_YAW;
         this.zoom = 1;
         this.distance = ZOOMS[1];
         this.distanceGoal = ZOOMS[1];
-        this.yawGoal = 0;
-        this.pitchBias = 0;
+        this.yawGoal = ISO_YAW;
         this.shake = 0;
         this.predicted = null;
         this.floaters = [];
@@ -126,7 +114,7 @@ export default class AsciiWorld {
 
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x0b120d, 20, 40);
-        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.5, 170);
+        this.camera = createIsoCamera();
 
         this.hemi = new THREE.HemisphereLight(0xd3e6ff, 0x4a5a3a, 1);
         this.scene.add(this.hemi);
@@ -135,10 +123,10 @@ export default class AsciiWorld {
         this.sun.shadow.mapSize.set(1024, 1024);
         this.sun.shadow.bias = -0.0015;
         const sc = this.sun.shadow.camera;
-        sc.left = -22;
-        sc.right = 22;
-        sc.top = 22;
-        sc.bottom = -22;
+        sc.left = -28;
+        sc.right = 28;
+        sc.top = 28;
+        sc.bottom = -28;
         sc.near = 1;
         sc.far = 80;
         this.scene.add(this.sun, this.sun.target);
@@ -201,8 +189,7 @@ export default class AsciiWorld {
         this.renderer.setSize(width, height, false);
 
         this.ascii.setSize(this.grid);
-        this.camera.aspect = (cols * cellW) / (rows * cellH);
-        this.camera.updateProjectionMatrix();
+        this.camera.userData.aspect = (cols * cellW) / (rows * cellH);
     }
 
     setCellSize(w, h) {
@@ -233,7 +220,7 @@ export default class AsciiWorld {
     /* Snap to a quarter turn, the nearest way round. */
     setTurn(turn) {
         this.turn = ((turn % 4) + 4) % 4;
-        const goal = (this.turn * Math.PI) / 2;
+        const goal = ISO_YAW + (this.turn * Math.PI) / 2;
         let d = goal - this.yawGoal;
         d = Math.atan2(Math.sin(d), Math.cos(d));
         this.yawGoal += d;
@@ -244,21 +231,20 @@ export default class AsciiWorld {
         this.distanceGoal = ZOOMS[this.zoom];
     }
 
-    /* Free camera, for dragging with the mouse and the wheel. */
-    rotate(dyaw, dpitch = 0) {
-        this.yawGoal += dyaw;
-        this.pitchBias = Math.max(-0.22, Math.min(0.5, this.pitchBias + dpitch));
+    /* A quarter turn, one way or the other. The isometric view only ever
+       stands at one of its four corners. */
+    rotate(dyaw) {
+        if (dyaw) this.yawGoal += Math.sign(dyaw) * (Math.PI / 2);
     }
 
     zoomBy(factor) {
         this.distanceGoal = Math.max(NEAREST, Math.min(FARTHEST, this.distanceGoal * factor));
     }
 
-    /* Which quarter of the compass the camera looks toward, for turning
-       screen directions into steps on the map (see controls.js). */
+    /* The camera's turn, for turning keys into directions on the map
+       (see iso.js). The goal, not the swing, so a held key keeps its way. */
     heading() {
-        const q = Math.round(this.yawGoal / (Math.PI / 2));
-        return ((q % 4) + 4) % 4;
+        return this.yawGoal;
     }
 
     /* Move yourself at once, before the server confirms, so walking feels
@@ -463,6 +449,7 @@ export default class AsciiWorld {
             }
             if (!entity) {
                 entity = this.makeEntity(buildSurvivor(p), p.x, p.y);
+                entity.glide = true;
                 entity.key = key;
                 entity.facing = p.self ? Math.PI : 0;
                 this.players.set(p.id, entity);
@@ -794,9 +781,8 @@ export default class AsciiWorld {
         const tint = new THREE.Color(day ? 0x3c4a66 : 0x283350);
         if (this.flash > 0.2) tint.setHex(0x8f9fd0);
         u.uCloudColor.value.lerp(tint, this.flash > 0.2 ? 1 : k);
-        /* Turning the camera slides the sky by the matching number of cells. */
-        const hfov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect);
-        u.uSkyShift.value = (-this.yaw / hfov) * this.grid.cols;
+        /* Turning the camera slides the sky along. */
+        u.uSkyShift.value = (-this.yaw / 1.4) * this.grid.cols;
     }
 
     updateEntity(entity, dt) {
@@ -807,7 +793,22 @@ export default class AsciiWorld {
         const fromH = this.entityHeight(entity.from.x, entity.from.y);
         const toH = this.entityHeight(entity.to.x, entity.to.y);
         const h = fromH + (toH - fromH) * t + Math.sin(t * Math.PI) * (Math.abs(toH - fromH) > 0.05 ? 0.12 : 0);
-        entity.pos.set(x, h, z);
+        if (entity.glide) {
+            /*
+             * People glide. The server moves everyone a whole tile at a time,
+             * along the grid, so a diagonal arrives as a zigzag; easing
+             * toward each step instead of landing on it smooths the zigzag
+             * into the straight line that was meant, and the body turns to
+             * the way it is really going.
+             */
+            const k = 1 - Math.exp(-dt * 13);
+            const gx = entity.pos.x + (x - entity.pos.x) * k;
+            const gz = entity.pos.z + (z - entity.pos.z) * k;
+            const vx = gx - entity.pos.x;
+            const vz = gz - entity.pos.z;
+            if (Math.hypot(vx, vz) > dt * 0.8) entity.facing = Math.atan2(vx, vz);
+            entity.pos.set(gx, h, gz);
+        } else entity.pos.set(x, h, z);
         const walking = this.time - entity.lastStep < (entity.duration > 0.3 ? 0.55 : 0.28);
         entity.moving += ((walking ? 1 : 0) - entity.moving) * Math.min(1, dt * 12);
         entity.stride += moved * 4.6;
@@ -839,8 +840,9 @@ export default class AsciiWorld {
     }
 
     updateChunks() {
-        /* Low cameras see to the horizon, so build out to where the fog ends. */
-        const radius = this.scene.fog.far + 4;
+        /* Enough to fill the screen at the widest zoom, and the hills just
+           below it. */
+        const radius = this.distance * 1.3 + 18;
         const cx = Math.floor(this.focus.x / CHUNK);
         const cy = Math.floor(this.focus.z / CHUNK);
         const reach = Math.ceil(radius / CHUNK);
@@ -921,20 +923,22 @@ export default class AsciiWorld {
         this.hemi.intensity = p.hemi + flash;
         this.hemi.color.copy(p.sky);
         this.hemi.groundColor.copy(p.ground);
-        const fogFar = this.weather === "fog" ? this.distance * 1.6 + 8 : this.distance * 2.4 + 28;
+        /* Measured from where the isometric camera hangs, so the haze
+           thickens toward the top of the screen, further off. */
+        const fog = this.weather === "fog";
         this.scene.fog.color.copy(p.bg);
-        this.scene.fog.near = this.distance * (this.weather === "fog" ? 0.4 : 0.9);
-        this.scene.fog.far = fogFar;
+        this.scene.fog.near = ISO_BACK + this.distance * (fog ? -0.4 : 0.3);
+        this.scene.fog.far = ISO_BACK + this.distance * (fog ? 0.9 : 2.4) + (fog ? 4 : 12);
         this.renderer.setClearColor(this.scene.fog.color, glyphCode(0));
         /* Colours live in linear space; the ASCII pass writes sRGB. */
         this.ascii.uniforms.uBackground.value.copy(p.bg).convertLinearToSRGB();
         /* A wash of each cell's colour behind its character, so shapes read
            as masses at a glance; more at night, when the type is thinner. */
-        this.ascii.uniforms.uFill.value = this.phaseName === "night" ? 0.3 : 0.22;
+        this.ascii.uniforms.uFill.value = this.phaseName === "night" ? 0.6 : 0.52;
         this.ascii.uniforms.uGlow.value = this.phaseName === "night" ? 1.2 : 0.5;
         /* Flat walls thin out as they darken, so cabins read as timber
            rather than as slabs of # and %. */
-        this.ascii.uniforms.uContrast.value = 1.3;
+        this.ascii.uniforms.uContrast.value = 1.7;
         this.ascii.uniforms.uNear.value = this.camera.near;
         this.ascii.uniforms.uFar.value = this.camera.far;
 
@@ -987,62 +991,24 @@ export default class AsciiWorld {
             this.selfFacing = null;
         }
 
-        if (this.orbit) this.turnAngle = (this.turnAngle ?? 0) + dt * 0.08;
+        if (this.orbit) this.turnAngle = (this.turnAngle ?? ISO_YAW) + dt * 0.08;
         const goalYaw = this.orbit ? this.turnAngle : this.yawGoal;
-        this.yaw = this.orbit ? goalYaw : this.yaw + (goalYaw - this.yaw) * Math.min(1, dt * 12);
-        const ease = Math.min(1, dt * 8);
-        this.distance += (this.distanceGoal - this.distance) * ease;
-        this.pitch = Math.max(0.04, pitchFor(this.distance) + this.pitchBias);
+        this.yaw = this.orbit ? goalYaw : lerpAngle(this.yaw, goalYaw, Math.min(1, dt * 8));
+        this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * 8);
 
-        /* Over the shoulder: behind you and a little to the right, aimed at
-           a point ahead of you at head height. */
-        const sx = -Math.sin(this.yaw);
-        const sz = Math.cos(this.yaw);
-        const head = this.focus.y + 1.6;
-        const shoulder = 0.6 * Math.min(1, this.distance / 5);
-        /* Pull in rather than end up inside a tree or a hillside. */
-        const reach = this.cameraReach(sx, sz, head, shoulder);
-        this.reach = this.reach === undefined ? reach : reach < this.reach ? reach : this.reach + (reach - this.reach) * Math.min(1, dt * 3);
-        const d = this.distance * this.reach;
-        const back = d * Math.cos(this.pitch);
-        const up = d * Math.sin(this.pitch);
-        const lift = head - this.focus.y;
-        const rx = sz;
-        const rz = -sx;
-        this.camera.position.set(this.focus.x + sx * back + rx * shoulder, head + up, this.focus.z + sz * back + rz * shoulder);
+        placeIsoCamera(this.camera, this.focus, this.yaw, this.distance, this.camera.userData.aspect || 1.6);
         if (this.shake > 0 && !this.reducedMotion) {
             this.shake = Math.max(0, this.shake - dt);
             const k = this.shake * 0.35;
             this.camera.position.x += (Math.random() - 0.5) * k;
             this.camera.position.y += (Math.random() - 0.5) * k;
+            this.camera.updateMatrixWorld();
         }
-        const ahead = 2.5 + this.distance * 0.2;
-        this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, this.focus.y + lift - 0.1, this.focus.z - sz * ahead + rz * shoulder * 0.4);
+        /* Cut away whatever stands between the camera and you. */
+        aimCutaway(this.camera, self ? self.pos : this.focus, { on: Boolean(self) && !this.orbit, width: 2.4 + this.distance * 0.12, height: 2.2 + this.distance * 0.1 });
 
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
-    }
-
-    /*
-     * How much of the way back the camera can go before something stands in
-     * the way: walk the line from your head toward the camera tile by tile,
-     * and stop short of the first tree, rock or rise that is taller than it.
-     */
-    cameraReach(sx, sz, head, shoulder) {
-        const rise = Math.sin(this.pitch);
-        for (let k = 1; k <= 10; k += 1) {
-            const f = k / 10;
-            const dist = this.distance * f;
-            const x = Math.round(this.focus.x + sx * dist * Math.cos(this.pitch) + sz * shoulder * f);
-            const z = Math.round(this.focus.z + sz * dist * Math.cos(this.pitch) - sx * shoulder * f);
-            const tile = tileAt(x, z);
-            let top = Math.max(WATER_LEVEL, groundHeight(x, z)) + 0.4;
-            if (tile === TREE) top += 3.6;
-            else if (tile === ROCK) top += 1.6;
-            if (this.structures?.get?.(`${x},${z}`)?.kind === "wall") top += 2.2;
-            if (top > head + dist * rise) return Math.max(0.35, f - 0.12);
-        }
-        return 1;
     }
 
     updateCursor() {
@@ -1118,6 +1084,7 @@ export default class AsciiWorld {
         this.renderer.setRenderTarget(this.ascii.target);
         this.renderer.render(this.scene, this.camera);
         this.ascii.uniforms.uFlash.value = this.flash > 0.2 ? 1 : 0;
+        this.ascii.uniforms.uOrtho.value = 1;
         this.ascii.render(this.renderer);
         this.updateLabels();
         this.updateBars();
@@ -1126,6 +1093,7 @@ export default class AsciiWorld {
 
     dispose() {
         cancelAnimationFrame(this.raf);
+        CUT.uCutOn.value = 0;
         this.observer.disconnect();
         this.chunks.forEach((c) => this.dropChunk(c));
         this.chunks.clear();

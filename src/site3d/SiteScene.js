@@ -5,6 +5,7 @@ import { buildSurvivor, buildCursor, pose } from "../arcade/ascii3d/models";
 import { Batch, P, place, tint, hash, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
 import { streetlamp } from "../arcade/ascii3d/architecture";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
+import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera } from "../arcade/ascii3d/iso";
 import { KIND } from "../world/tiles";
 import { fbm } from "../lib/noise";
 import { buildProp, buildTorch, disposeProps } from "./props";
@@ -29,15 +30,13 @@ const SEABED = -0.7;
 const ROOM_FLOOR = 0.1;
 const ROAD = 0.05;
 
-/* Camera distance and pitch at each zoom step. Exploring, the camera rides
-   over JR's right shoulder, low, so the city towers over you; the front door
-   is a wide, slow flyover instead. Same scheme as the Commons. */
-export const ZOOMS = [5, 8, 11, 15];
-const PITCHES = [0.3, 0.46, 0.56, 0.66];
-/* The front door stands in the atrium and looks up at the towers, rather
-   than down on a sea of roofs. */
-const INTRO = { distance: 13, pitch: 0.14 };
-const FOV = 52;
+/* How much of the city fits on screen, top to bottom, in tiles, at each
+   zoom step. The camera is isometric (see ascii3d/iso.js): it hangs off the
+   south-east corner and looks down at thirty degrees, as in the survival
+   games, and walls in front of you are cut away so you can always see in.
+   The front door is the same view pulled back, drifting over the city. */
+export const ZOOMS = [9, 12.5, 17, 24];
+const INTRO = { distance: 26 };
 const MAX_LIGHTS = 10;
 const GHOST_LAYER = 1;
 
@@ -54,17 +53,6 @@ function lerpAngle(a, b, t) {
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;
     return a + d * t;
-}
-
-function pitchFor(distance) {
-    if (distance <= ZOOMS[0]) return PITCHES[0];
-    for (let i = 1; i < ZOOMS.length; i += 1) {
-        if (distance <= ZOOMS[i]) {
-            const k = (distance - ZOOMS[i - 1]) / (ZOOMS[i] - ZOOMS[i - 1]);
-            return PITCHES[i - 1] + (PITCHES[i] - PITCHES[i - 1]) * k;
-        }
-    }
-    return PITCHES[PITCHES.length - 1];
 }
 
 function mix(a, b, k) {
@@ -88,10 +76,9 @@ export default class SiteScene {
         this.zoom = 1;
         this.distance = INTRO.distance;
         this.distanceGoal = INTRO.distance;
-        this.yaw = 0;
-        this.yawGoal = 0;
-        this.pitchBias = 0;
-        this.focus = new THREE.Vector3(world.spawn.x, 0, world.spawn.y - 9);
+        this.yaw = ISO_YAW;
+        this.yawGoal = ISO_YAW;
+        this.focus = new THREE.Vector3(world.spawn.x, 0, world.spawn.y);
         this.counts = {};
         this.highlight = null;
         this.chunks = new Map();
@@ -113,7 +100,7 @@ export default class SiteScene {
 
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x0b120d, 30, 60);
-        this.camera = new THREE.PerspectiveCamera(FOV, 2, 0.25, 220);
+        this.camera = createIsoCamera();
 
         const p = PHASES[this.phaseName];
         this.hemi = new THREE.HemisphereLight(p.sky, p.ground, p.hemi);
@@ -122,12 +109,12 @@ export default class SiteScene {
         this.sun.shadow.mapSize.set(1024, 1024);
         this.sun.shadow.bias = -0.0015;
         const sc = this.sun.shadow.camera;
-        sc.left = -30;
-        sc.right = 30;
-        sc.top = 30;
-        sc.bottom = -30;
+        sc.left = -36;
+        sc.right = 36;
+        sc.top = 36;
+        sc.bottom = -36;
         sc.near = 1;
-        sc.far = 90;
+        sc.far = 100;
         this.scene.add(this.hemi, this.sun, this.sun.target);
         this.lightPool = [];
         for (let i = 0; i < MAX_LIGHTS; i += 1) {
@@ -154,17 +141,9 @@ export default class SiteScene {
            that shows through whatever stands in the way. */
         this.player.traverse((node) => node.layers.enable(GHOST_LAYER));
         this.scene.add(this.player);
-        this.walker = {
-            from: { ...world.spawn },
-            to: { ...world.spawn },
-            start: 0,
-            duration: 0.12,
-            facing: Math.PI,
-            yaw: Math.PI,
-            stride: 0,
-            moving: 0,
-            lastStep: -10,
-        };
+        /* Where World.js says JR is this frame: walking is continuous now,
+           so this is a position and a heading, not a tile to ease toward. */
+        this.walker = { x: world.spawn.x, y: world.spawn.y, facing: Math.PI, speed: 0, running: false, yaw: Math.PI, stride: 0, moving: 0 };
         this.player.position.set(world.spawn.x, this.standHeight(world.spawn.x, world.spawn.y), world.spawn.y);
 
         this.cursor = buildCursor();
@@ -232,8 +211,10 @@ export default class SiteScene {
                 const ly = y >> 1;
                 const edge = Math.min(x, y, w - 1 - x, h - 1 - y);
                 const district = fbm(lx * 2, ly * 2, 0.035);
-                let want = 6.5 + district * 9 + hash(lx, ly, 81) * 3.5 + (hash(x, y, 88) - 0.5) * 1.6;
-                if (edge < 7) want += (7 - edge) * 2.4;
+                /* Lower than the old street-level city: seen from above, a
+                   block reads by its storeys, and the cut does the rest. */
+                let want = 4.2 + district * 7 + hash(lx, ly, 81) * 3 + (hash(x, y, 88) - 0.5) * 1.4;
+                if (edge < 7) want += (7 - edge) * 1.8;
                 this.heights[y * w + x] = want;
             }
         }
@@ -388,7 +369,8 @@ export default class SiteScene {
     }
 
     updateChunks(all = false) {
-        const reach = this.scene.fog.far + CHUNK;
+        /* Enough to fill the screen, and the tall blocks just below it. */
+        const reach = this.distance * 1.3 + 26;
         const wanted = [];
         const cols = Math.ceil(this.world.w / CHUNK);
         const rows = Math.ceil(this.world.h / CHUNK);
@@ -457,16 +439,6 @@ export default class SiteScene {
         });
     }
 
-    /* Whether the city stands between you and a point: a room's name
-       should not float through the tenements in front of it. */
-    inSight(x, z) {
-        const d = Math.hypot(x - this.focus.x, z - this.focus.z);
-        for (let k = 1; k < d; k += 1) {
-            if (this.isCity(Math.round(this.focus.x + ((x - this.focus.x) * k) / d), Math.round(this.focus.z + ((z - this.focus.z) * k) / d))) return false;
-        }
-        return true;
-    }
-
     updateLabels() {
         const g = this.grid;
         const w = g.cols * g.cellW;
@@ -477,7 +449,7 @@ export default class SiteScene {
             /* Room names mark rooms you are not in; the floor text belongs
                to the room around you. The front door shows neither, so the
                title has the picture to itself. */
-            const show = !intro && (label.room ? d > 12 && this.inSight(label.x, label.z) : d < 9);
+            const show = !intro && (label.room ? d > 12 : d < 9);
             const opacity = label.room ? Math.min(1, (d - 12) / 6) : Math.min(1, (9 - d) / 3);
             if (!show || opacity <= 0) {
                 if (label.shown) {
@@ -506,22 +478,25 @@ export default class SiteScene {
         this.distanceGoal = mode === "intro" ? INTRO.distance : ZOOMS[this.zoom];
     }
 
+    /* Where JR stands and which way they face, every frame. */
+    setPose({ x, y, facing, speed = 0, running = false }) {
+        const w = this.walker;
+        w.x = x;
+        w.y = y;
+        if (facing !== undefined) w.facing = facing;
+        w.speed = speed;
+        w.running = running;
+    }
+
+    /* Put JR somewhere outright: arriving, or travelling between rooms. */
     setPlayer({ x, y }, { snap = false } = {}) {
         const w = this.walker;
-        if (w.to.x === x && w.to.y === y) return;
-        const far = snap || Math.hypot(w.to.x - x, w.to.y - y) > 2.5;
-        if (!far) {
-            w.facing = Math.atan2(x - w.to.x, y - w.to.y);
-            const gap = this.time - w.lastStep;
-            w.duration = gap < 0.4 ? Math.min(Math.max(gap, 0.09), 0.2) : 0.12;
-            w.lastStep = this.time;
-        }
-        if (!far && this.mode !== "intro") this.follow(Math.sign(x - w.to.x), Math.sign(y - w.to.y), x, y);
-        w.from = far ? { x, y } : { x: this.player.position.x, y: this.player.position.z };
-        w.to = { x, y };
-        w.start = this.time;
+        const far = snap || Math.hypot(w.x - x, w.y - y) > 2.5;
+        w.x = x;
+        w.y = y;
         if (far) {
-            this.player.position.set(x, this.standHeight(x, y), y);
+            w.speed = 0;
+            this.player.position.set(x, this.standHeight(Math.round(x), Math.round(y)), y);
             this.focus.set(x, this.player.position.y, y);
         }
     }
@@ -559,138 +534,61 @@ export default class SiteScene {
         this.grid = { dpr, width, height, cellW, cellH, cols, rows, offX: Math.floor((width - cols * cellW) / 2), offY: Math.floor((height - rows * cellH) / 2) };
         this.renderer.setSize(width, height, false);
         this.ascii.setSize(this.grid);
-        this.camera.aspect = (cols * cellW) / (rows * cellH);
-        this.camera.updateProjectionMatrix();
+        this.camera.userData.aspect = (cols * cellW) / (rows * cellH);
     }
 
     /* ── Per frame ─────────────────────────────────────────────────────── */
 
     updatePlayer(dt) {
         const w = this.walker;
-        const t = w.duration > 0 ? Math.min(1, (this.time - w.start) / w.duration) : 1;
-        const x = w.from.x + (w.to.x - w.from.x) * t;
-        const z = w.from.y + (w.to.y - w.from.y) * t;
-        const moved = Math.hypot(x - this.player.position.x, z - this.player.position.z);
-        const h = this.standHeight(Math.round(x), Math.round(z));
-        this.player.position.set(x, h, z);
-        const walking = this.time - w.lastStep < 0.26;
-        w.moving += ((walking ? 1 : 0) - w.moving) * Math.min(1, dt * 12);
-        w.stride += moved * 4.6;
-        w.yaw = lerpAngle(w.yaw, w.facing, Math.min(1, dt * 14));
+        const moved = Math.hypot(w.x - this.player.position.x, w.y - this.player.position.z);
+        /* Kerbs and thresholds are a hand's height; step up, don't pop. */
+        const ground = this.standHeight(Math.round(w.x), Math.round(w.y));
+        const h = this.player.position.y + (ground - this.player.position.y) * Math.min(1, dt * 18);
+        this.player.position.set(w.x, h, w.y);
+        w.moving += ((w.speed > 0.4 ? 1 : 0) - w.moving) * Math.min(1, dt * 12);
+        /* A longer, quicker stride when running. */
+        w.stride += moved * (w.running ? 3.6 : 4.6);
+        /* Turn quickly but not instantly, so changing direction reads as a
+           turn rather than a flicker. */
+        w.yaw = lerpAngle(w.yaw, w.facing, Math.min(1, dt * 12));
         this.player.rotation.y = w.yaw;
         this.player.visible = this.mode !== "intro";
         pose(this.player, { stride: w.stride, moving: w.moving, t: this.time });
     }
 
-    /* Free look, from a drag; and a quarter turn, from the keys. */
-    rotate(dyaw, dpitch = 0) {
-        this.yawGoal += dyaw;
-        this.pitchBias = Math.max(-0.1, Math.min(0.5, this.pitchBias + dpitch));
+    /* A quarter turn round JR, from the bracket keys. The isometric view
+       only ever stands at one of its four corners. */
+    rotate(quarters) {
+        this.yawGoal += quarters * (Math.PI / 2);
     }
 
-    /* Which quarter of the compass the camera faces: 0 north, 1 east. */
+    /* The camera's turn, for turning keys into directions on the map. The
+       goal, not where it is mid-swing, so a held key keeps its meaning. */
     heading() {
-        const q = Math.round(this.yawGoal / (Math.PI / 2));
-        return ((q % 4) + 4) % 4;
-    }
-
-    /*
-     * Turn the camera to follow you round a corner. A step to the side,
-     * where the camera behind you is walled in, means you have turned into a
-     * lane it cannot see down: swing round to look along it. Out in the
-     * open the camera holds still, so a sidestep is only a sidestep.
-     */
-    follow(dx, dy, x, y) {
-        if (!dx === !dy) return;
-        const yaw = this.yawGoal;
-        const fx = Math.round(Math.sin(yaw));
-        const fy = Math.round(-Math.cos(yaw));
-        /* Forward and back keep the camera where it is. */
-        if (dx * fx + dy * fy !== 0) return;
-        const walled = (bx, by) => [1, 2].some((k) => this.tileTop(x + bx * k, y + by * k) > 3);
-        if (!walled(-fx, -fy) || walled(-dx, -dy)) return;
-        let goal = Math.atan2(dx, -dy);
-        while (goal - yaw > Math.PI) goal -= Math.PI * 2;
-        while (goal - yaw < -Math.PI) goal += Math.PI * 2;
-        this.yawGoal = goal;
-    }
-
-    /* How tall whatever stands on a tile is, for keeping the camera out. */
-    tileTop(x, y) {
-        const world = this.world;
-        if (this.isCity(x, y)) return 40;
-        const kind = world.kindAt(x, y);
-        if (kind === KIND.WALL) {
-            const room = this.roomOf(x, y);
-            return room && this.isBorder(room, x, y) ? 4 : 1.4;
-        }
-        return world.isSolid(x, y) && kind !== KIND.WATER && kind !== KIND.VOID ? 1.4 : 0;
-    }
-
-    /* The share of the way back the camera can go before it would be inside
-       a wall or a building: walk the line out from your head and stop
-       short of the first thing taller than it. */
-    cameraReach(sx, sz, head, shoulder, pitch) {
-        for (let k = 1; k <= 12; k += 1) {
-            const f = k / 12;
-            const dist = this.distance * f;
-            const x = Math.round(this.focus.x + sx * dist * Math.cos(pitch) + sz * shoulder * f);
-            const z = Math.round(this.focus.z + sz * dist * Math.cos(pitch) - sx * shoulder * f);
-            if (x === Math.round(this.focus.x) && z === Math.round(this.focus.z)) continue;
-            if (ROOM_FLOOR + this.tileTop(x, z) > head + dist * Math.sin(pitch)) return Math.max(0.3, f - 0.1);
-        }
-        return 1;
+        return this.yawGoal;
     }
 
     updateCamera(dt) {
         const intro = this.mode === "intro";
-        const goal = intro ? tmp.set(this.world.spawn.x, 0, this.world.spawn.y - 9) : this.player.position;
-        this.focus.lerp(goal, Math.min(1, dt * (intro ? 0.8 : 9)));
         if (intro) {
-            /* A slow look from side to side, not a full turn. */
-            this.yaw = this.reducedMotion ? 0 : Math.sin(this.time * 0.07) * 0.35;
-            this.yawGoal = 0;
-        } else this.yaw = lerpAngle(this.yaw, this.yawGoal, Math.min(1, dt * 10));
-        this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * (intro ? 1.5 : 4));
-        const pitch = intro ? INTRO.pitch : Math.max(0.04, pitchFor(this.distance) + this.pitchBias);
-        const sx = -Math.sin(this.yaw);
-        const sz = Math.cos(this.yaw);
-        if (intro) {
-            /* The front door looks up into the skyline. */
-            const back = this.distance * Math.cos(pitch);
-            const up = this.distance * Math.sin(pitch);
-            this.camera.position.set(this.focus.x + sx * back, this.focus.y + up + 2.5, this.focus.z + sz * back);
-            this.camera.lookAt(this.focus.x, this.focus.y + 6, this.focus.z);
+            /* The front door drifts slowly across the middle of the city. */
+            const t = this.reducedMotion ? 0 : this.time * 0.05;
+            tmp.set(this.world.spawn.x + Math.sin(t) * 10, 0, this.world.spawn.y - 6 + Math.cos(t * 0.7) * 6);
+            this.focus.lerp(tmp, Math.min(1, dt * 0.8));
         } else {
-            /* Over the shoulder: behind and a little right, aimed at a
-               point ahead at head height. */
-            const head = this.focus.y + 1.9;
-            const rx = sz;
-            const rz = -sx;
-            /* Hug the middle of a lane too narrow for the shoulder. */
-            const tight = this.tileTop(Math.round(this.focus.x + rx * 0.8), Math.round(this.focus.z + rz * 0.8)) > 3;
-            const want = (tight ? 0 : 0.7) * Math.min(1, this.distance / 5);
-            this.shoulder = this.shoulder === undefined ? want : this.shoulder + (want - this.shoulder) * Math.min(1, dt * 5);
-            const shoulder = this.shoulder;
-            /* And rise a little there, to see down the lane over your head. */
-            this.lift = (this.lift || 0) + ((tight ? 0.8 : 0) - (this.lift || 0)) * Math.min(1, dt * 4);
-            const reach = this.cameraReach(sx, sz, head, shoulder, pitch);
-            this.reach = this.reach === undefined || reach < this.reach ? reach : this.reach + (reach - this.reach) * Math.min(1, dt * 3);
-            const d = this.distance * this.reach;
-            this.camera.position.set(this.focus.x + sx * d * Math.cos(pitch) + rx * shoulder, head + this.lift + d * Math.sin(pitch), this.focus.z + sz * d * Math.cos(pitch) + rz * shoulder);
-            /* Facing a wall close ahead, aim short of it, so you stay in the
-               middle of the frame instead of sinking under its foot. */
-            let ahead = 3 + this.distance * 0.2;
-            for (let k = 1; k <= Math.ceil(ahead); k += 1) {
-                if (this.tileTop(Math.round(this.focus.x - sx * k), Math.round(this.focus.z - sz * k)) > 3) {
-                    ahead = Math.max(1, k - 0.5);
-                    break;
-                }
-            }
-            this.ahead = this.ahead === undefined ? ahead : this.ahead + (ahead - this.ahead) * Math.min(1, dt * 4);
-            ahead = this.ahead;
-            this.camera.lookAt(this.focus.x - sx * ahead + rx * shoulder * 0.4, head - 0.1, this.focus.z - sz * ahead + rz * shoulder * 0.4);
+            /* Stay on JR, leaning a little into where they are heading so
+               more of the way ahead is on screen. */
+            const w = this.walker;
+            const lead = Math.min(1, w.speed / 5) * 1.2;
+            tmp.set(this.player.position.x + Math.sin(w.facing) * lead, this.player.position.y, this.player.position.z + Math.cos(w.facing) * lead);
+            this.focus.lerp(tmp, Math.min(1, dt * 7));
         }
+        this.yaw = lerpAngle(this.yaw, this.yawGoal, Math.min(1, dt * 8));
+        this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * (intro ? 1.5 : 6));
+        placeIsoCamera(this.camera, this.focus, this.yaw, this.distance, this.camera.userData.aspect || 1.6);
+        /* Open up whatever stands between the camera and JR. */
+        aimCutaway(this.camera, this.player.position, { on: !intro, width: 3.2 + this.distance * 0.1, height: 3 + this.distance * 0.08 });
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
     }
@@ -706,13 +604,13 @@ export default class SiteScene {
         this.ascii.uniforms.uInk.value = { night: 1.9, dusk: 1.8, dawn: 1.6, day: 1.5 }[this.phaseName];
         /* Each cell's colour also washes its background, so walls and
            towers read as solid masses with type on them, not as type alone. */
-        this.ascii.uniforms.uFill.value = night ? 0.34 : 0.28;
+        this.ascii.uniforms.uFill.value = night ? 0.62 : 0.55;
         /* Windows and lanterns spill a wash onto the stone around them. */
         this.ascii.uniforms.uGlow.value = { night: 1.3, dusk: 1.0, dawn: 0.6, day: 0.25 }[this.phaseName];
         /* A gentler ramp: close walls fill the view down an alley, and at
            full strength their flat faces drown the edges in letters. */
         this.ascii.uniforms.uRamp.value = 1.55;
-        this.ascii.uniforms.uContrast.value = 1.5;
+        this.ascii.uniforms.uContrast.value = 1.9;
         this.sun.color.set(p.sunColor);
         /* A touch brighter than the Commons: this is a site to read. */
         this.hemi.intensity = p.hemi + { night: 0.5, dusk: 0.5, dawn: 0.45, day: 0.3 }[this.phaseName];
@@ -720,8 +618,11 @@ export default class SiteScene {
         this.hemi.groundColor.set(p.ground);
         this.scene.fog.color.copy(bg);
         /* A haze that starts early and lets the towers fade into it. */
-        this.scene.fog.near = this.distance * 0.6;
-        this.scene.fog.far = this.distance * 1.7 + (this.mode === "intro" ? 40 : 26);
+        /* Everything is about as far from an isometric camera, so the haze
+           is measured from where it hangs: the top of the screen, further
+           off, fades a little into the dark. */
+        this.scene.fog.near = ISO_BACK + this.distance * 0.2;
+        this.scene.fog.far = ISO_BACK + this.distance * 2.2 + 12;
         this.renderer.setClearColor(bg, glyphCode(0));
         this.ascii.uniforms.uBackground.value.copy(bg).convertLinearToSRGB();
         this.ascii.uniforms.uNear.value = this.camera.near;
@@ -765,9 +666,8 @@ export default class SiteScene {
         u.uStars.value = { night: 1, dusk: 0.5, dawn: 0.3, day: 0 }[this.phaseName];
         u.uClouds.value = 0.2;
         u.uCloudColor.value.setHex(this.phaseName === "day" ? 0x3c4a66 : 0x283350);
-        const hfov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect);
-        u.uSkyShift.value = (-this.yaw / hfov) * this.grid.cols;
-        u.uSkyTurn.value = ((Math.PI * 2) / hfov) * this.grid.cols;
+        u.uSkyShift.value = (-this.yaw / 1.4) * this.grid.cols;
+        u.uSkyTurn.value = ((Math.PI * 2) / 1.4) * this.grid.cols;
         u.uMoon.value = { night: 1, dusk: 0.55, dawn: 0, day: 0 }[this.phaseName];
         u.uHorizon.value.setHex({ night: 0x3a2a48, dusk: 0x5a3238, dawn: 0x4a3a3a, day: 0x4a6890 }[this.phaseName]);
     }
@@ -818,6 +718,7 @@ export default class SiteScene {
         u.uGhost.value = this.mode === "intro" ? 0 : 1;
         if (u.uGhost.value) this.ascii.renderGhost(this.renderer, this.scene, this.camera, GHOST_LAYER);
         u.uJoints.value = 1;
+        u.uOrtho.value = 1;
         u.uInvProj.value.copy(this.camera.projectionMatrixInverse);
         u.uCamToWorld.value.copy(this.camera.matrixWorld);
         this.ascii.render(this.renderer);
@@ -826,6 +727,7 @@ export default class SiteScene {
 
     dispose() {
         cancelAnimationFrame(this.raf);
+        CUT.uCutOn.value = 0;
         this.observer.disconnect();
         this.chunks.forEach((group) => {
             this.scene.remove(group);

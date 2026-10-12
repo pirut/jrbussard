@@ -24,19 +24,11 @@ import {
     DESTINATIONS,
 } from "../components/Hud";
 import { localPhase } from "../site3d/phase";
-import { screenStep } from "../arcade/ascii3d/controls";
+import { ISO_YAW, screenToMap } from "../arcade/ascii3d/iso";
+import { createBody, stepBody, tileOf } from "../world/motion";
 import "../styles/world.css";
 
-const STEP_MS = 105;
-const REPEAT_DELAY_MS = 190;
 const FRAME_MS = 33;
-
-const VECTORS = {
-    up: [0, -1],
-    down: [0, 1],
-    left: [-1, 0],
-    right: [1, 0],
-};
 
 const DIRECTIONS = {
     ArrowUp: "up",
@@ -49,12 +41,14 @@ const DIRECTIONS = {
     d: "right",
 };
 
-/* Keys speak in screen directions; with the 3D camera turned, "up" is
-   whichever way it faces. The character renderer never turns. `held` is the
-   heading when the keys went down: the camera swings round to follow you
-   into a side street, and a held key should keep going the way it meant. */
-function onMap(scene, held, dx, dy) {
-    return screenStep(held ?? scene?.heading?.() ?? 0, dx, dy);
+/* Keys speak in screen directions. In 3D, up the screen is away from the
+   isometric camera, wherever it has been turned; the character renderer
+   draws north up. */
+function onMap(scene, keys) {
+    const sx = (keys.has("right") ? 1 : 0) - (keys.has("left") ? 1 : 0);
+    const sy = (keys.has("down") ? 1 : 0) - (keys.has("up") ? 1 : 0);
+    if (!scene) return screenToMap(0, sx, sy);
+    return screenToMap(scene.heading?.() ?? ISO_YAW, sx, sy);
 }
 
 const NEIGHBORS = [
@@ -285,15 +279,15 @@ const World = () => {
     const sceneHostRef = useRef(null);
     const sceneRef = useRef(null);
     const rawRef = useRef(false);
-    const heldRef = useRef(null);
+    const runRef = useRef(false);
     const viewportRef = useRef({ cols: 0, rows: 0 });
     const playerRef = useRef({ ...arrival });
+    /* Where JR really is, between tiles; playerRef is the tile under them. */
+    const bodyRef = useRef(createBody(arrival.x, arrival.y));
     const keysRef = useRef(new Set());
     const flagsRef = useRef({ started: false, blocked: false });
     const dataRef = useRef({ notes: [], repos: [] });
-    const nextStepRef = useRef(0);
     const reducedMotionRef = useRef(false);
-    const moveRef = useRef(() => false);
     const countsRef = useRef({});
     const travelRef = useRef(() => {});
 
@@ -372,17 +366,9 @@ const World = () => {
         if (content) setPanel(content);
     }, [world]);
 
-    /* A press steps once straight away, then hands off to the repeat timer, so
-       a quick tap always registers. */
+    /* Keys only say which way you want to go; the loop below walks. */
     const press = useCallback((direction) => {
-        if (keysRef.current.has(direction)) return;
-        if (!keysRef.current.size) heldRef.current = sceneRef.current?.heading?.() ?? null;
         keysRef.current.add(direction);
-        const flags = flagsRef.current;
-        if (!flags.started || flags.blocked) return;
-        const [dx, dy] = onMap(sceneRef.current, heldRef.current, ...VECTORS[direction]);
-        moveRef.current(dx, dy);
-        nextStepRef.current = performance.now() + REPEAT_DELAY_MS;
     }, []);
 
     const release = useCallback((direction) => {
@@ -423,8 +409,8 @@ const World = () => {
     }, [started, mode]);
 
     useEffect(() => {
-        sceneRef.current?.setPlayer(player);
-    }, [player, mode]);
+        sceneRef.current?.setPlayer(bodyRef.current, { snap: true });
+    }, [mode]);
 
     useEffect(() => {
         sceneRef.current?.setZoom(zoom);
@@ -474,50 +460,28 @@ const World = () => {
         };
     }, [world, mode]);
 
-    /* Single loop: advance the player, then repaint at a steady cadence. */
+    /* Single loop: walk, then repaint at a steady cadence. */
     useEffect(() => {
         let raf;
         let lastFrame = 0;
-
-        const tryMove = (dx, dy) => {
-            const current = playerRef.current;
-            const options =
-                dx && dy
-                    ? [
-                          [dx, dy],
-                          [dx, 0],
-                          [0, dy],
-                      ]
-                    : [[dx, dy]];
-            for (let i = 0; i < options.length; i += 1) {
-                const nx = current.x + options[i][0];
-                const ny = current.y + options[i][1];
-                if (world.isSolid(nx, ny)) continue;
-                playerRef.current = { x: nx, y: ny };
-                setPlayer(playerRef.current);
-                return true;
-            }
-            return false;
-        };
-
-        moveRef.current = tryMove;
+        let last = performance.now();
+        const solid = (x, y) => world.isSolid(x, y);
 
         const step = (time) => {
+            const dt = Math.min(0.1, (time - last) / 1000);
+            last = time;
             const flags = flagsRef.current;
-            if (!flags.started || flags.blocked) return;
-            if (time < nextStepRef.current) return;
-
-            const keys = keysRef.current;
-            let dx = 0;
-            let dy = 0;
-            if (keys.has("up")) dy = -1;
-            else if (keys.has("down")) dy = 1;
-            if (keys.has("left")) dx = -1;
-            else if (keys.has("right")) dx = 1;
-            if (!dx && !dy) return;
-
-            tryMove(...onMap(sceneRef.current, heldRef.current, dx, dy));
-            nextStepRef.current = time + STEP_MS;
+            const body = bodyRef.current;
+            const want = flags.started && !flags.blocked ? onMap(sceneRef.current, keysRef.current) : [0, 0];
+            stepBody(body, want, runRef.current, dt, solid);
+            sceneRef.current?.setPose(body);
+            /* The rest of the page only cares which tile JR is on. */
+            const tile = tileOf(body);
+            const current = playerRef.current;
+            if (tile.x !== current.x || tile.y !== current.y) {
+                playerRef.current = tile;
+                setPlayer(tile);
+            }
         };
 
         const tick = (time) => {
@@ -560,6 +524,7 @@ const World = () => {
     useEffect(() => {
         const onKeyDown = (event) => {
             const flags = flagsRef.current;
+            runRef.current = event.shiftKey;
 
             if (event.key === "Escape") {
                 setPanel(null);
@@ -610,7 +575,7 @@ const World = () => {
 
             if (event.key === "[" || event.key === "]") {
                 event.preventDefault();
-                sceneRef.current?.rotate((event.key === "]" ? 1 : -1) * (Math.PI / 2));
+                sceneRef.current?.rotate(event.key === "]" ? 1 : -1);
                 return;
             }
 
@@ -641,12 +606,16 @@ const World = () => {
         };
 
         const onKeyUp = (event) => {
+            runRef.current = event.shiftKey;
             const direction =
                 DIRECTIONS[event.key] || DIRECTIONS[event.key.toLowerCase()];
             if (direction) release(direction);
         };
 
-        const onBlur = () => keysRef.current.clear();
+        const onBlur = () => {
+            keysRef.current.clear();
+            runRef.current = false;
+        };
 
         window.addEventListener("keydown", onKeyDown);
         window.addEventListener("keyup", onKeyUp);
@@ -678,6 +647,7 @@ const World = () => {
     const travel = useCallback(
         (id) => {
             const next = roomArrival(world, id);
+            bodyRef.current = createBody(next.x, next.y);
             sceneRef.current?.setPlayer(next, { snap: true });
             playerRef.current = next;
             setPlayer(next);
@@ -701,26 +671,6 @@ const World = () => {
         setZoom((z) =>
             Math.max(0, Math.min(3, z + (event.deltaY > 0 ? 1 : -1))),
         );
-    }, []);
-
-    /* Drag anywhere on the world to look round, as in the Commons. */
-    const dragRef = useRef(null);
-    const onPointerDown = useCallback((event) => {
-        if (!flagsRef.current.started || flagsRef.current.blocked) return;
-        dragRef.current = { x: event.clientX, y: event.clientY };
-        event.currentTarget.setPointerCapture?.(event.pointerId);
-    }, []);
-    const onPointerMove = useCallback((event) => {
-        const drag = dragRef.current;
-        if (!drag) return;
-        const dx = event.clientX - drag.x;
-        const dy = event.clientY - drag.y;
-        drag.x = event.clientX;
-        drag.y = event.clientY;
-        sceneRef.current?.rotate(-dx * 0.0065, dy * 0.004);
-    }, []);
-    const onPointerUp = useCallback(() => {
-        dragRef.current = null;
     }, []);
 
     const enter = () => {
@@ -751,12 +701,8 @@ const World = () => {
                 ref={stageRef}
                 tabIndex={started ? 0 : -1}
                 role="group"
-                aria-label="A city drawn in characters. Use arrow keys or WASD to walk, drag or the bracket keys to turn, E to interact, M for map, 1 to 6 to travel between rooms."
+                aria-label="A city drawn in characters. Use arrow keys or WASD to walk, shift to run, the bracket keys to turn, E to interact, M for map, 1 to 6 to travel between rooms."
                 onWheel={onWheel}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={onPointerUp}
             />
             <div
                 className="world-plane world-plane--near"
