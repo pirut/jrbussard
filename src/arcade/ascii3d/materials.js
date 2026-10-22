@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { glyphCode, GLYPH_SETS } from "./asciiPass";
+import { cutaway } from "./iso";
 
 /*
  * Every material in the field writes its glyph set into alpha (see
@@ -30,6 +31,9 @@ export function material(color, set = "solid", options = {}) {
                  shadow still reads as a figure rather than a dark hole. */
               emissive: emissive ?? (vertexColors ? 0x000000 : new THREE.Color(color).multiplyScalar(0.22)),
           });
+    /* Anything of the world can be cut away in front of you; figures are
+       copies made below, which leave it out. */
+    cutaway(made);
     cache.set(key, made);
     return made;
 }
@@ -43,9 +47,11 @@ export function ownMaterial(color, set = "solid", options = {}) {
         transparent: false,
         opacity: glyphCode(GLYPH_SETS[set] ?? 0),
     };
-    return unlit
-        ? new THREE.MeshBasicMaterial(common)
-        : new THREE.MeshLambertMaterial({ ...common, flatShading: true, emissive });
+    return cutaway(
+        unlit
+            ? new THREE.MeshBasicMaterial(common)
+            : new THREE.MeshLambertMaterial({ ...common, flatShading: true, emissive }),
+    );
 }
 
 /*

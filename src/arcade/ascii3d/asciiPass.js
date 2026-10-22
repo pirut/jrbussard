@@ -94,6 +94,19 @@ const RAMPS = [
     /* light */ ["    ", " .. ", ".:.:", ":-:-", "=-=+", "+=+*", "*+#*", "#\u25aa#\u25aa", "\u25aa\u25a0\u25aa\u25a0", "\u25a0\u25a0\u25a0\u25a0"],
 ];
 
+/*
+ * Built things seen from above, where a flat face holds no edge: one
+ * character per brightness, chosen by which way the face looks. Roofs and
+ * floors are stippled, walls facing left are boarded upright, walls facing
+ * right run in courses. Three faces, three textures, so a block reads as a
+ * block. No shuffling between neighbours: a face is one even texture.
+ */
+const FACE_RAMPS = [
+    /* top */ " ...::;==#",
+    /* left */ " .::!!|||#",
+    /* right */ " .---===##",
+];
+
 /* Brightness gain per set: ground and walls stay airy, figures carry the
    picture. Index by set number. */
 const GAINS = [1.25, 1.2, 1.15, 1.0, 1.4, 1.15, 1.05, 1.05, 0.9, 1.3];
@@ -247,6 +260,7 @@ const pickShader = /* glsl */ `
     uniform vec3 uGhostColor;
     uniform mat4 uInvProj;
     uniform mat4 uCamToWorld;
+    uniform float uOrtho;
 
     const int COUNT = ${GLYPHS.length};
     const float CODES = ${CODES.toFixed(1)};
@@ -256,6 +270,9 @@ const pickShader = /* glsl */ `
     const float TIMBER = ${GLYPH_SETS.timber.toFixed(1)};
     const float ROCK = ${GLYPH_SETS.rock.toFixed(1)};
     const float PATH = ${GLYPH_SETS.path.toFixed(1)};
+    const float TOP_RAMP[${LEVELS}] = float[${LEVELS}](${Array.from(FACE_RAMPS[0]).map(idx).join(", ")});
+    const float LEFT_RAMP[${LEVELS}] = float[${LEVELS}](${Array.from(FACE_RAMPS[1]).map(idx).join(", ")});
+    const float RIGHT_RAMP[${LEVELS}] = float[${LEVELS}](${Array.from(FACE_RAMPS[2]).map(idx).join(", ")});
     const float GAINS[${GAINS.length}] = float[${GAINS.length}](${GAINS.map((g) => g.toFixed(2)).join(", ")});
 
     float hash(vec2 p) {
@@ -274,9 +291,20 @@ const pickShader = /* glsl */ `
         return pow(max(c, 0.0), vec3(1.0 / 2.2));
     }
 
+    /* Depth along the view. An orthographic camera stores it linearly. */
+    float linearDepth(float d) {
+        return uOrtho > 0.5 ? uNear + d * (uFar - uNear) : (uNear * uFar) / (uFar - d * (uFar - uNear));
+    }
+
     float viewDepth(vec2 uv) {
-        float d = texture(tDepth, uv).r;
-        return (uNear * uFar) / (uFar - d * (uFar - uNear));
+        return linearDepth(texture(tDepth, uv).r);
+    }
+
+    /* How big a jump in depth is, for finding silhouettes. In perspective
+       it is relative to how far off it is; looking straight down the
+       isometric diagonal everything is equally far, so a fixed scale. */
+    float depthJump(float jump, float d) {
+        return uOrtho > 0.5 ? jump / 9.0 : jump / d;
     }
 
     /* Where on the ground a point of the screen lands, in world units. */
@@ -290,7 +318,29 @@ const pickShader = /* glsl */ `
     /* The depth of the one figure that must never be lost, drawn on its own. */
     float ghostDepth(vec2 uv) {
         float g = texture(tGhost, uv).r;
-        return g >= 1.0 ? 1e9 : (uNear * uFar) / (uFar - g * (uFar - uNear));
+        return g >= 1.0 ? 1e9 : linearDepth(g);
+    }
+
+    /* The world position under a texel of the scene target. */
+    vec3 worldAtTexel(ivec2 t) {
+        vec2 size = uCells * vec2(${SAMPLE_X}.0, ${SAMPLE_Y}.0);
+        float z = texelFetch(tDepth, t, 0).r * 2.0 - 1.0;
+        vec4 view = uInvProj * vec4((vec2(t) + 0.5) / size * 2.0 - 1.0, z, 1.0);
+        return (uCamToWorld * vec4(view.xyz / view.w, 1.0)).xyz;
+    }
+
+    /* Which way the surface under a texel looks, seen from the isometric
+       camera: 0 up (a roof, a floor), 1 a wall facing left on screen, 2 a
+       wall facing right, -1 open sky. */
+    float faceAtTexel(ivec2 t) {
+        if (texelFetch(tDepth, t, 0).r >= 0.99999) return -1.0;
+        vec3 p = worldAtTexel(t);
+        vec3 n = cross(worldAtTexel(t + ivec2(1, 0)) - p, worldAtTexel(t + ivec2(0, 1)) - p);
+        float len = length(n);
+        if (len < 1e-6) return -1.0;
+        n /= len;
+        if (n.y > 0.6) return 0.0;
+        return dot(n, uCamToWorld[0].xyz) < 0.0 ? 1.0 : 2.0;
     }
 
     float setAt(vec2 cell) {
@@ -364,8 +414,78 @@ const pickShader = /* glsl */ `
             }
         }
 
+        /* Seen from above, built things are drawn by their faces: which
+           way each sixth of the cell looks, and whether the cell holds a
+           crease where two faces meet. */
+        bool built = uOrtho > 0.5 && (set == SOLID || set == TIMBER || set == ROCK);
+        float faces[6];
+        float face = -1.0;
+        bool crease = false;
+        float creaseGlyph = 0.0;
+        if (built) {
+            ivec2 base = ivec2(cell) * ivec2(${SAMPLE_X}, ${SAMPLE_Y});
+            vec3 mid = worldAtTexel(base + ivec2(${SAMPLE_X / 2}, ${SAMPLE_Y / 2}));
+            float lo = 9.0;
+            float hi = -9.0;
+            for (int i = 0; i < 6; i++) {
+                ivec2 t = base + ivec2((i % 2) * 2, 4 - (i / 2) * 2);
+                float f = faceAtTexel(t);
+                /* Across a drop to something far behind, that is a
+                   silhouette, not a crease: the outline below draws it. */
+                if (f >= 0.0 && distance(worldAtTexel(t), mid) > 1.2) f = -1.0;
+                faces[i] = f;
+                if (f >= 0.0) {
+                    lo = min(lo, f);
+                    hi = max(hi, f);
+                }
+            }
+            face = faces[2] >= 0.0 ? faces[2] : faces[3];
+            if (hi > lo) {
+                /* A crease inside the cell: a stroke along it, shaped by
+                   where the lower-numbered face lies. */
+                float v[6];
+                for (int i = 0; i < 6; i++) v[i] = faces[i] == lo ? 1.0 : 0.0;
+                float gx = ((v[1] + v[3] + v[5]) - (v[0] + v[2] + v[4])) / 3.0 / (uCellPx.x * 0.5);
+                float gy = ((v[0] + v[1]) - (v[4] + v[5])) / 2.0 / (uCellPx.y * 0.667);
+                float a = atan(abs(gy), abs(gx));
+                bool upper = v[0] + v[1] != v[2] + v[3];
+                if (a < 0.45) creaseGlyph = ${idx("|")};
+                else if (a > 1.15) creaseGlyph = upper ? ${idx("-")} : ${idx("_")};
+                else creaseGlyph = gx * gy > 0.0 ? ${idx("\\")} : ${idx("/")};
+                crease = true;
+            } else if (face >= 0.0) {
+                /* A crease along the cell's own border belongs to whichever
+                   side has the lower number, so it is drawn once. */
+                float right = faceAtTexel(base + ivec2(${SAMPLE_X}, 2));
+                float left = faceAtTexel(base + ivec2(-2, 2));
+                float below = faceAtTexel(base + ivec2(1, -2));
+                float above = faceAtTexel(base + ivec2(1, ${SAMPLE_Y}));
+                if (below > face && distance(worldAtTexel(base + ivec2(1, -2)), mid) < 1.2) {
+                    creaseGlyph = ${idx("_")};
+                    crease = true;
+                } else if ((right > face && distance(worldAtTexel(base + ivec2(${SAMPLE_X}, 2)), mid) < 1.2) ||
+                           (left > face && distance(worldAtTexel(base + ivec2(-2, 2)), mid) < 1.2)) {
+                    creaseGlyph = ${idx("|")};
+                    crease = true;
+                } else if (above > face && distance(worldAtTexel(base + ivec2(1, ${SAMPLE_Y})), mid) < 1.2) {
+                    creaseGlyph = ${idx("-")};
+                    crease = true;
+                }
+            }
+        }
+
         int choice = 0;
-        if (spread > uEdge && peak > 0.08) {
+        if (built && face >= 0.0) {
+            /* Built, from above: the face's own texture, by brightness. */
+            float mean = (lum[0] + lum[1] + lum[2] + lum[3] + lum[4] + lum[5]) / 6.0 * halo;
+            float level = floor(pow(clamp(mean * uRamp, 0.0, 0.999), uContrast) * ${LEVELS}.0);
+            /* Even a wall in shadow keeps its grain, faint, so it stays
+               a wall and not a hole. */
+            level = clamp(level, mean > 0.015 ? 2.0 : 0.0, ${LEVELS - 3}.0);
+            int f = int(face);
+            choice = int(f == 0 ? TOP_RAMP[int(level)] : f == 1 ? LEFT_RAMP[int(level)] : RIGHT_RAMP[int(level)]);
+            if (crease) choice = int(creaseGlyph);
+        } else if (spread > uEdge && peak > 0.08) {
             /* An edge runs through this cell: find the character shaped
                most like it. */
             float best = 1e9;
@@ -393,7 +513,7 @@ const pickShader = /* glsl */ `
             if (uContrast > 1.0 && set != FIGURE) level = min(level, set == WATER ? ${LEVELS - 2}.0 : ${LEVELS - 3}.0);
             /* Paving with its joints drawn needs only a light grain between
                them; the joints and the light carry the floor. */
-            if (uJoints > 0.0 && set == PATH) level = min(level, 4.0);
+            if (uJoints > 0.0 && set == PATH) level = min(level, uOrtho > 0.5 ? 2.0 : 4.0);
             float shuffle = set == WATER ? floor(uTime * 0.6) : 0.0;
             float variant = floor(hash(cell + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
             choice = int(texelFetch(tShapes, ivec2(int(level * ${VARIANTS}.0 + variant), 2 + ${Object.keys(GLYPH_SETS).length} + setIndex), 0).r);
@@ -408,6 +528,9 @@ const pickShader = /* glsl */ `
             ink = clamp(color / max(top, 0.03) * (0.62 + top * 0.6), 0.0, 1.0);
         }
         float glyph = float(choice);
+        /* A crease is a line drawn on the block, a shade lighter than its
+           faces. */
+        if (crease) ink = min(ink * 1.25 + 0.04, 1.0);
 
         /* Outlines. Where the depth drops away across a cell, the cell sits on
            the near side of a silhouette: draw the edge as a stroke running
@@ -424,7 +547,7 @@ const pickShader = /* glsl */ `
             float limit = set == FIGURE ? uOutline : uOutline * 2.5;
             /* Only the near side of the jump, so each outline belongs to the
                thing in front. */
-            if ((far - d) / d > limit && (d - near) < (far - d) * 0.5) {
+            if (depthJump(far - d, d) > limit && (d - near) < (far - d) * 0.5) {
                 vec2 g = vec2((dr - dl) / uCellPx.x, (du - dd) / uCellPx.y);
                 float a = atan(abs(g.y), abs(g.x));
                 if (a < 0.42) glyph = ${idx("|")};
@@ -438,7 +561,7 @@ const pickShader = /* glsl */ `
            between them run off in perspective, which gives the floor a
            scale and says how far away things stand. Only where a joint is
            finer than a cell; further off the joints would merge to noise. */
-        if (uJoints > 0.0 && set == PATH) {
+        if (uJoints > 0.0 && set == PATH && uOrtho < 0.5) {
             vec2 hx = vec2(0.5 / uCells.x, 0.0);
             vec2 hy = vec2(0.0, 0.5 / uCells.y);
             vec2 gl = groundAt(uv - hx);
@@ -452,9 +575,18 @@ const pickShader = /* glsl */ `
                 float v = k == 0 ? gc.x : gc.y;
                 /* A joint runs through this cell if one lies within half a
                    cell of its middle, measured the long way, so a slanting
-                   joint takes one cell a row rather than two. */
+                   joint takes one cell a row rather than two. From above,
+                   flags are two tiles across and the joints finer, or the
+                   floor turns to wickerwork. */
                 float reach = 0.5 * max(abs(g.x), abs(g.y));
-                if (abs(g.x) + abs(g.y) > 0.4 || abs(v - floor(v + 0.5)) > reach) continue;
+                if (uOrtho > 0.5) {
+                    v *= 0.5;
+                    g *= 0.5;
+                    reach *= 0.45;
+                }
+                /* Seen from above every cell spans a good part of a tile
+                   on the slant, so the isometric view allows more. */
+                if (abs(g.x) + abs(g.y) > (uOrtho > 0.5 ? 0.9 : 0.4) || abs(v - floor(v + 0.5)) > reach) continue;
                 g /= uCellPx;
                 float ang = atan(abs(g.y), abs(g.x));
                 if (ang < 0.5) glyph = ${idx("|")};
@@ -463,6 +595,24 @@ const pickShader = /* glsl */ `
                 float near = 1.0 - smoothstep(0.15, 0.4, max(span.x, span.y));
                 ink = ink * (0.75 + 0.3 * near * uJoints) + 0.03 * near * uJoints;
                 break;
+            }
+        }
+
+        /* From above, paving is marked only where four flags meet: a light
+           grid of corners that gives the floor its scale without turning it
+           into wickerwork. */
+        if (uJoints > 0.0 && set == PATH && uOrtho > 0.5) {
+            vec2 hx = vec2(0.5 / uCells.x, 0.0);
+            vec2 hy = vec2(0.0, 0.5 / uCells.y);
+            vec2 gc = groundAt(uv);
+            mat2 span = mat2(groundAt(uv + hx) - groundAt(uv - hx), groundAt(uv + hy) - groundAt(uv - hy));
+            vec2 off = gc - floor(gc + 0.5);
+            if (abs(determinant(span)) > 1e-5) {
+                vec2 ab = inverse(span) * off;
+                if (abs(ab.x) <= 0.5 && abs(ab.y) <= 0.5) {
+                    glyph = ${idx("+")};
+                    ink = ink * 0.85 + 0.02;
+                }
             }
         }
 
@@ -552,6 +702,8 @@ const drawShader = /* glsl */ `
     uniform float uFill;
     uniform float uGlow;
     uniform float uRaw;
+    uniform sampler2D tDepth;
+    uniform float uWash;
 
     const float CODES = ${CODES.toFixed(1)};
 
@@ -595,7 +747,13 @@ const drawShader = /* glsl */ `
         vec2 at = vec2((glyph + local.x) / uCount, local.y);
         float mask = texture(tGlyphs, at).r;
         vec3 glow = uGlow > 0.0 ? spill(cell) * uGlow : vec3(0.0);
-        vec3 base = mix(uBackground, pick.rgb * 0.5, max(uFill, body * 0.55)) + glow * 0.55;
+        /* The wash behind the type is the scene itself, read at the
+           pixel and smoothed, so a wall is a soft painted mass with
+           characters on it rather than a mosaic of flat cells. The sky
+           keeps its cell's colour. */
+        vec2 suv = frag / (uCells * uCellPx);
+        vec3 scene = texture(tDepth, suv).r < 0.99999 ? pow(max(texture(tColor, suv).rgb, 0.0), vec3(1.0 / 2.2)) * uWash : pick.rgb * 0.5;
+        vec3 base = mix(uBackground, scene, max(uFill, body * 0.55)) + glow * 0.55;
         gl_FragColor = vec4(mix(base, min(pick.rgb + glow * 0.35, 1.0), mask), 1.0);
     }
 `;
@@ -651,6 +809,8 @@ export class AsciiPass {
                 uGhost: { value: 0 },
                 uGhostColor: { value: new THREE.Color(0xbfe6ff) },
                 uCamToWorld: { value: new THREE.Matrix4() },
+                /* 1 for an orthographic (isometric) camera. */
+                uOrtho: { value: 0 },
             },
         });
         this.drawMaterial = new THREE.ShaderMaterial({
@@ -670,6 +830,9 @@ export class AsciiPass {
                 uFill: { value: 0.1 },
                 uGlow: { value: 0 },
                 uRaw: { value: 0 },
+                tDepth: { value: null },
+                /* How bright the scene is in the wash behind the type. */
+                uWash: { value: 0.9 },
             },
         });
         this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.pickMaterial);
@@ -726,6 +889,7 @@ export class AsciiPass {
         d.tPick.value = this.pick.texture;
         d.tGlyphs.value = this.atlas.texture;
         d.tColor.value = this.target.texture;
+        d.tDepth.value = this.target.depthTexture;
         d.uCells.value.set(cols, rows);
         d.uCellPx.value.set(cellW, cellH);
         d.uOffset.value.set(offX, offY);
