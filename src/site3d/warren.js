@@ -65,8 +65,9 @@ export function tenement(b, x, z, y, h, open, lot, { crown = true } = {}) {
         const n = Math.min(storeys - s, 2 + Math.floor(hash(lot, band, 211) * 3));
         const by = y + s * STOREY;
         const bh = n * STOREY;
-        /* Upper bands jut out over the street a little, the way additions do. */
-        const jut = band > 0 ? hash(x * 3 + band, z, 212) * 0.14 : 0;
+        /* Upper bands jut out over the street a little, the way additions
+           do, all of a lot's band together so its front stays one plane. */
+        const jut = band > 0 ? hash(lot, band, 212) * 0.14 : 0;
         const skin = SKINS[Math.floor(hash(lot, band, 213) * SKINS.length)];
         const jx = (open.e ? jut : 0) - (open.w ? jut : 0);
         const jz = (open.s ? jut : 0) - (open.n ? jut : 0);

@@ -1085,6 +1085,8 @@ export default class AsciiWorld {
         this.renderer.render(this.scene, this.camera);
         this.ascii.uniforms.uFlash.value = this.flash > 0.2 ? 1 : 0;
         this.ascii.uniforms.uOrtho.value = 1;
+        this.ascii.uniforms.uInvProj.value.copy(this.camera.projectionMatrixInverse);
+        this.ascii.uniforms.uCamToWorld.value.copy(this.camera.matrixWorld);
         this.ascii.render(this.renderer);
         this.updateLabels();
         this.updateBars();
