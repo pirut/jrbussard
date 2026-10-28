@@ -24,6 +24,8 @@ import {
     DESTINATIONS,
 } from "../components/Hud";
 import { localPhase } from "../site3d/phase";
+import Presence from "../site3d/Presence";
+import { convex } from "../lib/convex";
 import { ISO_YAW, screenToMap } from "../arcade/ascii3d/iso";
 import { createBody, stepBody, tileOf } from "../world/motion";
 import "../styles/world.css";
@@ -301,6 +303,8 @@ const World = () => {
        browser cannot run it and the character renderer takes over. */
     const [mode, setMode] = useState("loading");
     const [zoom, setZoom] = useState(1);
+    /* How many other people are walking the site, or null offline. */
+    const [others, setOthers] = useState(null);
     const phase = useMemo(
         () => localPhase(new Date(), window.location.search),
         [],
@@ -710,10 +714,20 @@ const World = () => {
                 aria-hidden="true"
             />
 
+            {convex && mode === "3d" && (
+                <Presence
+                    sceneRef={sceneRef}
+                    bodyRef={bodyRef}
+                    started={started}
+                    mode={mode}
+                    onCount={setOthers}
+                />
+            )}
             <TopBar
                 region={region}
                 started={started}
                 phase={mode === "3d" ? phase : null}
+                others={mode === "3d" ? others : null}
                 onIndex={openIndex}
                 onMap={() => setMapOpen(true)}
                 onHome={() => setStarted(false)}

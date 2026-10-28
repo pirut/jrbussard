@@ -91,6 +91,7 @@ export function TopBar({
     onMap,
     onHome,
     onZoom,
+    others = null,
 }) {
     return (
         <>
@@ -123,7 +124,11 @@ export function TopBar({
                     <span className="hud__phase">
                         <span aria-hidden="true">{PHASE_GLYPH[phase]}</span>{" "}
                         {phase}
-                        <small>local time</small>
+                        <small>
+                            local time
+                            {others !== null &&
+                                ` · ${others ? `${others} other${others === 1 ? "" : "s"}` : "no one else"} here`}
+                        </small>
                     </span>
                 )}
                 <div className="hud__buttons">

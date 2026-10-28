@@ -12,6 +12,7 @@ import { fbm } from "../lib/noise";
 import { buildProp, buildTorch, disposeProps } from "./props";
 import { buildCompound, reservedTiles } from "./compound";
 import { Citizens } from "./citizens";
+import { Visitors } from "./visitors";
 import { alleyClutter, oddity, tenement, wallLantern } from "./warren";
 
 /*
@@ -135,6 +136,8 @@ export default class SiteScene {
         this.buildProps();
         this.buildLabels();
         this.citizens = new Citizens(this.scene, world, (x, y) => this.standHeight(x, y));
+        /* Everyone else on the site right now, when the server is there. */
+        this.visitors = new Visitors(this.scene, this.labelLayer, (x, y) => this.standHeight(x, y));
 
         this.player = buildSurvivor(JR);
         this.player.scale.setScalar(1.1);
@@ -473,6 +476,11 @@ export default class SiteScene {
             label.el.style.opacity = opacity.toFixed(2);
             label.el.style.transform = `translate(${((g.offX + ((tmp.x + 1) / 2) * w) / g.dpr).toFixed(1)}px, ${((g.height - g.offY - ((tmp.y + 1) / 2) * h) / g.dpr).toFixed(1)}px)`;
         });
+        this.visitors.updateLabels((at) => {
+            at.project(this.camera);
+            if (at.z > 1 || Math.abs(at.x) > 1.05 || Math.abs(at.y) > 1.05) return null;
+            return { x: (g.offX + ((at.x + 1) / 2) * w) / g.dpr, y: (g.height - g.offY - ((at.y + 1) / 2) * h) / g.dpr };
+        }, !intro);
     }
 
     /* ── Inputs from React ─────────────────────────────────────────────── */
@@ -518,6 +526,11 @@ export default class SiteScene {
     /* The prop you are standing beside, bracketed like the Commons' aim. */
     setHighlight(marker) {
         this.highlight = marker;
+    }
+
+    /* Other visitors, from convex/site.ts, as often as they change. */
+    setVisitors(list) {
+        this.visitors.set(list || []);
     }
 
     setRaw(raw) {
@@ -715,6 +728,7 @@ export default class SiteScene {
         this.updateChunks();
         this.updateProps();
         this.citizens.update(this.reducedMotion ? 0 : dt, this.time, this.focus);
+        this.visitors.update(dt, this.time, this.focus);
         this.updateSky();
         wind.uTime.value = this.reducedMotion ? 0 : this.time;
         if (!this.reducedMotion || !this.waterStill) {
@@ -748,6 +762,7 @@ export default class SiteScene {
         this.chunks.clear();
         this.compound.forEach((m) => m.geometry.dispose());
         this.citizens.dispose();
+        this.visitors.dispose();
         this.props.forEach((prop) => disposeProps(prop.group));
         this.torches.forEach((t) => disposeProps(t.group));
         this.ascii.dispose();

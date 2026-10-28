@@ -24,6 +24,10 @@ export const api = {
     say: makeFunctionReference("world:say"),
     drink: makeFunctionReference("world:drink"),
     respawn: makeFunctionReference("world:respawn"),
+    /* The main site's presence, in convex/site.ts. */
+    siteHere: makeFunctionReference("site:here"),
+    siteLeave: makeFunctionReference("site:leave"),
+    siteVisitors: makeFunctionReference("site:visitors"),
 };
 
 /*
