@@ -36,6 +36,8 @@ import { passability, findPath } from "./ascii3d/navigation";
 import { createDemo } from "./ascii3d/demo";
 import { createWalker, judgeStep } from "./ascii3d/prediction";
 import DigControl, { digTargetInfo } from "./commons/DigControl";
+import { withPending, ghostsFor, buildContext, judgeTile } from "./commons/building";
+import { linePath, ORIENTED, BUILD_COOLDOWN_MS } from "../lib/building";
 import "./arcade.css";
 import "./commons.css";
 import "./game.css";
@@ -215,6 +217,15 @@ const REPLANS = 3;
 /* How often a held mouse button swings again. */
 const SWING_MS = 430;
 
+/* Set or clear one entry of a Map held in state. */
+const editMap = (setter, k, value) =>
+  setter((current) => {
+    const next = new Map(current);
+    if (value === undefined) next.delete(k);
+    else next.set(k, value);
+    return next;
+  });
+
 const sameSpot = (a, b) => a === b || (a && b && a.x === b.x && a.y === b.y);
 const isCleared = (cell) =>
   cell && (cell.kind === "stump" || cell.kind === "rubble");
@@ -228,13 +239,14 @@ const isCleared = (cell) =>
  *   hold left        keep attacking or gathering
  *   [ ]              turn the camera a quarter; wheel zooms
  *   space            act on what is in front of you
- *   B, 1–9           build; click to place, right click or Esc to stop
+ *   B, 1–0           build; click to place, drag to lay a run, R turns,
+ *                    Z takes back the last, X removes, right click or Esc stops
  *   E / Q            eat / drink a potion
  *   Tab or C, I, J   craft, pack, journal
  *   Enter            talk
  *   F                full screen
  */
-function Game({ state, call, live, status = "", onSaveCharacter }) {
+function Game({ state: served, call, live, status = "", onSaveCharacter }) {
   const rootRef = useRef(null);
   const stageRef = useRef(null);
   const fieldApi = useRef(null);
@@ -259,6 +271,22 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
   const [density] = useState(() =>
     window.innerWidth < 700 ? "coarse" : "normal",
   );
+
+  /* Placements on their way to the server, and pieces being taken down,
+     both drawn as done straight away (see commons/building.js). */
+  const [pending, setPending] = useState(() => new Map());
+  const [removed, setRemoved] = useState(() => new Map());
+  const state = useMemo(
+    () => withPending(served, pending, removed),
+    [served, pending, removed],
+  );
+  const [facing, setFacing] = useState(undefined);
+  const facingPickRef = useRef(facing);
+  facingPickRef.current = facing;
+  /* A drag in build mode: where it started and where it is now. */
+  const [paint, setPaint] = useState(null);
+  const paintRef = useRef(paint);
+  paintRef.current = paint;
 
   const me = state.me;
 
@@ -435,20 +463,119 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     [here],
   );
 
-  const placeAt = useCallback(
-    async (spot) => {
-      let text = "";
-      const kind = selectedRef.current;
-      if (kind === "sign") {
-        heldRef.current = [];
-        text = window.prompt("What should the sign say?") || "";
-        if (!text) return;
-      }
+  /* ── Building ─────────────────────────────────────────────────────── */
+
+  /* Pieces asked for and not yet sent, in order; what went up, for Z. */
+  const queueRef = useRef([]);
+  const undoRef = useRef([]);
+  const buildAtRef = useRef(0);
+
+  /* Ask for a run of pieces. Signs ask what to say, one at a time. */
+  const enqueue = useCallback((spots) => {
+    if (!(stateRef.current.me?.hp > 0)) return;
+    const kind = selectedRef.current;
+    let text = "";
+    if (kind === "sign") {
+      heldRef.current = [];
+      text = window.prompt("What should the sign say?") || "";
+      if (!text) return;
+      spots = spots.slice(0, 1);
+    }
+    const turn = ORIENTED.includes(kind) ? facingPickRef.current : undefined;
+    /* Leave out what can't go up now, and say why once, not per tile. */
+    const judged = ghostsFor(stateRef.current, here(), spots, kind, turn);
+    const fit = judged.filter((g) => g.ok);
+    if (fit.length < judged.length)
+      flash(
+        judged.length === 1
+          ? judged[0].error
+          : `${judged.length - fit.length} of ${judged.length} skipped · ${judged.find((g) => !g.ok).error}`,
+      );
+    queueRef.current = [
+      ...queueRef.current,
+      ...fit.map((spot) => ({ x: spot.x, y: spot.y, kind, text, facing: turn })),
+    ];
+  }, [flash, here]);
+
+  /* Send one piece. It is drawn at once; the server's answer replaces it. */
+  const sendBuild = useCallback(
+    (job) => {
+      const k = `${job.x},${job.y}`;
+      editMap(setPending, k, job);
+      face(job);
+      fieldApi.current?.swingSelf();
+      const { x, y, kind, text, facing: turn } = job;
+      call("build", { x, y, kind, text, ...(turn === undefined ? {} : { facing: turn }) })
+        .then((message) => {
+          editMap(setPending, k, undefined);
+          if (typeof message === "string" && message.startsWith("built")) {
+            undoRef.current = [...undoRef.current.slice(-19), { x, y, kind }];
+          } else if (message === "wait") {
+            queueRef.current = [job, ...queueRef.current];
+            buildAtRef.current = performance.now() + BUILD_COOLDOWN_MS;
+          } else flash(message);
+        })
+        .catch(() => {
+          editMap(setPending, k, undefined);
+          flash("That could not reach the world. Try again.");
+        });
+    },
+    [call, face, flash],
+  );
+
+  /* Take a piece down; it goes at once and comes back if the server says no. */
+  const removeAt = useCallback(
+    (spot) => {
+      const k = `${spot.x},${spot.y}`;
+      editMap(setRemoved, k, true);
+      undoRef.current = undoRef.current.filter((u) => u.x !== spot.x || u.y !== spot.y);
       face(spot);
       fieldApi.current?.swingSelf();
-      await act("build", { ...spot, kind, text });
+      buildAtRef.current = performance.now() + BUILD_COOLDOWN_MS + 40;
+      call("demolish", { x: spot.x, y: spot.y })
+        .then((message) => {
+          editMap(setRemoved, k, undefined);
+          flash(message);
+        })
+        .catch(() => {
+          editMap(setRemoved, k, undefined);
+          flash("That could not reach the world. Try again.");
+        });
     },
-    [act, face],
+    [call, face, flash],
+  );
+
+  /*
+   * Work through the queue, one piece per beat: walk into reach of the
+   * next piece if need be, drop it with the reason if it can't go up, and
+   * otherwise send it. Runs from the step loop below.
+   */
+  const pumpBuild = useCallback(
+    (now) => {
+      const job = queueRef.current[0];
+      if (!job || now < buildAtRef.current) return false;
+      const verdict = judgeTile(buildContext(stateRef.current, here()), job);
+      if (!verdict.ok) {
+        queueRef.current = queueRef.current.slice(1);
+        flash(verdict.error);
+        return true;
+      }
+      if (!verdict.near) {
+        if (job.walked) {
+          queueRef.current = queueRef.current.slice(1);
+          flash("can't reach that spot");
+          return true;
+        }
+        job.walked = true;
+        goThen(inReach(job), null, "can't reach that spot");
+        return true;
+      }
+      queueRef.current = queueRef.current.slice(1);
+      buildAtRef.current = now + BUILD_COOLDOWN_MS + 40;
+      sendBuild(job);
+      return true;
+    },
+    [flash, goThen, here, sendBuild],
   );
 
   /* Chase a creature down and hit it. Creatures move, so each arrival
@@ -487,7 +614,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       if (st.me.hp <= 0) return;
       const from = here();
       if (buildingRef.current) {
-        goThen(inReach(spot), () => placeAt(spot), "can't reach that spot");
+        enqueue([spot]);
         return;
       }
       if (digRef.current) {
@@ -528,7 +655,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       if (spot.x === from.x && spot.y === from.y) return;
       goThen((x, y) => x === spot.x && y === spot.y, null, "can't walk there");
     },
-    [goThen, placeAt, attack, act, face, here],
+    [goThen, enqueue, attack, act, face, here],
   );
 
   const facingSpot = useCallback(() => {
@@ -602,6 +729,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         }
         return;
       }
+      if (pumpBuild(now)) return;
       /* Holding the button down on a creature or a tree keeps at it. */
       const mouse = mouseRef.current;
       const spot = hoverRef.current;
@@ -619,7 +747,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [stepBy, primary, here, goThen]);
+  }, [stepBy, primary, here, goThen, pumpBuild]);
 
   /* ── Feedback ─────────────────────────────────────────────────────── */
 
@@ -667,7 +795,10 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
 
     const onKeyDown = (event) => {
-      if (customizing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (customizing) return;
+      const undoChord =
+        (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z";
+      if (!undoChord && (event.metaKey || event.ctrlKey || event.altKey)) return;
       if (typing()) {
         if (event.key === "Escape") {
           document.activeElement.blur();
@@ -731,8 +862,11 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         else if (buildingRef.current) setBuilding(false);
         else if (mapOpen) setMapOpen(false);
         planRef.current = null;
+        queueRef.current = [];
+        setPaint(null);
         return;
       }
+      if (undoChord) event.preventDefault();
       const key = event.key.toLowerCase();
       const slot = BUILD_MENU.find((entry) => entry.key === event.key);
       if (event.key === " ") {
@@ -744,7 +878,21 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       } else if (key === "b") setBuilding((b) => !b);
       else if (key === "x") {
         const spot = hoverRef.current || facingSpot();
-        if (spot) goThen(inReach(spot), () => act("demolish", spot));
+        const built = spot && stateRef.current.cells.find((c) => c.x === spot.x && c.y === spot.y);
+        if (!built || built.kind === "stump" || built.kind === "rubble") flash("nothing built there");
+        else if (!built.mine) flash(`${built.ownerName || "someone else"} built that`);
+        else if (withinReach(here(), spot.x, spot.y)) removeAt(spot);
+        else goThen(inReach(spot), () => removeAt(spot), "can't reach that spot");
+      } else if (key === "z") {
+        /* Take back the last piece that went up: all of it comes back. */
+        const last = undoRef.current[undoRef.current.length - 1];
+        if (!last) flash("nothing to take back");
+        else if (withinReach(here(), last.x, last.y)) removeAt(last);
+        else goThen(inReach(last), () => removeAt(last), "can't reach that spot");
+      } else if (key === "r" && buildingRef.current && me?.hp > 0) {
+        if (!ORIENTED.includes(selectedRef.current))
+          flash("this piece looks the same any way round");
+        else setFacing((f) => ((f ?? -1) + 1) % 4);
       } else if (key === "q") act("drink");
       else if (key === "e")
         act("eat", {
@@ -801,6 +949,9 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     me,
     toggleFullscreen,
     facingSpot,
+    flash,
+    here,
+    removeAt,
   ]);
 
   /* ── Mouse ────────────────────────────────────────────────────────── */
@@ -846,6 +997,12 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       primary(spot);
       return;
     }
+    if (buildingRef.current && spot && me?.hp > 0) {
+      /* Press, drag along a row, let go: the whole run goes up. */
+      setPaint({ anchor: spot, end: spot });
+      stageRef.current?.setPointerCapture?.(event.pointerId);
+      return;
+    }
     mouseRef.current = { held: true, last: performance.now() };
     primary(spot);
   };
@@ -867,19 +1024,33 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       }
       return;
     }
-    if (event.pointerType !== "touch") setHover(pick(event));
+    if (event.pointerType !== "touch") {
+      const spot = pick(event);
+      setHover(spot);
+      const run = paintRef.current;
+      if (run && spot && !sameSpot(run.end, spot))
+        setPaint({ anchor: run.anchor, end: spot });
+    }
   };
 
   const onPointerUp = (event) => {
     mouseRef.current.held = false;
+    const run = paintRef.current;
+    if (run && event.button === 0) {
+      setPaint(null);
+      if (buildingRef.current) enqueue(linePath(run.anchor, run.end));
+    }
     const drag = dragRef.current;
     if (!drag) return;
     dragRef.current = null;
     setDragging(false);
     /* A right click that did not drag leaves build mode, or stops a walk. */
     if (drag.moved <= 4 && drag.button === 2) {
-      if (buildingRef.current) setBuilding(false);
-      else planRef.current = null;
+      if (paintRef.current) setPaint(null);
+      else if (buildingRef.current) {
+        setBuilding(false);
+        queueRef.current = [];
+      } else planRef.current = null;
     }
   };
 
@@ -926,6 +1097,18 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     : aim
       ? describeTarget(aim.x, aim.y, state.cells, state.ground)
       : null;
+  /* What the ghost shows: the run being dragged, or the aimed tile. */
+  const standX = here()?.x;
+  const standY = here()?.y;
+  const ghosts = useMemo(() => {
+    if (!building || !playing || standX === undefined) return null;
+    const spots = paint
+      ? linePath(paint.anchor, paint.end)
+      : aim
+        ? [aim]
+        : [];
+    return ghostsFor(state, { x: standX, y: standY }, spots, selected, facing);
+  }, [building, playing, paint, aim, state, standX, standY, selected, facing]);
   const journey = journeyOf(me);
   const inspection =
     state.players.find((p) => p.id === inspected?.id) || inspected;
@@ -951,6 +1134,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
           state={state}
           aim={aim}
           aimOk={aim && me ? withinReach(here() || me, aim.x, aim.y) : false}
+          ghosts={ghosts}
           raw={raw}
           orbit={!playing}
           density={density}
@@ -1011,6 +1195,8 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
             aimInfo={aimInfo}
             building={building}
             selected={selected}
+            ghosts={ghosts}
+            facing={facing}
             me={me}
             panel={panel}
             onPick={(kind) => {

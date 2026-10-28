@@ -168,6 +168,11 @@ plumbing — a mutation lands and everyone re-renders.
   equipment and a crystal pickaxe. The 14 recipes share one rules catalog between
   client and server; stations, ingredients and equipment upgrades are checked in
   a single mutation.
+- **Building.** Where a piece may go is one pure function,
+  [`src/lib/building.js`](src/lib/building.js), run by the server to decide,
+  by the browser to colour the ghost, and by the offline stand-in. Pieces
+  appear the moment you click and are corrected if the server says no.
+  Structures sit on dug or piled ground; only a path goes over water.
 - **Settlements.** Ten blueprints include walls, bridges, doors, signs, torches,
   fueled campfires, workbenches, furnaces, bedrolls and communal chests. Cook near
   a lit fire, smelt at a furnace, and set your respawn at your own bedroll. Chest
@@ -191,8 +196,11 @@ Controls: **WASD/arrows** walk (hold to keep going). **Left click** walks
 there, or goes and does the obvious thing: attacks a creature, chops a tree,
 mines a rock, opens a door, gathers. Hold the button to keep swinging.
 **Right drag** turns the camera, the **wheel** zooms. **Space** acts on what is
-in front of you; **1–0** pick a blueprint and **B** toggles build mode (click to
-place, right click to stop); **X** removes your structures; **E** eats; **Q**
+in front of you; **1–0** pick a blueprint and **B** toggles build mode: a ghost of
+the piece follows the cursor, green where it will go up and red with the reason
+where it won't; click to place, drag to lay a straight row, **R** turns a door
+or sign, **Z** takes back the last piece for a full refund, right click stops.
+**X** removes your structures (half back after 20 seconds); **E** eats; **Q**
 drinks a potion; **Tab** or **C/I/J** open Craft/Pack/Journal; **Enter** talks;
 **F** full screen; **H** lists all of this. On touchscreens, tap to do the same
 as a click. Click a nametag to inspect equipment.

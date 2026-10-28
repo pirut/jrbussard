@@ -3,6 +3,8 @@ import { CHUNK, WATER } from "../../lib/terrain";
 import { AsciiPass, glyphCode } from "./asciiPass";
 import { buildChunk, createWater, rippleWater, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
 import { GroundMap } from "../../lib/ground";
+import { autoFacing } from "../../lib/building";
+import { Ghosts } from "./ghost";
 import {
     buildSurvivor,
     buildCreature,
@@ -198,6 +200,7 @@ export default class AsciiWorld {
         this.cursor = buildCursor();
         this.cursor.visible = false;
         this.scene.add(this.cursor);
+        this.ghosts = new Ghosts(this.scene);
 
         this.splashes = this.createSplashes();
         this.scene.add(this.splashes);
@@ -298,6 +301,15 @@ export default class AsciiWorld {
     setAim(aim, ok = true) {
         this.aim = aim;
         this.aimOk = ok;
+    }
+
+    /* The build ghosts (see ghost.js), seated like real structures. */
+    setGhosts(list) {
+        this.ghosts.set(list, (x, y) => ({
+            height: this.ground.height(x, y),
+            overWater: this.ground.tile(x, y) === WATER,
+            deck: WATER_LEVEL + 0.12,
+        }));
     }
 
     /* Snap to a quarter turn, the nearest way round. */
@@ -441,6 +453,12 @@ export default class AsciiWorld {
 
     syncStructures(state) {
         const seen = new Set();
+        const walls = new Set(state.cells.filter((c) => c.kind === "wall").map((c) => `${c.x},${c.y}`));
+        const wallAt = (x, y) => walls.has(`${x},${y}`);
+        /* Anything new after the first snapshot rises out of the ground, so
+           somebody else's wall going up reads as building, not a pop. */
+        const grow = this.structuresSeen;
+        this.structuresSeen = true;
         state.cells.forEach((cell) => {
             const key = `${cell.x},${cell.y}`;
             seen.add(key);
@@ -451,22 +469,25 @@ export default class AsciiWorld {
                 deck: WATER_LEVEL + 0.12,
             };
             const k = structureKey(cell, ctx);
+            /* Turned by hand, or a door or sign set across its wall. */
+            const facing = cell.facing ?? (cell.kind === "door" || cell.kind === "sign" ? autoFacing(cell.x, cell.y, wallAt) : 0);
             const existing = this.structures.get(key);
             if (existing && existing.key === k) {
                 if (existing.group.userData.hinge) existing.group.userData.open = cell.open ? 1 : 0;
+                existing.group.rotation.y = (facing * Math.PI) / 2;
                 return;
             }
             if (existing) this.removeStructure(key);
             const group = buildStructure(cell, ctx);
             if (!group) return;
             group.position.set(cell.x, overWater ? 0 : this.ground.height(cell.x, cell.y), cell.y);
-            /* Doors and signs face whichever way has open ground. */
-            if (cell.kind === "door") {
-                const walls = state.cells.filter((c) => c.kind === "wall");
-                const ew = walls.some((c) => c.y === cell.y && Math.abs(c.x - cell.x) === 1);
-                if (!ew) group.rotation.y = Math.PI / 2;
-            }
+            group.rotation.y = (facing * Math.PI) / 2;
+            /* Judged at full height, before it starts to rise. */
             mergeModel(trimShadows(group));
+            if (grow && !existing && !this.reducedMotion) {
+                group.userData.born = this.time;
+                group.scale.set(1, 0.05, 1);
+            }
             group.traverse((node) => {
                 if (node.userData.flame) this.flames.push(node);
             });
@@ -1249,8 +1270,16 @@ export default class AsciiWorld {
         this.updateEmbers();
         wind.uTime.value = this.reducedMotion ? 0 : this.time;
         this.updateCursor();
+        this.ghosts.update(this.time, this.reducedMotion);
 
         this.structures.forEach((s) => {
+            const born = s.group.userData.born;
+            if (born !== undefined) {
+                /* A quick rise with a little settle at the top. */
+                const t = Math.min(1, (this.time - born) / 0.28);
+                s.group.scale.y = t >= 1 ? 1 : 0.05 + 0.95 * (1 - (1 - t) ** 3) * (1 + Math.sin(t * Math.PI) * 0.12);
+                if (t >= 1) delete s.group.userData.born;
+            }
             const hinge = s.group.userData.hinge;
             if (hinge) hinge.rotation.y += (-s.group.userData.open * Math.PI * 0.5 - hinge.rotation.y) * Math.min(1, dt * 10);
         });
@@ -1295,6 +1324,7 @@ export default class AsciiWorld {
             disposeModel(s.group);
             disposeMerged(s.group);
         });
+        this.ghosts.dispose();
         this.ascii.dispose();
         if (this.perf) this.perf.dispose();
         this.fxLayer.remove();
