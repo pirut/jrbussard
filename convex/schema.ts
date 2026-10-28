@@ -19,6 +19,9 @@ export default defineSchema({
     lastTick: v.number(),
     weather: v.string(),
     weatherUntil: v.number(),
+    /* Which run of the tick loop is the live one. A restart bumps it, so a
+       loop that was given up on stands down instead of running twice. */
+    loop: v.optional(v.number()),
   }).index("by_key", ["key"]),
 
   players: defineTable({
@@ -60,8 +63,11 @@ export default defineSchema({
     .index("by_session", ["session"])
     .index("by_lastSeen", ["lastSeen"])
     .index("by_level", ["level", "kills"])
-    /* Lets a step check the one tile it lands on instead of every player. */
-    .index("by_pos", ["x", "y"]),
+    .index("by_pos", ["x", "y"])
+    /* Lets a step check the one tile it lands on instead of every player,
+       reading only who is still around: characters stay where they were
+       left, so a busy tile collects them. */
+    .index("by_x_and_y_and_lastSeen", ["x", "y", "lastSeen"]),
 
   monsters: defineTable({
     kind: v.string(),
