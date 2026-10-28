@@ -403,6 +403,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             if (you.hp <= 0) return "no";
             const existing = cells.find((c) => c.x === x && c.y === y);
             const cleared = existing && (existing.kind === "stump" || existing.kind === "rubble");
+            if (!withinReach(you, x, y)) return "too far";
             if (existing && !cleared) return "something is built there";
             if (occupied(x, y)) return "someone is standing there";
             const plan = planTerraform({

@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { TOOL_NAMES } from "../../lib/survival";
 import { groundIndex, surfaceAt, protectedGround, DIRT, MAX_DIG, MAX_RAISE } from "../../lib/ground";
-import { WATER, SAND } from "../../lib/terrain";
+import { WATER, SAND, TREE, ROCK } from "../../lib/terrain";
 import "./dig.css";
 
 /*
@@ -35,6 +35,9 @@ export function digTargetInfo(state, spot, mode) {
     if (protectedGround(spot.x, spot.y)) return { label: spot.x === 0 || spot.y === 0 ? "the road" : "the crossroads", verb: "protected · no digging here" };
     const edit = groundIndex(state?.ground).get(`${spot.x},${spot.y}`);
     const surface = surfaceAt(spot.x, spot.y, edit);
+    const felled = (state?.cells || []).some((c) => c.x === spot.x && c.y === spot.y && (c.kind === "stump" || c.kind === "rubble"));
+    if (edit === undefined && !felled && surface.tile === TREE) return { label: "tree", verb: "chop it down before digging" };
+    if (edit === undefined && !felled && surface.tile === ROCK) return { label: "rock", verb: "mine it before digging" };
     const depth = edit === undefined ? "" : edit < 0 ? ` · ${-edit} down` : edit > 0 ? ` · ${edit} up` : "";
     const label =
         surface.tile === WATER
