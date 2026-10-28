@@ -56,6 +56,34 @@ export function placeIsoCamera(camera, focus, yaw, height, aspect) {
 }
 
 /*
+ * Slide the camera, along the screen, onto the nearest whole character
+ * cell. A camera that drifts by fractions of a cell changes what every cell
+ * holds every frame, and the whole picture crawls; one that moves in whole
+ * cells carries the ground along unchanged, so a still landscape stays
+ * still while you walk across it. Returns how many cells across and up the
+ * camera now sits from the origin, for anything keyed to the ground (the
+ * ASCII pass's texture), wrapped so it stays exact as a float.
+ */
+const snapRight = new THREE.Vector3();
+const snapUp = new THREE.Vector3();
+export function snapIsoCamera(camera, cols, rows, out = new THREE.Vector2()) {
+    const cw = (camera.right - camera.left) / cols;
+    const ch = (camera.top - camera.bottom) / rows;
+    if (!(cw > 0 && ch > 0)) return out.set(0, 0);
+    const e = camera.matrixWorld.elements;
+    snapRight.set(e[0], e[1], e[2]);
+    snapUp.set(e[4], e[5], e[6]);
+    const sx = camera.position.dot(snapRight) / cw;
+    const sy = camera.position.dot(snapUp) / ch;
+    const ix = Math.round(sx);
+    const iy = Math.round(sy);
+    camera.position.addScaledVector(snapRight, (ix - sx) * cw).addScaledVector(snapUp, (iy - sy) * ch);
+    camera.updateMatrixWorld();
+    const wrap = (n) => ((n % 4096) + 4096) % 4096;
+    return out.set(wrap(ix), wrap(iy));
+}
+
+/*
  * A direction on screen, as a direction on the map. `sx` is right, `sy`
  * down, as the keys give them; the answer is in map units (x east, y
  * south), unit length, or [0, 0] for no direction at all. Up the screen is

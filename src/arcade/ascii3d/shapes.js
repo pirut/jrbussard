@@ -55,6 +55,14 @@ export function place(x, y, z, sx, sy, sz, ry = 0, rx = 0, rz = 0) {
     q.setFromEuler(e);
     return m4.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sx, sy, sz));
 }
+/* Parsed once per colour: reading "#7a5a3c" into linear RGB is most of
+   what a chunk build used to spend on colour. */
+const parsed = new Map();
 export function tint(hex, amount) {
-    return color.set(hex).multiplyScalar(amount);
+    let base = parsed.get(hex);
+    if (!base) {
+        base = new THREE.Color(hex);
+        parsed.set(hex, base);
+    }
+    return color.copy(base).multiplyScalar(amount);
 }
