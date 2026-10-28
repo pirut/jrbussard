@@ -28,6 +28,7 @@ import HelpOverlay from "./commons/HelpOverlay";
 import DeathScreen from "./commons/DeathScreen";
 import TitleScreen from "./commons/TitleScreen";
 import Inspect from "./commons/Inspect";
+import { heldSwing } from "./commons/held";
 import HudWindow from "./commons/HudWindow";
 import AsciiField from "./ascii3d/AsciiField";
 import { octStep, stepTime } from "./ascii3d/controls";
@@ -214,8 +215,6 @@ function Offline() {
 const STEP_MS = 150;
 /* A blocked plan looks for a new way this many times before giving up. */
 const REPLANS = 3;
-/* How often a held mouse button swings again. */
-const SWING_MS = 430;
 
 /* Set or clear one entry of a Map held in state. */
 const editMap = (setter, k, value) =>
@@ -624,6 +623,9 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
           () => {
             face(spot);
             fieldApi.current?.swingSelf();
+            /* A held button waits a full shovel beat from here, even
+               when the walk over took a while. */
+            mouseRef.current.last = performance.now();
             act("terraform", { ...spot, mode });
           },
           "can't reach that spot",
@@ -730,19 +732,24 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
         return;
       }
       if (pumpBuild(now)) return;
-      /* Holding the button down on a creature or a tree keeps at it. */
+      /* Holding the button down on a creature, a tree, or with the shovel
+         out, any ground it can work, keeps at it (see commons/held.js). */
       const mouse = mouseRef.current;
       const spot = hoverRef.current;
-      if (mouse.held && spot && now - mouse.last > SWING_MS) {
-        const st = stateRef.current;
-        const target =
-          passability(st).creatureAt(spot.x, spot.y) ||
-          (!st.cells.some((c) => c.x === spot.x && c.y === spot.y) &&
-            resourceAt(spot.x, spot.y));
-        if (target && !buildingRef.current) {
-          mouse.last = now;
-          primary(spot);
-        }
+      if (
+        mouse.held &&
+        heldSwing({
+          state: stateRef.current,
+          spot,
+          mode: digRef.current,
+          building: buildingRef.current,
+          from: here(),
+          now,
+          swungAt: mouse.last,
+        })
+      ) {
+        mouse.last = now;
+        primary(spot);
       }
     };
     raf = requestAnimationFrame(loop);
