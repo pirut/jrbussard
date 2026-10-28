@@ -1,0 +1,26 @@
+/* Build mode's additions to the hotbar and target line (ActionBar.js). */
+
+.hud-target .build-ok {
+  color: #8fe39a;
+}
+.hud-target .build-bad {
+  color: var(--hud-bad);
+}
+.hud-target .build-keys {
+  color: #ffffff73;
+}
+.hud-target .build-keys kbd {
+  font-size: 10px;
+  color: var(--ink);
+}
+.hud-build em.build-count {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font: 10px/1.2 var(--font-mono, monospace);
+  font-style: normal;
+  color: var(--ink);
+}
+.hud-build button.is-short em.build-count {
+  color: var(--hud-bad);
+}
