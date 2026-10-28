@@ -13,6 +13,8 @@ export const ITEMS = {
   meat: { name: "Raw meat", glyph: "&", color: "#d09278" },
   fish: { name: "Raw fish", glyph: "><", color: "#8fbbcf" },
   meal: { name: "Cooked meal", glyph: "&", color: "#e9b96b" },
+  dirt: { name: "Dirt", glyph: "o", color: "#9a7b58" },
+  sand: { name: "Sand", glyph: ".", color: "#d8c690" },
 };
 export const FOOD = {
   berries: { hunger: 12, hp: 0 },
@@ -58,6 +60,16 @@ export const RECIPES = [
     tool: "rod",
     tier: 1,
     detail: "Gather at water to catch fish.",
+  },
+  {
+    id: "shovel",
+    name: "Stone shovel",
+    glyph: "L",
+    group: "Tools",
+    cost: { wood: 3, stone: 2, fiber: 1 },
+    tool: "shovel",
+    tier: 1,
+    detail: "Dig pits, pile up mounds, fill in water. G digs, R raises.",
   },
   {
     id: "coat",
@@ -153,6 +165,17 @@ export const RECIPES = [
     tier: 2,
     station: "workbench",
     detail: "Greater protection against creatures and cold.",
+  },
+  {
+    id: "iron_shovel",
+    name: "Iron shovel",
+    glyph: "L",
+    group: "Tools",
+    cost: { ingot: 2, wood: 3 },
+    tool: "shovel",
+    tier: 2,
+    station: "workbench",
+    detail: "Dig faster and move twice the earth with every swing.",
   },
   {
     id: "crystal_pick",
@@ -274,6 +297,7 @@ export const TOOL_NAMES = {
   weapon: ["Unarmed", "Stone spear", "Iron sword"],
   armor: ["No armor", "Woven coat", "Iron armor"],
   rod: ["No fishing rod", "Fishing rod"],
+  shovel: ["No shovel", "Stone shovel", "Iron shovel"],
 };
 function seed(x, y) {
   let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);

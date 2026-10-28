@@ -22,6 +22,8 @@ export default function HelpOverlay({ onClose }) {
         <dd>pick something to build · build mode</dd>
         <dt>X</dt>
         <dd>remove something you built</dd>
+        <dt>G</dt>
+        <dd>shovel: dig · raise · level · off; click to work a tile</dd>
         <dt>E · Q</dt>
         <dd>eat · drink a potion</dd>
         <dt>Tab · C I J</dt>

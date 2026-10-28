@@ -1,4 +1,4 @@
-import { isSolid } from "../../lib/terrain";
+import { solidAt, groundIndex } from "../../lib/ground";
 import { STRUCTURES } from "../../lib/survival";
 
 /*
@@ -12,9 +12,10 @@ import { STRUCTURES } from "../../lib/survival";
 const key = (x, y) => `${x},${y}`;
 
 /* Whether a tile can be walked into, given a snapshot. Other people and
-   creatures count as in the way. */
+   creatures count as in the way, and so does a pit that has flooded. */
 export function passability(state) {
     const cells = new Map((state?.cells || []).map((c) => [key(c.x, c.y), c]));
+    const ground = groundIndex(state?.ground);
     const occupied = new Set();
     (state?.monsters || []).forEach((m) => occupied.add(key(m.x, m.y)));
     (state?.players || []).forEach((p) => {
@@ -26,10 +27,12 @@ export function passability(state) {
             if (cell.kind === "door") return Boolean(cell.open);
             return !STRUCTURES[cell.kind]?.solid;
         }
-        return !isSolid(x, y);
+        return !solidAt(x, y, ground.get(key(x, y)));
     };
     return {
         open,
+        /* Dug or piled: whatever grew there is gone. */
+        worked: (x, y) => ground.has(key(x, y)),
         free: (x, y) => open(x, y) && !occupied.has(key(x, y)),
         creatureAt: (x, y) => (state?.monsters || []).find((m) => m.x === x && m.y === y) || null,
     };
