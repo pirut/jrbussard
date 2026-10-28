@@ -1040,3 +1040,12 @@
         display: block;
     }
 }
+
+/* Other visitors' names, over their heads. */
+.site3d__label--visitor {
+    padding: 2px 5px;
+    font-size: 10px;
+    color: #f3e7c4;
+    background: #090d0a99;
+    translate: -50% -100%;
+}

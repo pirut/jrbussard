@@ -124,6 +124,25 @@ export default defineSchema({
     .index("by_x_and_y", ["x", "y"])
     .index("by_chunk", ["chunk"]),
 
+  /*
+   * Who is walking around the main site right now. Nothing here is a game:
+   * a row is a position, a heading and a name, written a few times a second
+   * while someone walks and dropped from view once they stop checking in.
+   */
+  visitors: defineTable({
+    session: v.string(),
+    name: v.string(),
+    x: v.number(),
+    y: v.number(),
+    facing: v.number(),
+    running: v.boolean(),
+    /* Copied from their Commons character, if they have one. */
+    appearance: v.optional(appearanceValidator),
+    lastSeen: v.number(),
+  })
+    .index("by_session", ["session"])
+    .index("by_lastSeen", ["lastSeen"]),
+
   chat: defineTable({
     name: v.string(),
     text: v.string(),
