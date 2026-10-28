@@ -64,7 +64,7 @@ function rgbHex(rgb) {
 }
 
 export default class SiteScene {
-    constructor(container, world, { cellWidth = 7, cellHeight = 12, reducedMotion = false, phase = "dusk" } = {}) {
+    constructor(container, world, { cellWidth = 4, cellHeight = 7, reducedMotion = false, phase = "dusk" } = {}) {
         this.container = container;
         this.world = world;
         this.reducedMotion = reducedMotion;
