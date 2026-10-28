@@ -95,7 +95,18 @@
 
 /* ── HUD frame ─────────────────────────────────────────────────────── */
 
+/*
+ * Everything sits in the four corners and along the bottom, leaving the
+ * middle of the screen to the world. Panels are dark enough to read over
+ * the busiest ASCII, and every label is a word, not a code.
+ */
 .game-hud {
+  --hud-pad: 12px;
+  --hud-bg: #060a08e0;
+  --hud-line: #ffffff1c;
+  --hud-key: #e2c895;
+  --hud-warn: #f0b45e;
+  --hud-bad: #ff7a6b;
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -104,31 +115,50 @@
   font-size: 12px;
   text-shadow: 0 1px 2px #000;
 }
-.game-hud > * {
+.game-hud > *,
+.hud-side > * {
   pointer-events: auto;
 }
 .game-hud > .hud-notice,
-.game-hud > .hud-quest,
+.game-hud > .hud-side,
 .game-hud > .hud-chat {
   pointer-events: none;
 }
-.game-hud > .hud-chat form {
+.hud-chat > button,
+.hud-chat form {
   pointer-events: auto;
 }
-.hud-vitals,
-.hud-world,
-.hud-quest,
-.hud-chat,
-.hud-bottom > * {
-  background: #070c09b8;
-  border: 1px solid #ffffff14;
-  backdrop-filter: blur(3px);
+.hud-card {
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-line);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.game-hud kbd,
+.game-title kbd,
+.hud-dead kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 4px;
+  border: 1px solid #ffffff38;
+  border-bottom-width: 2px;
+  border-radius: 2px;
+  font: 10px/1.5 var(--font-mono, monospace);
+  color: var(--hud-key);
+  text-align: center;
+  text-shadow: none;
+}
+.hud-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
 }
 
 .hud-back {
   color: var(--dim);
   text-decoration: none;
-  font-size: 11px;
+  font-size: 12px;
 }
 .hud-back:hover {
   color: var(--gold);
@@ -138,32 +168,51 @@
 
 .hud-vitals {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: var(--hud-pad);
+  left: var(--hud-pad);
   padding: 8px 12px 10px;
   display: grid;
-  gap: 2px;
-  min-width: 250px;
+  gap: 3px;
+  width: 270px;
+}
+.hud-vitals header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 5px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--hud-line);
+}
+.hud-vitals .hud-back {
+  padding: 0 2px;
 }
 .hud-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
   background: none;
   border: 0;
-  padding: 2px 0 4px;
+  padding: 0;
   text-align: left;
 }
 .hud-name b {
-  color: #f1e3b4;
+  color: #f4e7bd;
   font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .hud-name span {
   color: var(--dim);
+  white-space: nowrap;
 }
 .hud-name:hover b {
   text-decoration: underline;
 }
 .hud-meter {
   display: grid;
-  grid-template-columns: 2.4ch auto 1fr;
+  grid-template-columns: 5ch auto 1fr;
   gap: 8px;
   align-items: center;
   white-space: nowrap;
@@ -171,16 +220,32 @@
 .hud-meter > span {
   color: var(--dim);
   font-size: 10px;
+  letter-spacing: 0.08em;
 }
 .hud-meter em {
   font-style: normal;
-  color: var(--dim);
+  color: var(--ink);
   font-size: 11px;
+  text-align: right;
+}
+.hud-meter.is-low > span,
+.hud-meter.is-low em {
+  color: var(--hud-warn);
+}
+.hud-meter.is-critical > span,
+.hud-meter.is-critical em {
+  color: var(--hud-bad);
+}
+.hud-meter.is-critical .game-bar {
+  animation: hud-blink 1s steps(2, start) infinite;
 }
 .game-bar {
-  color: #ffffff1f;
+  color: #ffffff24;
   letter-spacing: -0.04em;
   font-size: 12px;
+}
+.game-bar i {
+  font-style: normal;
 }
 .hud-meter--hp .game-bar i {
   color: #e4675b;
@@ -189,107 +254,177 @@
   color: #d9a85e;
 }
 .hud-meter--warm .game-bar i {
-  color: #e9cf7c;
+  color: #f0d77f;
 }
 .hud-meter--xp .game-bar i {
   color: #8ac7d9;
 }
-.game-bar i {
-  font-style: normal;
+.hud-purse {
+  display: flex;
+  gap: 16px;
+  margin: 3px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+}
+.hud-purse b {
+  color: #f4e7bd;
+  font-weight: normal;
+}
+.hud-condition {
+  margin: 5px 0 0;
+  padding: 4px 8px;
+  border-left: 2px solid var(--hud-warn);
+  background: #f0b45e14;
+  color: var(--hud-warn);
+}
+.hud-condition.is-critical {
+  border-color: var(--hud-bad);
+  background: #ff7a6b1a;
+  color: var(--hud-bad);
+}
+.hud-condition span {
+  font-weight: bold;
+}
+@keyframes hud-blink {
+  to {
+    opacity: 0.35;
+  }
 }
 
-/* ── The world, top right ──────────────────────────────────────────── */
+/* ── The world and the next goal, top right ────────────────────────── */
 
-.hud-world {
+.hud-side {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  padding: 8px 12px;
+  top: var(--hud-pad);
+  right: var(--hud-pad);
+  width: 290px;
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 4px 16px;
-  min-width: 230px;
+  gap: 8px;
+}
+.hud-world {
+  padding: 8px 10px 8px 12px;
+  display: grid;
+  gap: 2px;
+}
+.hud-world__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.hud-sky {
+  margin: 0;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
 }
 .hud-sky b {
-  color: #f1e3b4;
+  color: #f4e7bd;
   font-weight: normal;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.hud-sky span,
+.hud-sky > span {
+  color: var(--dim);
+}
+.hud-where {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  align-items: baseline;
+}
+.hud-where b {
+  font-weight: normal;
+  color: var(--ink);
+}
 .hud-where span {
-  display: block;
   color: var(--dim);
   font-size: 11px;
 }
-.hud-where {
-  grid-column: 1;
-}
 .hud-buttons {
-  grid-row: 1 / span 2;
-  grid-column: 2;
   display: flex;
-  gap: 6px;
-  align-items: start;
+  gap: 4px;
 }
 .hud-buttons button {
-  width: 28px;
-  height: 28px;
-  border: 1px solid #ffffff26;
-  background: #0006;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #ffffff2e;
+  background: #0008;
   color: var(--ink);
+  font-size: 14px;
 }
-.hud-buttons button:hover {
+.hud-buttons button:hover,
+.hud-buttons button[aria-pressed="true"] {
   border-color: var(--gold);
   color: var(--gold);
 }
-.hud-world .survival-map {
-  grid-column: 1 / -1;
-  border-top: 1px solid #ffffff14;
-  padding-top: 6px;
-  margin-top: 4px;
+.hud-map {
+  margin: 6px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--hud-line);
+}
+.hud-map__grid {
+  font: 11px/1 var(--font-mono, monospace);
+  letter-spacing: 0.12em;
+  text-align: center;
+  white-space: pre;
+}
+.hud-map__you {
+  color: #fff3c4;
+  font-weight: bold;
+}
+.hud-map figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 8px;
+  color: var(--dim);
   font-size: 10px;
 }
-.hud-world .survival-map-grid {
-  margin: 8px 0 4px;
+.hud-map figcaption span:last-child {
+  flex-basis: 100%;
 }
-
-/* ── Goal, under the world panel ───────────────────────────────────── */
 
 .hud-quest {
-  position: absolute;
-  top: 132px;
-  right: 12px;
-  width: 260px;
-  padding: 8px 12px;
   display: grid;
-  gap: 2px;
+  gap: 3px;
+  padding: 8px 12px;
+  text-align: left;
+  pointer-events: auto;
 }
-.hud-quest span {
-  font-size: 9px;
-  letter-spacing: 0.15em;
-  color: var(--gold);
+.hud-quest:hover {
+  border-color: #d8b67c66;
+}
+.hud-quest .hud-label {
+  display: flex;
+  justify-content: space-between;
+}
+.hud-quest .hud-label em {
+  font-style: normal;
+  color: var(--dim);
+  letter-spacing: 0.04em;
 }
 .hud-quest b {
   font-weight: normal;
-  color: var(--ink);
+  color: #f4e7bd;
 }
 .hud-quest small {
   color: var(--dim);
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 /* ── Chat, bottom left ─────────────────────────────────────────────── */
 
 .hud-chat {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
-  width: min(420px, calc(100% - 24px));
+  left: var(--hud-pad);
+  bottom: var(--hud-pad);
+  width: max(200px, min(380px, calc(50vw - 300px)));
   padding: 8px 12px;
-  background: linear-gradient(#070c0900, #070c09b8 40%);
-  border-color: transparent;
+  background: linear-gradient(#060a0800, #060a08cc 30%);
 }
 .hud-chat ol {
   list-style: none;
@@ -303,6 +438,9 @@
 .hud-chat li {
   overflow-wrap: anywhere;
 }
+.hud-chat li:nth-last-child(n + 4) {
+  opacity: 0.7;
+}
 .hud-chat .chat-system,
 .hud-chat .chat-weather {
   color: var(--dim);
@@ -311,31 +449,44 @@
   color: #e5c67e;
 }
 .hud-chat .chat-death {
-  color: #e4675b;
+  color: #ff8a7d;
 }
 .hud-chat form {
   display: flex;
   gap: 6px;
   align-items: center;
   margin-top: 6px;
-  border-top: 1px solid #ffffff26;
-  padding-top: 6px;
+  border: 1px solid #d8b67c66;
+  background: #000a;
+  padding: 4px 8px;
 }
 .hud-chat form span {
   color: var(--gold);
 }
 .hud-chat input {
   flex: 1;
+  min-width: 0;
   background: none;
   border: 0;
-  outline: none;
   user-select: text;
   -webkit-user-select: text;
 }
-.hud-chat-hint {
-  margin: 4px 0 0;
-  font-size: 10px;
-  color: #ffffff55;
+.hud-chat input:focus-visible {
+  outline: none;
+}
+.hud-chat input::placeholder {
+  color: #ffffff66;
+}
+.hud-chat-open {
+  margin-top: 6px;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  color: var(--dim);
+  font-size: 11px;
+}
+.hud-chat-open:hover {
+  color: var(--ink);
 }
 
 /* ── Target and hotbar, bottom middle ──────────────────────────────── */
@@ -343,11 +494,12 @@
 .hud-bottom {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  bottom: var(--hud-pad);
   transform: translateX(-50%);
   display: grid;
   justify-items: center;
-  gap: 8px;
+  gap: 6px;
+  max-width: calc(100vw - 24px);
   pointer-events: none;
 }
 .hud-bottom > * {
@@ -357,143 +509,343 @@
   margin: 0;
   padding: 4px 12px;
   display: flex;
-  gap: 10px;
-  white-space: nowrap;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 12px;
+  max-width: 100%;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-line);
   pointer-events: none;
 }
 .hud-target.is-empty {
   visibility: hidden;
 }
 .hud-target b {
-  color: #f1e3b4;
+  color: #f4e7bd;
   font-weight: normal;
 }
 .hud-target span {
   color: var(--dim);
 }
-.hud-hotbar {
+.hud-target .is-short {
+  color: var(--hud-bad);
+}
+.hud-target.is-building {
+  border-color: #d8b67c66;
+}
+.hud-hotbar,
+.hud-build {
   display: flex;
   gap: 4px;
   padding: 5px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-line);
 }
-.hud-hotbar > i {
-  width: 1px;
-  margin: 2px 4px;
-  background: #ffffff26;
-}
-.hud-hotbar button {
+.hud-hotbar button,
+.hud-build button {
   position: relative;
-  width: 38px;
-  height: 38px;
+  flex: none;
+  width: 54px;
+  height: 50px;
   padding: 0;
-  border: 1px solid #ffffff1f;
-  background: #0007;
+  border: 1px solid #ffffff24;
+  background: #0009;
   display: grid;
+  grid-template-rows: 1fr auto;
   place-items: center;
-  font: 18px/1 var(--font-mono, monospace);
+  font-family: var(--font-mono, monospace);
 }
-.hud-hotbar button:hover {
-  border-color: #ffffff59;
+.hud-hotbar button:hover,
+.hud-build button:hover {
+  border-color: #ffffff66;
 }
-.hud-hotbar button.is-on {
+.hud-hotbar button.is-on,
+.hud-build button.is-on {
   border-color: var(--gold);
   box-shadow: inset 0 0 0 1px var(--gold);
+  background: #d8b67c1f;
 }
-.hud-hotbar kbd {
-  position: absolute;
-  top: 1px;
-  left: 3px;
-  font: 9px/1 var(--font-mono, monospace);
-  color: #ffffff73;
+.hud-glyph {
+  font-size: 19px;
+  line-height: 1;
+  padding-top: 6px;
 }
-.hud-hotbar small {
-  position: absolute;
-  right: 3px;
-  bottom: 1px;
-  font-size: 9px;
+.hud-hotbar small,
+.hud-build small {
+  padding-bottom: 3px;
+  font-size: 10px;
   color: var(--dim);
+}
+.hud-hotbar button.is-on small,
+.hud-build button.is-on small {
+  color: var(--ink);
+}
+.hud-hotbar kbd,
+.hud-build kbd {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  min-width: 0;
+  padding: 0 2px;
+  border: 0;
+  font-size: 9px;
+  line-height: 1.2;
+  color: #ffffff8c;
+}
+.hud-hotbar em {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font: 10px/1.2 var(--font-mono, monospace);
+  font-style: normal;
+  color: var(--ink);
+}
+.hud-build button.is-short .hud-glyph,
+.hud-build button.is-short small {
+  opacity: 0.45;
+}
+.hud-build {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.hud-build::-webkit-scrollbar {
+  display: none;
 }
 
 /* ── Notices, dialogs, death ───────────────────────────────────────── */
 
+/* What just happened sits over the hotbar, where your eyes already are. */
 .hud-notice {
   position: absolute;
   left: 50%;
-  top: 18%;
+  bottom: 150px;
   transform: translate(-50%, 6px);
+  max-width: min(520px, calc(100vw - 24px));
   margin: 0;
   padding: 6px 14px;
-  background: #070c09cc;
-  border: 1px solid #ffffff1f;
-  color: #f1e3b4;
+  background: var(--hud-bg);
+  border: 1px solid #d8b67c55;
+  color: #f4e7bd;
+  text-align: center;
   opacity: 0;
   transition:
     opacity 0.2s,
     transform 0.2s;
-  white-space: nowrap;
 }
 .hud-notice.is-on {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+.is-building .hud-notice {
+  bottom: 210px;
+}
+.hud-status {
+  position: absolute;
+  top: var(--hud-pad);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 14px;
+  background: #2a0d0aee;
+  border: 1px solid var(--hud-bad);
+  color: #ffd4cc;
+}
 
 .hud-window {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: calc(50% - 36px);
   transform: translate(-50%, -50%);
-  width: min(560px, calc(100% - 24px));
-  max-height: calc(100% - 140px);
-  overflow: auto;
-  background: #0b130dee;
+  width: min(600px, calc(100% - 24px));
+  max-height: calc(100% - 180px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #08100bf5;
   border: 1px solid #70815d;
-  box-shadow: 0 20px 80px #000a;
-  padding: 18px 22px;
-  font-family: "Work Sans", sans-serif;
+  box-shadow: 0 20px 80px #000c;
+  padding: 16px 20px;
   text-shadow: none;
   user-select: text;
   -webkit-user-select: text;
 }
-.hud-window .fieldcraft {
-  border: 0;
-  padding: 0;
-}
-.hud-window .fieldcraft-content {
-  max-height: calc(100vh - 300px);
-  min-height: 0;
+.hud-window:focus {
+  outline: none;
 }
 .hud-close {
   position: absolute;
-  top: 6px;
-  right: 8px;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: none;
   border: 0;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
   color: var(--dim);
+  z-index: 1;
+}
+.hud-close kbd {
+  font-size: 9px;
 }
 .hud-close:hover {
   color: var(--ink);
 }
+
+/* Fieldcraft inside the game: the same monospace as the rest of the HUD,
+   one scrolling list, and text big enough to read. */
+.hud-window .fieldcraft {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 0;
+  padding: 0;
+  font-family: var(--font-mono, monospace);
+}
+.hud-window .fieldcraft-title > span {
+  font-size: 10px;
+  color: var(--dim);
+}
+.hud-window .fieldcraft-title h2 {
+  margin: 2px 0 10px;
+  font: normal 20px/1.2 var(--font-mono, monospace);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f4e7bd;
+}
+.hud-window .fieldcraft-title h2 span {
+  display: none;
+}
+.hud-window .fieldcraft-tabs {
+  margin-bottom: 10px;
+}
+.hud-window .fieldcraft-tabs button {
+  padding: 8px 0 10px;
+  font-size: 12px;
+}
+.hud-window .fieldcraft-content {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  font-size: 12px;
+}
+.hud-window .craft-categories button {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.hud-window .station-status {
+  font-size: 11px;
+  margin: 8px 0 10px;
+}
+.hud-window .recipe {
+  display: grid;
+  grid-template-columns: auto 1fr minmax(120px, auto);
+  grid-template-areas:
+    "title title action"
+    "detail detail action"
+    "cost cost action";
+  gap: 4px 14px;
+  align-items: center;
+  padding: 10px 0;
+}
+.hud-window .recipe-title {
+  grid-area: title;
+}
+.hud-window .recipe > p {
+  grid-area: detail;
+  margin: 0;
+  font-size: 11px;
+}
+.hud-window .recipe-cost {
+  grid-area: cost;
+  margin: 0;
+  font-size: 11px;
+}
+.hud-window .recipe-action {
+  grid-area: action;
+  width: auto;
+  gap: 10px;
+  font-size: 11px;
+}
+.hud-window .recipe-glyph {
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+}
+.hud-window .recipe h3 {
+  font: normal 14px/1.25 var(--font-mono, monospace);
+  color: #f4e7bd;
+}
+.hud-window .blueprint small,
+.hud-window .blueprint em,
+.hud-window .pack-row,
+.hud-window .survival-journey p,
+.hud-window .survival-guide p,
+.hud-window .shared-chest p {
+  font-size: 11px;
+}
+.hud-window .journal-heading,
+.hud-window .survival-guide h3,
+.hud-window .pack-heading h3,
+.hud-window .shared-chest h3 {
+  font-family: var(--font-mono, monospace);
+  font-weight: normal;
+  font-size: 14px;
+}
+
+.hud-help {
+  width: min(760px, calc(100% - 24px));
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+}
 .hud-help h2 {
   margin: 0 0 14px;
-  font:
-    normal 26px/1.1 Georgia,
-    serif;
+  font: normal 20px/1.2 var(--font-mono, monospace);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f4e7bd;
+}
+.hud-help__groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 28px;
+}
+.hud-help h3 {
+  margin: 0 0 8px;
+  font: normal 10px/1 var(--font-mono, monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold);
 }
 .hud-help dl {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 7px 18px;
+  gap: 6px 14px;
   margin: 0;
 }
 .hud-help dt {
-  font-family: var(--font-mono, monospace);
-  color: var(--gold);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.hud-help dt kbd + kbd {
+  margin-left: 2px;
 }
 .hud-help dd {
   margin: 0;
   color: var(--ink);
+}
+.hud-help__touch {
+  display: none;
+}
+.hud-help__foot {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--hud-line);
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .hud-dead {
@@ -503,18 +855,23 @@
   place-content: center;
   justify-items: center;
   gap: 10px;
+  padding: 24px;
   background: radial-gradient(#3a0d0dcc, #000d);
   text-align: center;
 }
+.hud-dead:focus {
+  outline: none;
+}
 .hud-dead p {
   margin: 0;
-  font:
-    normal 40px/1.1 Georgia,
-    serif;
+  font: normal clamp(26px, 6vw, 40px) / 1.1 var(--font-mono, monospace);
+  letter-spacing: 0.06em;
   color: #f0b4a8;
 }
 .hud-dead small {
-  color: var(--dim);
+  max-width: 40ch;
+  color: #d3d9c6;
+  font-size: 12px;
 }
 .hud-dead button,
 .game-start {
@@ -527,10 +884,39 @@
   text-transform: uppercase;
   font-family: var(--font-mono, monospace);
 }
+.hud-dead button kbd {
+  margin-left: 8px;
+}
 .hud-dead button:hover,
 .game-start:hover {
   background: var(--gold);
   color: #111;
+}
+
+/* The shovel matches the rest of the HUD and sits level with the hotbar,
+   in the bottom-right corner nothing else uses. */
+.game-hud .hud-dig {
+  right: var(--hud-pad);
+  bottom: var(--hud-pad);
+  padding: 6px 8px;
+  background: var(--hud-bg);
+  border-color: var(--hud-line);
+  font-size: 12px;
+}
+.game-hud .hud-dig button {
+  min-height: 32px;
+}
+.game-hud .hud-dig.is-on {
+  border-color: var(--gold);
+}
+
+/* Another survivor's card sits clear of the hotbar and the side column. */
+.commons-game .survivor-inspect {
+  position: absolute;
+  right: var(--hud-pad, 12px);
+  bottom: 12px;
+  background: #060a08f0;
+  font-family: var(--font-mono, monospace);
 }
 
 /* ── Title screen over the orbiting world ──────────────────────────── */
@@ -570,9 +956,26 @@
   padding: 12px 34px;
   animation: game-pulse 2.4s ease-in-out infinite;
 }
-.game-title small {
-  color: #ffffff66;
-  font: 11px var(--font-mono, monospace);
+.game-title p em {
+  display: block;
+  margin-top: 6px;
+  font-style: normal;
+  color: #ffffff8c;
+  font-size: 12px;
+}
+.game-title__keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 16px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--dim);
+  font: 12px var(--font-mono, monospace);
+}
+.game-title__keys kbd {
+  margin-right: 4px;
 }
 @keyframes game-pulse {
   50% {
@@ -585,39 +988,167 @@
   font-family: var(--font-mono, monospace);
 }
 
-@media (max-width: 760px) {
-  .hud-vitals {
-    min-width: 0;
-    padding: 6px 8px;
+/* ── Smaller screens ───────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .hud-chat {
+    width: auto;
+    right: auto;
+    bottom: 132px;
+    max-width: 60vw;
+    background: none;
+    padding: 0;
   }
-  .hud-world {
-    min-width: 0;
-    padding: 6px 8px;
-  }
-  .hud-world .survival-map,
-  .hud-quest,
   .hud-chat ol {
     display: none;
   }
-  .hud-target {
-    white-space: normal;
-    text-align: center;
+  .hud-chat.is-open {
+    right: var(--hud-pad);
+    max-width: none;
   }
-  .hud-hotbar {
-    max-width: calc(100vw - 24px);
-    overflow-x: auto;
+  .is-building .hud-chat {
+    bottom: 196px;
+  }
+}
+@media (max-width: 760px) {
+  .game-hud {
+    --hud-pad: 8px;
+    font-size: 11px;
+  }
+  .hud-vitals {
+    width: min(200px, calc(50vw - 12px));
+    padding: 6px 8px 8px;
+  }
+  .hud-name b {
+    font-size: 13px;
+  }
+  .hud-meter {
+    grid-template-columns: 4.5ch 1fr auto;
+    gap: 6px;
+  }
+  .hud-meter > span {
+    font-size: 9px;
+  }
+  .game-bar {
+    font-size: 9px;
+    overflow: hidden;
+  }
+  .hud-purse {
+    gap: 10px;
+    font-size: 10px;
+  }
+  .hud-side {
+    width: min(170px, calc(50vw - 12px));
+    gap: 6px;
+  }
+  .hud-world__top {
+    flex-wrap: wrap;
+  }
+  .hud-buttons button {
+    width: 34px;
+    height: 34px;
+  }
+  .hud-where span {
+    display: none;
+  }
+  .hud-map__grid {
+    font-size: 8px;
+    letter-spacing: 0.04em;
+  }
+  .hud-map figcaption span:last-child {
+    display: none;
+  }
+  .hud-quest small {
+    display: none;
+  }
+  .hud-target {
+    font-size: 11px;
   }
   .hud-hotbar button {
-    flex: none;
+    width: 60px;
+    height: 52px;
+  }
+  .hud-hotbar kbd,
+  .hud-build kbd {
+    display: none;
+  }
+  .hud-build {
+    flex-wrap: wrap;
+    justify-content: center;
+    box-sizing: border-box;
+    width: min(312px, calc(100vw - 16px));
+  }
+  .hud-build button {
+    width: 56px;
+    height: 46px;
+  }
+  .hud-notice {
+    bottom: 140px;
+  }
+  .is-building .hud-notice {
+    bottom: 300px;
+  }
+  .is-building .hud-chat {
+    bottom: 272px;
+  }
+  .hud-help__groups {
+    grid-template-columns: 1fr;
+  }
+  .hud-window {
+    max-height: calc(100% - 24px);
+    padding: 14px 14px;
+  }
+  .hud-window .recipe {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "title"
+      "detail"
+      "cost"
+      "action";
+  }
+  .hud-window .recipe-action {
+    width: 100%;
+  }
+  .game-hud .hud-dig {
+    bottom: 96px;
+  }
+  .game-hud .hud-dig kbd {
+    display: none;
+  }
+  .is-building .hud-dig {
+    display: none;
+  }
+  .commons-game .survivor-inspect {
+    left: var(--hud-pad);
+    right: var(--hud-pad);
+    bottom: 140px;
+  }
+}
+/* Touch: the controls list leads with taps, and key hints step back. */
+@media (pointer: coarse) {
+  .hud-help__touch {
+    display: block;
+    grid-column: 1 / -1;
+    order: -1;
+  }
+  .hud-chat-open kbd,
+  .hud-close kbd,
+  .hud-target kbd,
+  .game-title__keys {
+    display: none;
   }
 }
 @media (max-height: 560px) {
-  .hud-quest {
+  .hud-quest small {
+    display: none;
+  }
+  .hud-chat ol {
     display: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .game-start {
+  .game-start,
+  .hud-meter.is-critical .game-bar {
     animation: none;
   }
   .hud-notice {

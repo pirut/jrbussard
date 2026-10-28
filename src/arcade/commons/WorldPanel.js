@@ -1,50 +1,57 @@
 import React from "react";
-import { Compass } from "../CommonsPanels";
+import MiniMap from "./MiniMap";
 
 const PHASE_GLYPH = { dawn: "◒", day: "☼", dusk: "◓", night: "☾" };
-const WEATHER_WORD = {
-  clear: "clear",
-  rain: "rain",
-  storm: "storm",
-  fog: "fog",
-};
 
-/* The world, top right: sky, place, and the window buttons. */
+/* The world, top right: sky and place, the window buttons, the map. */
 export default function WorldPanel({
   state,
   me,
   live,
   fullscreen,
+  mapOpen,
   onHelp,
+  onMap,
   onFullscreen,
 }) {
   return (
-    <section className="hud-world" aria-label="The world">
-      <div className="hud-sky">
-        <b>
-          {PHASE_GLYPH[state.phase] || "☼"} {state.phase}
-        </b>
-        <span>{WEATHER_WORD[state.weather] || state.weather}</span>
+    <section className="hud-world hud-card" aria-label="The world">
+      <div className="hud-world__top">
+        <p className="hud-sky">
+          <b>
+            <span aria-hidden="true">{PHASE_GLYPH[state.phase] || "☼"}</span>{" "}
+            {state.phase}
+          </b>
+          <span>{state.weather}</span>
+        </p>
+        <div className="hud-buttons">
+          <button
+            onClick={onMap}
+            aria-pressed={mapOpen}
+            title="Map (M)"
+            aria-label="Map"
+          >
+            <span aria-hidden="true">▦</span>
+          </button>
+          <button onClick={onHelp} title="Controls (H)" aria-label="Controls">
+            ?
+          </button>
+          <button
+            onClick={onFullscreen}
+            title="Full screen (F)"
+            aria-label={fullscreen ? "Leave full screen" : "Full screen"}
+          >
+            <span aria-hidden="true">{fullscreen ? "⤡" : "⤢"}</span>
+          </button>
+        </div>
       </div>
-      <div className="hud-where">
-        {state.region}
+      <p className="hud-where">
+        <b>{state.region}</b>
         <span>
-          {live ? `${state.online} online` : "offline preview · nothing is saved"}
+          {live ? `${state.online} online` : "offline preview · nothing saved"}
         </span>
-      </div>
-      <div className="hud-buttons">
-        <button onClick={onHelp} title="Controls (H)" aria-label="Controls">
-          ?
-        </button>
-        <button
-          onClick={onFullscreen}
-          title="Full screen (F)"
-          aria-label={fullscreen ? "Leave full screen" : "Full screen"}
-        >
-          {fullscreen ? "⤡" : "⤢"}
-        </button>
-      </div>
-      {me && <Compass me={me} state={state} />}
+      </p>
+      {mapOpen && me && <MiniMap me={me} />}
     </section>
   );
 }

@@ -1,12 +1,21 @@
 import React from "react";
 
-export default function Objective({ objective }) {
-  if (!objective) return null;
+/* The next step of the journey, under the world panel. Opens the journal. */
+export default function Objective({ journey, onOpen }) {
+  const next = journey.find((q) => !q.done);
+  if (!next) return null;
+  const done = journey.filter((q) => q.done).length;
   return (
-    <section className="hud-quest" aria-label="Next goal">
-      <span>NEXT</span>
-      <b>{objective.title}</b>
-      <small>{objective.detail}</small>
-    </section>
+    <button
+      className="hud-quest hud-card"
+      onClick={onOpen}
+      title="Open the journal (J)"
+    >
+      <span className="hud-label">
+        next goal <em>{done}/{journey.length}</em>
+      </span>
+      <b>{next.title}</b>
+      <small>{next.detail}</small>
+    </button>
   );
 }

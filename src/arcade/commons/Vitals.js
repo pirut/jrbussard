@@ -1,5 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { meterLevel, conditionHint } from "./hud";
 
 export function Bar({ value, max, width = 14 }) {
   const filled = Math.max(
@@ -14,47 +15,94 @@ export function Bar({ value, max, width = 14 }) {
   );
 }
 
+function Meter({ kind, label, value, max, shown, warn = true }) {
+  const level = warn ? meterLevel(value, max) : "ok";
+  return (
+    <div
+      className={`hud-meter hud-meter--${kind} is-${level}`}
+      role="meter"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={Math.max(0, Math.round(value))}
+      aria-valuetext={`${shown}${level === "ok" ? "" : `, ${level}`}`}
+    >
+      <span>{label}</span>
+      <Bar value={value} max={max} />
+      <em>{shown}</em>
+    </div>
+  );
+}
+
 /* You, top left: who you are and how you are holding up. */
 export default function Vitals({ me, onCustomize }) {
+  const hint = conditionHint(me);
   return (
-    <section className="hud-vitals" aria-label="You">
-      <Link
-        className="hud-back"
-        to="/"
-        state={{ room: "arcade" }}
-        aria-label="Leave the Commons"
-      >
-        ← leave
-      </Link>
-      {me && (
-        <>
+    <section className="hud-vitals hud-card" aria-label="You">
+      <header>
+        <Link
+          className="hud-back"
+          to="/"
+          state={{ room: "arcade" }}
+          aria-label="Leave the Commons"
+        >
+          ←
+        </Link>
+        {me && (
           <button
             className="hud-name"
             onClick={onCustomize}
-            title="Your character"
+            title="Change your look and name"
           >
-            <b>{me.name}</b> <span>lv {me.level}</span>
+            <b>{me.name}</b>
+            <span>lv {me.level}</span>
           </button>
-          <div className="hud-meter hud-meter--hp">
-            <span>HP</span>
-            <Bar value={me.hp} max={me.maxHp} />
-            <em>
-              {Math.max(0, Math.round(me.hp))}/{me.maxHp}
-            </em>
-          </div>
-          <div className="hud-meter hud-meter--food">
-            <span>FD</span>
-            <Bar value={me.hunger ?? 100} max={100} />
-          </div>
-          <div className="hud-meter hud-meter--warm">
-            <span>WM</span>
-            <Bar value={me.warmth ?? 100} max={100} />
-          </div>
-          <div className="hud-meter hud-meter--xp">
-            <span>XP</span>
-            <Bar value={me.xp} max={me.xpNeeded || 1} />
-            <em>{me.gold}g</em>
-          </div>
+        )}
+      </header>
+      {me && (
+        <>
+          <Meter
+            kind="hp"
+            label="HP"
+            value={me.hp}
+            max={me.maxHp}
+            shown={`${Math.max(0, Math.round(me.hp))}/${me.maxHp}`}
+          />
+          <Meter
+            kind="food"
+            label="FOOD"
+            value={me.hunger ?? 100}
+            max={100}
+            shown={`${Math.round(me.hunger ?? 100)}%`}
+          />
+          <Meter
+            kind="warm"
+            label="WARM"
+            value={me.warmth ?? 100}
+            max={100}
+            shown={`${Math.round(me.warmth ?? 100)}%`}
+          />
+          <Meter
+            kind="xp"
+            label="XP"
+            value={me.xp}
+            max={me.xpNeeded || 1}
+            shown={`${me.xp}/${me.xpNeeded || 1}`}
+            warn={false}
+          />
+          <p className="hud-purse">
+            <span>
+              <b>{me.gold}</b> gold
+            </span>
+            <span>
+              <b>{me.potions || 0}</b> potion{me.potions === 1 ? "" : "s"}
+            </span>
+          </p>
+          {hint && (
+            <p className={`hud-condition is-${hint.level}`} role="status">
+              <span aria-hidden="true">!</span> {hint.text}
+            </p>
+          )}
         </>
       )}
     </section>

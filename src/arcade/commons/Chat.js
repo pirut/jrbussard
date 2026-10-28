@@ -10,18 +10,23 @@ export function nameColor(name) {
   return hues[hash % hues.length];
 }
 
+/* Bottom left: what people said and what happened, newest at the bottom. */
 export default function Chat({
   chat,
   chatting,
   draft,
   setDraft,
   inputRef,
+  onOpen,
   onSubmit,
   onBlur,
 }) {
-  const recent = chat.slice(0, 7).reverse();
+  const recent = chat.slice(0, 6).reverse();
   return (
-    <section className="hud-chat" aria-label="Chat">
+    <section
+      className={`hud-chat ${chatting ? "is-open" : ""}`}
+      aria-label="Chat"
+    >
       <ol aria-live="polite" aria-relevant="additions">
         {recent.map((entry, i) => (
           <li
@@ -43,13 +48,16 @@ export default function Chat({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={onBlur}
-            placeholder="say something…"
+            placeholder="say something · Enter sends · Esc cancels"
             maxLength={160}
             aria-label="Say something"
+            enterKeyHint="send"
           />
         </form>
       ) : (
-        <p className="hud-chat-hint">ENTER to talk</p>
+        <button className="hud-chat-open" onClick={onOpen}>
+          <kbd>Enter</kbd> talk
+        </button>
       )}
     </section>
   );
