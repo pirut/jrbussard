@@ -5,7 +5,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import {
   api,
@@ -14,24 +13,28 @@ import {
   getName,
   setName,
 } from "../lib/convex";
-import { tileAt, withinReach, TREE, WATER, ROCK } from "../lib/terrain";
-import {
-  ITEMS,
-  STRUCTURES,
-  resourceAt,
-  journeyOf,
-  inventoryOf,
-  TOOL_NAMES,
-} from "../lib/survival";
-import { playerColor } from "../lib/appearance";
-import { Fieldcraft, Compass } from "./CommonsPanels";
-import CharacterCreator, { CharacterPortrait } from "./CommonsCharacter";
+import { withinReach } from "../lib/terrain";
+import { ITEMS, resourceAt, journeyOf, inventoryOf } from "../lib/survival";
+import { Fieldcraft } from "./CommonsPanels";
+import CharacterCreator from "./CommonsCharacter";
+import { describeTarget } from "./commons/target";
+import Nametags from "./commons/Nametags";
+import Vitals from "./commons/Vitals";
+import WorldPanel from "./commons/WorldPanel";
+import Objective from "./commons/Objective";
+import Chat from "./commons/Chat";
+import ActionBar, { BUILD_MENU } from "./commons/ActionBar";
+import HelpOverlay from "./commons/HelpOverlay";
+import DeathScreen from "./commons/DeathScreen";
+import TitleScreen from "./commons/TitleScreen";
+import Inspect from "./commons/Inspect";
 import AsciiField from "./ascii3d/AsciiField";
 import { octStep, stepTime } from "./ascii3d/controls";
 import { ISO_YAW, screenToMap } from "./ascii3d/iso";
 import { passability, findPath } from "./ascii3d/navigation";
 import { createDemo } from "./ascii3d/demo";
-import { createWalker } from "./ascii3d/prediction";
+import { createWalker, judgeStep } from "./ascii3d/prediction";
+import DigControl, { digTargetInfo } from "./commons/DigControl";
 import "./arcade.css";
 import "./commons.css";
 import "./game.css";
@@ -46,79 +49,6 @@ import "./game.css";
  * a pass that turns every patch of the picture into a character.
  */
 
-const BLOCK_LOOK = {
-  ...STRUCTURES,
-  doorShut: { ch: "+", color: "#e0a75e", label: "shut door" },
-  stump: { ch: ",", color: "#6b7455", label: "cleared ground" },
-  rubble: { ch: ":", color: "#778174", label: "cleared ground" },
-};
-
-/*
- * What you are standing in front of, and therefore what a click or a key will do.
- * Terrain comes from the shared generator, so this needs nothing from the
- * server beyond the blocks other people have placed.
- */
-function describeTarget(x, y, cells, myName) {
-  const built = cells.find((c) => c.x === x && c.y === y);
-  if (built) {
-    const cleared = built.kind === "stump" || built.kind === "rubble";
-    if (cleared) return { label: "cleared ground", verb: "B to build here" };
-
-    const mine = built.mine;
-    const owner = built.ownerName ? ` · ${built.ownerName}` : "";
-
-    if (built.kind === "door") {
-      return {
-        label: `${built.open ? "open" : "shut"} door${owner}`,
-        verb: `click to ${built.open ? "shut" : "open"} it`,
-      };
-    }
-    if (built.kind === "sign") {
-      return {
-        label: built.text
-          ? `sign: "${built.text}"${owner}`
-          : `blank sign${owner}`,
-        verb: mine ? "click to read · X removes" : "click to read it",
-      };
-    }
-
-    if (built.kind === "campfire")
-      return {
-        label: `campfire${owner}`,
-        verb: "click to add wood · stand close to warm up",
-      };
-    if (built.kind === "bedroll")
-      return { label: `bedroll${owner}`, verb: "click to set your camp" };
-    if (built.kind === "chest")
-      return {
-        label: `shared chest${owner}`,
-        verb: "Tab opens your pack to store or take",
-      };
-    if (["workbench", "furnace"].includes(built.kind))
-      return {
-        label: `${built.kind}${owner}`,
-        verb: "Tab opens crafting here",
-      };
-    const look = BLOCK_LOOK[built.kind];
-    return {
-      label: `${look ? look.label : built.kind}${owner}`,
-      verb: mine ? "X removes it" : "not yours to remove",
-    };
-  }
-
-  const resource = resourceAt(x, y);
-  if (resource && resource !== "fish")
-    return {
-      label: ITEMS[resource].name.toLowerCase(),
-      verb: "click to gather",
-    };
-  const tile = tileAt(x, y);
-  if (tile === TREE) return { label: "tree", verb: "click to chop for wood" };
-  if (tile === ROCK) return { label: "rock", verb: "click to mine for stone" };
-  if (tile === WATER) return { label: "water", verb: "B to bridge it" };
-  return { label: "open ground", verb: "click to walk · B to build" };
-}
-
 const MOVES = {
   ArrowUp: [0, -1],
   ArrowDown: [0, 1],
@@ -129,71 +59,6 @@ const MOVES = {
   a: [-1, 0],
   d: [1, 0],
 };
-
-const BUILD_MENU = Object.keys(STRUCTURES).map((kind, i) => ({
-  kind,
-  key: String((i + 1) % 10),
-}));
-
-/* Stable colour per name, so you learn to recognise people. */
-function nameColor(name) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i += 1) {
-    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  }
-  const hues = [
-    "#7ee0c0",
-    "#ffd977",
-    "#ff9ecb",
-    "#8fd0ff",
-    "#c3b0ff",
-    "#ffb347",
-  ];
-  return hues[hash % hues.length];
-}
-
-/*
- * Nametags are ordinary DOM over the canvas. The 3D world moves each one to
- * sit over its owner's head every frame, so React only adds and removes them.
- */
-function Nametags({ state, onInspect, fieldApi }) {
-  return (
-    <div className="commons-nametags">
-      {state.players
-        .filter((p) => p.hp > 0)
-        .map((player) => (
-          <div
-            key={player.id}
-            className={`commons-nametag ${player.self ? "is-self" : ""}`}
-            ref={(el) => fieldApi.current?.registerLabel(player.id, el)}
-            style={{ color: playerColor(player) }}
-          >
-            <div className="commons-nametag__body">
-              {player.saidText && (
-                <span className="commons-speech">{player.saidText}</span>
-              )}
-              <button
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onInspect(player);
-                }}
-                aria-label={`Inspect ${player.name}`}
-              >
-                <b>{player.name}</b>
-                <small>
-                  {player.self ? "YOU" : `LV ${player.level}`}
-                  {player.tools?.armor
-                    ? ` · ${player.tools.armor >= 2 ? "[#]" : "H"}`
-                    : ""}
-                </small>
-              </button>
-            </div>
-          </div>
-        ))}
-    </div>
-  );
-}
 
 /*
  * Convex hooks throw outside a provider, even when skipped, so the offline
@@ -215,6 +80,7 @@ function Online() {
     harvest: useMutation(api.harvest),
     build: useMutation(api.build),
     demolish: useMutation(api.demolish),
+    terraform: useMutation(api.terraform),
     use: useMutation(api.use),
     say: useMutation(api.say),
     drink: useMutation(api.drink),
@@ -352,27 +218,6 @@ const sameSpot = (a, b) => a === b || (a && b && a.x === b.x && a.y === b.y);
 const isCleared = (cell) =>
   cell && (cell.kind === "stump" || cell.kind === "rubble");
 
-function Bar({ value, max, width = 14 }) {
-  const filled = Math.max(
-    0,
-    Math.min(width, Math.round((value / Math.max(1, max)) * width)),
-  );
-  return (
-    <span className="game-bar" aria-hidden="true">
-      <i>{"█".repeat(filled)}</i>
-      {"░".repeat(width - filled)}
-    </span>
-  );
-}
-
-const PHASE_GLYPH = { dawn: "◒", day: "☼", dusk: "◓", night: "☾" };
-const WEATHER_WORD = {
-  clear: "clear",
-  rain: "rain",
-  storm: "storm",
-  fog: "fog",
-};
-
 /*
  * The game itself: a field that fills the window, a HUD over it, and
  * keyboard and mouse controls in the manner of any action RPG.
@@ -418,6 +263,16 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
   stateRef.current = state;
   const buildingRef = useRef(building);
   buildingRef.current = building;
+  /* The shovel's mode (see commons/DigControl.js); null while it is put away. */
+  const [digMode, setDigMode] = useState(null);
+  const digRef = useRef(digMode);
+  digRef.current = digMode;
+  useEffect(() => {
+    if (digMode) setBuilding(false);
+  }, [digMode]);
+  useEffect(() => {
+    if (building) setDigMode(null);
+  }, [building]);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const hoverRef = useRef(hover);
@@ -499,12 +354,9 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       /* Keep the beat while walking; start it afresh after a pause. */
       const base = now - nextStepRef.current > 60 ? now : nextStepRef.current;
       nextStepRef.current = base + stepTime(dx, dy, STEP_MS);
-      const creature = nav.creatureAt(nx, ny);
-      const cornered =
-        dx && dy && !(nav.open(from.x + dx, from.y) && nav.open(from.x, from.y + dy));
       /* A bump or a swing is still sent: it turns you to face the thing,
          and walking into a creature is an attack. */
-      const moved = !creature && !cornered && nav.free(nx, ny);
+      const { creature, moved } = judgeStep(nav, from, dx, dy);
       if (creature) fieldApi.current?.swingSelf();
       const ticket = walker.send(dx, dy, moved);
       if (moved) {
@@ -623,6 +475,19 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         goThen(inReach(spot), () => placeAt(spot), "can't reach that spot");
         return;
       }
+      if (digRef.current) {
+        const mode = digRef.current;
+        goThen(
+          inReach(spot),
+          () => {
+            face(spot);
+            fieldApi.current?.swingSelf();
+            act("terraform", { ...spot, mode });
+          },
+          "can't reach that spot",
+        );
+        return;
+      }
       const nav = passability(st);
       if (nav.creatureAt(spot.x, spot.y)) {
         attack(spot);
@@ -636,7 +501,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         });
         return;
       }
-      const resource = resourceAt(spot.x, spot.y);
+      const resource = !nav.worked(spot.x, spot.y) && resourceAt(spot.x, spot.y);
       if (!built && resource && resource !== "fish") {
         goThen(inReach(spot), () => {
           face(spot);
@@ -1002,18 +867,19 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
   const aim = playing ? hover || null : null;
   const aimedCreature =
     aim && state.monsters.find((m) => m.x === aim.x && m.y === aim.y);
-  const aimInfo = aimedCreature
+  const aimInfo = digMode && aim && !aimedCreature
+    ? digTargetInfo(state, aim, digMode)
+    : aimedCreature
     ? {
         label: `${aimedCreature.kind}${aimedCreature.maxHp ? ` · ${aimedCreature.hp}/${aimedCreature.maxHp}` : ""}`,
         verb: "click to attack · hold to keep swinging",
       }
     : aim
-      ? describeTarget(aim.x, aim.y, state.cells, me?.name)
+      ? describeTarget(aim.x, aim.y, state.cells, state.ground)
       : null;
   const objective = journeyOf(me).find((q) => !q.done);
   const inspection =
     state.players.find((p) => p.id === inspected?.id) || inspected;
-  const recentChat = state.chat.slice(0, 7).reverse();
 
   return (
     <main
@@ -1054,184 +920,52 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
 
       {playing && (
         <div className="game-hud">
-          <section className="hud-vitals" aria-label="You">
-            <Link
-              className="hud-back"
-              to="/"
-              state={{ room: "arcade" }}
-              aria-label="Leave the Commons"
-            >
-              ← leave
-            </Link>
-            {me && (
-              <>
-                <button
-                  className="hud-name"
-                  onClick={() => setCustomizing(true)}
-                  title="Your character"
-                >
-                  <b>{me.name}</b> <span>lv {me.level}</span>
-                </button>
-                <div className="hud-meter hud-meter--hp">
-                  <span>HP</span>
-                  <Bar value={me.hp} max={me.maxHp} />
-                  <em>
-                    {Math.max(0, Math.round(me.hp))}/{me.maxHp}
-                  </em>
-                </div>
-                <div className="hud-meter hud-meter--food">
-                  <span>FD</span>
-                  <Bar value={me.hunger ?? 100} max={100} />
-                </div>
-                <div className="hud-meter hud-meter--warm">
-                  <span>WM</span>
-                  <Bar value={me.warmth ?? 100} max={100} />
-                </div>
-                <div className="hud-meter hud-meter--xp">
-                  <span>XP</span>
-                  <Bar value={me.xp} max={me.xpNeeded || 1} />
-                  <em>{me.gold}g</em>
-                </div>
-              </>
-            )}
-          </section>
+          <Vitals me={me} onCustomize={() => setCustomizing(true)} />
+          <WorldPanel
+            state={state}
+            me={me}
+            live={live}
+            fullscreen={fullscreen}
+            onHelp={() => setHelp((h) => !h)}
+            onFullscreen={toggleFullscreen}
+          />
+          <Objective objective={objective} />
+          <Chat
+            chat={state.chat}
+            chatting={chatting}
+            draft={draft}
+            setDraft={setDraft}
+            inputRef={chatRef}
+            onSubmit={submitChat}
+            onBlur={() => !draft && setChatting(false)}
+          />
+          <ActionBar
+            aimInfo={aimInfo}
+            building={building}
+            selected={selected}
+            potions={me?.potions || 0}
+            onPick={(kind) => {
+              if (building && selected === kind) setBuilding(false);
+              else {
+                setSelected(kind);
+                setBuilding(true);
+              }
+            }}
+            onEat={() =>
+              act("eat", {
+                item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries",
+              })
+            }
+            onDrink={() => act("drink")}
+            onPanel={() => setPanel((p) => (p ? null : "Craft"))}
+          />
 
-          <section className="hud-world" aria-label="The world">
-            <div className="hud-sky">
-              <b>
-                {PHASE_GLYPH[state.phase] || "☼"} {state.phase}
-              </b>
-              <span>{WEATHER_WORD[state.weather] || state.weather}</span>
-            </div>
-            <div className="hud-where">
-              {state.region}
-              <span>
-                {live
-                  ? `${state.online} online`
-                  : "offline preview · nothing is saved"}
-              </span>
-            </div>
-            <div className="hud-buttons">
-              <button
-                onClick={() => setHelp((h) => !h)}
-                title="Controls (H)"
-                aria-label="Controls"
-              >
-                ?
-              </button>
-              <button
-                onClick={toggleFullscreen}
-                title="Full screen (F)"
-                aria-label={fullscreen ? "Leave full screen" : "Full screen"}
-              >
-                {fullscreen ? "⤡" : "⤢"}
-              </button>
-            </div>
-            {me && <Compass me={me} state={state} />}
-          </section>
-
-          {objective && (
-            <section className="hud-quest" aria-label="Next goal">
-              <span>NEXT</span>
-              <b>{objective.title}</b>
-              <small>{objective.detail}</small>
-            </section>
-          )}
-
-          <section className="hud-chat" aria-label="Chat">
-            <ol aria-live="polite" aria-relevant="additions">
-              {recentChat.map((entry, i) => (
-                <li
-                  key={`${entry.name}-${entry.text}-${i}`}
-                  className={`chat-${entry.kind}`}
-                >
-                  {entry.kind === "chat" && (
-                    <b style={{ color: nameColor(entry.name) }}>
-                      {entry.name}{" "}
-                    </b>
-                  )}
-                  {entry.text}
-                </li>
-              ))}
-            </ol>
-            {chatting ? (
-              <form onSubmit={submitChat}>
-                <span aria-hidden="true">&gt;</span>
-                <input
-                  ref={chatRef}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onBlur={() => !draft && setChatting(false)}
-                  placeholder="say something…"
-                  maxLength={160}
-                  aria-label="Say something"
-                />
-              </form>
-            ) : (
-              <p className="hud-chat-hint">ENTER to talk</p>
-            )}
-          </section>
-
-          <section className="hud-bottom">
-            <p className={`hud-target ${aimInfo ? "" : "is-empty"}`}>
-              {aimInfo && (
-                <>
-                  <b>{building ? STRUCTURES[selected].label : aimInfo.label}</b>
-                  <span>
-                    {building
-                      ? "click to place · right click or Esc to stop building"
-                      : aimInfo.verb}
-                  </span>
-                </>
-              )}
-            </p>
-            <div className="hud-hotbar" role="toolbar" aria-label="Build">
-              {BUILD_MENU.map(({ kind, key }) => {
-                const s = STRUCTURES[kind];
-                return (
-                  <button
-                    key={kind}
-                    className={building && selected === kind ? "is-on" : ""}
-                    onClick={() => {
-                      if (building && selected === kind) setBuilding(false);
-                      else {
-                        setSelected(kind);
-                        setBuilding(true);
-                      }
-                    }}
-                    title={`${s.label}${s.wood || s.stone ? ` · ${[s.wood ? `${s.wood} wood` : "", s.stone ? `${s.stone} stone` : ""].filter(Boolean).join(", ")}` : ""}`}
-                  >
-                    <kbd>{key}</kbd>
-                    <span style={{ color: s.color }}>{s.ch}</span>
-                  </button>
-                );
-              })}
-              <i aria-hidden="true" />
-              <button
-                onClick={() =>
-                  act("eat", {
-                    item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries",
-                  })
-                }
-                title="Eat (E)"
-              >
-                <kbd>E</kbd>
-                <span>%</span>
-              </button>
-              <button onClick={() => act("drink")} title="Drink a potion (Q)">
-                <kbd>Q</kbd>
-                <span>!</span>
-                <small>{me?.potions || 0}</small>
-              </button>
-              <button
-                onClick={() => setPanel((p) => (p ? null : "Craft"))}
-                title="Craft, pack and journal (Tab)"
-              >
-                <kbd>⇥</kbd>
-                <span>≡</span>
-              </button>
-            </div>
-          </section>
+          <DigControl
+            mode={digMode}
+            setMode={setDigMode}
+            me={me}
+            disabled={customizing || chatting}
+          />
 
           <p
             className={`hud-notice ${notice || status ? "is-on" : ""}`}
@@ -1269,97 +1003,16 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
             </div>
           )}
 
-          {help && (
-            <div
-              className="hud-window hud-help"
-              role="dialog"
-              aria-label="Controls"
-            >
-              <button
-                className="hud-close"
-                onClick={() => setHelp(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-              <h2>Controls</h2>
-              <dl>
-                <dt>WASD · arrows</dt>
-                <dd>walk; hold to keep going</dd>
-                <dt>left click</dt>
-                <dd>walk there, or go and chop, mine, open, attack</dd>
-                <dt>hold left</dt>
-                <dd>keep swinging</dd>
-                <dt>[ ] · wheel</dt>
-                <dd>turn the camera · zoom</dd>
-                <dt>space</dt>
-                <dd>act on what's in front of you</dd>
-                <dt>1–0 · B</dt>
-                <dd>pick something to build · build mode</dd>
-                <dt>X</dt>
-                <dd>remove something you built</dd>
-                <dt>E · Q</dt>
-                <dd>eat · drink a potion</dd>
-                <dt>Tab · C I J</dt>
-                <dd>craft · pack · journal</dd>
-                <dt>Enter</dt>
-                <dd>talk</dd>
-                <dt>F · V</dt>
-                <dd>full screen · see the render behind the characters</dd>
-              </dl>
-            </div>
-          )}
+          {help && <HelpOverlay onClose={() => setHelp(false)} />}
 
-          {me?.hp <= 0 && (
-            <div className="hud-dead">
-              <p>The wild got you.</p>
-              <small>
-                Your camp and equipment remain. You lose a tenth of your gold.
-              </small>
-              <button onClick={() => act("respawn")}>Wake up (R)</button>
-            </div>
-          )}
+          {me?.hp <= 0 && <DeathScreen onRespawn={() => act("respawn")} />}
         </div>
       )}
 
-      {!playing && (
-        <div className="game-title">
-          <Link className="hud-back" to="/" state={{ room: "arcade" }}>
-            ← back to the arcade
-          </Link>
-          <h1>THE COMMONS</h1>
-          <p>
-            A shared wilderness drawn in characters.
-            {!live &&
-              " This build has no server, so you are playing a local stand-in: nothing is saved or shared."}
-          </p>
-          <button className="game-start" onClick={() => setPlaying(true)}>
-            click to play
-          </button>
-          <small>
-            WASD to walk · click to act · [ ] to turn · F for full screen
-          </small>
-        </div>
-      )}
+      {!playing && <TitleScreen live={live} onPlay={() => setPlaying(true)} />}
 
       {inspection && playing && (
-        <div className="survivor-inspect">
-          <button
-            onClick={() => setInspected(null)}
-            aria-label="Close player inspection"
-          >
-            ×
-          </button>
-          <CharacterPortrait player={inspection} small />
-          <div>
-            <b style={{ color: playerColor(inspection) }}>{inspection.name}</b>
-            <span>
-              Level {inspection.level} · {inspection.hp} HP
-            </span>
-            <span>{TOOL_NAMES.armor[inspection.tools?.armor || 0]}</span>
-            <span>{TOOL_NAMES.weapon[inspection.tools?.weapon || 0]}</span>
-          </div>
-        </div>
+        <Inspect player={inspection} onClose={() => setInspected(null)} />
       )}
       {customizing && me && (
         <CharacterCreator

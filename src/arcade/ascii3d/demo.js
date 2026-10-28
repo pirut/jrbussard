@@ -1,5 +1,6 @@
 import { isSolid, tileAt, WATER, TREE, ROCK, inSafeZone, withinReach } from "../../lib/terrain";
 import { STRUCTURES, resourceAt, ITEMS } from "../../lib/survival";
+import { planTerraform, solidAt as groundSolid, effectiveTile } from "../../lib/ground";
 
 /*
  * A pretend server, for when there is no real one.
@@ -112,7 +113,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
 
     const players = [
         /* Start a few steps back, so the first view takes in the camp. */
-        { id: "you", name: "wanderer", ...(isSolid(hx + 3, hy + 9) ? openNear(hx + 3, hy + 9) : { x: hx + 3, y: hy + 9 }), self: true, look: LOOKS[4], tools: { weapon: 1 } },
+        { id: "you", name: "wanderer", ...(isSolid(hx + 3, hy + 9) ? openNear(hx + 3, hy + 9) : { x: hx + 3, y: hy + 9 }), self: true, look: LOOKS[4], tools: { weapon: 1, shovel: 1 } },
         ...NAMES.map((name, i) => ({
             id: name,
             name,
@@ -145,7 +146,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         wood: 4,
         stone: 2,
         placed: 0,
-        inventory: {},
+        inventory: { dirt: 3 },
         hunger: 100,
         warmth: 100,
         gathered: 0,
@@ -154,9 +155,13 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
     };
     const xpNeeded = (level) => 20 + level * 15;
 
+    /* Dug and piled ground, "x,y" → steps, and the chunks it has touched. */
+    const ground = new Map();
+    const groundChunks = new Set();
+    const editAt = (x, y) => ground.get(`${x},${y}`);
     const solidAt = (x, y) => {
         const c = cells.find((cell) => cell.x === x && cell.y === y);
-        if (!c) return isSolid(x, y);
+        if (!c) return groundSolid(x, y, editAt(x, y));
         if (c.kind === "floor") return false;
         if (c.kind === "door") return !c.open;
         return Boolean(STRUCTURES[c.kind]?.solid);
@@ -333,6 +338,11 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             })),
             monsters: monsters.map((m) => ({ ...m })),
             cells: cells.map((c) => ({ ...c })),
+            ground: [...ground].map(([k, edit]) => {
+                const [x, y] = k.split(",").map(Number);
+                return { x, y, edit };
+            }),
+            groundChunks: [...groundChunks],
             chat: chat.slice(-12).reverse(),
         };
     }
@@ -369,7 +379,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             if (!withinReach(you, x, y)) return "out of reach";
             const item = resourceAt(x, y);
             const tile = tileAt(x, y);
-            if (!item || item === "fish" || cells.some((c) => c.x === x && c.y === y)) return "nothing to gather there";
+            if (!item || item === "fish" || editAt(x, y) !== undefined || cells.some((c) => c.x === x && c.y === y)) return "nothing to gather there";
             if (item === "wood") me.wood += 1;
             else if (item === "stone") me.stone += 1;
             else me.inventory[item] = (me.inventory[item] || 0) + 1;
@@ -385,14 +395,41 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             if (!STRUCTURES[kind] || !withinReach(you, x, y)) return "out of reach";
             const existing = cells.find((c) => c.x === x && c.y === y);
             const cleared = existing && (existing.kind === "stump" || existing.kind === "rubble");
-            const overWater = tileAt(x, y) === WATER;
+            const overWater = effectiveTile(x, y, editAt(x, y)) === WATER;
             if ((existing && !cleared) || occupied(x, y)) return "something is already there";
-            if (isSolid(x, y) && !cleared && !(overWater && kind === "floor")) return "you cannot build there";
+            if (groundSolid(x, y, editAt(x, y)) && !cleared && !(overWater && kind === "floor")) return "you cannot build there";
             if (cleared) cells.splice(cells.indexOf(existing), 1);
             put(x, y, kind, { ownerName: you.name, mine: true, text: text || "", fuelUntil: kind === "campfire" ? Infinity : 0 });
             me.placed += 1;
             if (kind === "campfire" && !me.milestones.includes("campfire")) me.milestones.push("campfire");
             return `${STRUCTURES[kind].label.toLowerCase()} placed · free in the preview`;
+        },
+        /* The same rules as the server's, from src/lib/ground.js. */
+        terraform({ x, y, mode }) {
+            if (you.hp <= 0) return "no";
+            const existing = cells.find((c) => c.x === x && c.y === y);
+            const cleared = existing && (existing.kind === "stump" || existing.kind === "rubble");
+            if (!withinReach(you, x, y)) return "too far";
+            if (existing && !cleared) return "something is built there";
+            if (occupied(x, y)) return "someone is standing there";
+            const plan = planTerraform({
+                mode,
+                x,
+                y,
+                from: you,
+                fromEdit: editAt(you.x, you.y),
+                edit: editAt(x, y),
+                cleared: Boolean(cleared),
+                shovel: you.tools.shovel || 0,
+                bag: { ...me.inventory, wood: me.wood, stone: me.stone },
+            });
+            if (plan.error !== undefined) return plan.error;
+            ground.set(`${x},${y}`, plan.edit);
+            groundChunks.add(`${Math.floor(x / 16)}:${Math.floor(y / 16)}`);
+            if (cleared) cells.splice(cells.indexOf(existing), 1);
+            if (plan.item === "stone") me.stone += plan.change;
+            else me.inventory[plan.item] = (me.inventory[plan.item] || 0) + plan.change;
+            return plan.message;
         },
         demolish({ x, y }) {
             const c = cells.find((cell) => cell.x === x && cell.y === y);

@@ -17,6 +17,20 @@ export const MAX_IN_FLIGHT = 4;
    were moved (a respawn, a teleport): go there at once. */
 const TELEPORT = 3;
 
+/*
+ * Whether a step should be shown at once, judged the way the server's
+ * `move` will judge it, from `passability(state)`: the target must be free
+ * (a flooded pit is not; a dug or piled step is), and a diagonal needs both
+ * tiles beside it open. A creature there means a swing, not a step.
+ */
+export function judgeStep(nav, from, dx, dy) {
+    const nx = from.x + dx;
+    const ny = from.y + dy;
+    const creature = nav.creatureAt(nx, ny);
+    const cornered = Boolean(dx && dy) && !(nav.open(from.x + dx, from.y) && nav.open(from.x, from.y + dy));
+    return { creature, cornered, moved: !creature && !cornered && nav.free(nx, ny) };
+}
+
 export function createWalker() {
     let confirmed = null;
     let pending = [];

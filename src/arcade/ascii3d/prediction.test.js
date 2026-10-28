@@ -1,4 +1,7 @@
-import { createWalker, MAX_IN_FLIGHT } from "./prediction";
+import { createWalker, judgeStep, MAX_IN_FLIGHT } from "./prediction";
+import { passability } from "./navigation";
+import { tileAt, isSolid, GRASS } from "../../lib/terrain";
+import { baseHeight, effectiveHeight } from "../../lib/ground";
 
 describe("walking ahead of the server", () => {
     it("starts where the server says", () => {
@@ -64,5 +67,54 @@ describe("walking ahead of the server", () => {
         w.sync({ x: 0, y: 0 });
         for (let i = 0; i < MAX_IN_FLIGHT; i += 1) w.send(1, 0, true);
         expect(w.ready).toBe(false);
+    });
+});
+
+describe("predicting a step on dug ground", () => {
+    /* A low grass tile and a high one, each with open ground to the west,
+       north-west and north, so a step east and a step north-east both start
+       from the same open tile. */
+    const find = (test) => {
+        for (let y = 12; y < 200; y += 1)
+            for (let x = 12; x < 200; x += 1)
+                if (test(x, y) && !isSolid(x - 1, y) && !isSolid(x - 1, y - 1) && !isSolid(x, y - 1)) return { x, y };
+        throw new Error("no such tile");
+    };
+    const lowGrass = () => find((x, y) => tileAt(x, y) === GRASS && baseHeight(x, y) === 0);
+    const highGrass = () => find((x, y) => tileAt(x, y) === GRASS && baseHeight(x, y) >= 0.9);
+
+    it("refuses a tile a flooded pit has made impassable, straight or round its corner", () => {
+        const pit = lowGrass();
+        const state = { cells: [], monsters: [], players: [], ground: [{ ...pit, edit: -1 }] };
+        const nav = passability(state);
+        /* Untouched, the same tile takes the step. */
+        expect(judgeStep(passability({ cells: [] }), { x: pit.x - 1, y: pit.y }, 1, 0).moved).toBe(true);
+        expect(judgeStep(nav, { x: pit.x - 1, y: pit.y }, 1, 0)).toMatchObject({ moved: false, cornered: false });
+        /* Diagonally onto it is refused too... */
+        expect(judgeStep(nav, { x: pit.x - 1, y: pit.y - 1 }, 1, 1)).toMatchObject({ moved: false, cornered: false });
+        /* ...and so is a diagonal past it, which would cut the pit's corner,
+           exactly as the server's move refuses it. */
+        expect(judgeStep(nav, { x: pit.x - 1, y: pit.y }, 1, -1)).toMatchObject({ moved: false, cornered: true });
+        expect(judgeStep(passability({ cells: [] }), { x: pit.x - 1, y: pit.y }, 1, -1).moved).toBe(true);
+
+        /* The walker shows nothing for a refused step. */
+        const w = createWalker();
+        w.sync({ x: pit.x - 1, y: pit.y });
+        w.send(1, 0, judgeStep(nav, w.position, 1, 0).moved);
+        expect(w.position).toEqual({ x: pit.x - 1, y: pit.y });
+    });
+
+    it("crosses a dug step, which stays dry ground a terrace lower", () => {
+        const step = highGrass();
+        const state = { cells: [], monsters: [], players: [], ground: [{ ...step, edit: -1 }] };
+        expect(effectiveHeight(step.x, step.y, -1)).toBeLessThan(baseHeight(step.x, step.y));
+        const nav = passability(state);
+        expect(judgeStep(nav, { x: step.x - 1, y: step.y }, 1, 0)).toMatchObject({ moved: true });
+        expect(judgeStep(nav, { x: step.x - 1, y: step.y - 1 }, 1, 1)).toMatchObject({ moved: true });
+
+        const w = createWalker();
+        w.sync({ x: step.x - 1, y: step.y });
+        w.send(1, 0, judgeStep(nav, w.position, 1, 0).moved);
+        expect(w.position).toEqual(step);
     });
 });
