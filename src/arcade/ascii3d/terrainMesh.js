@@ -101,27 +101,75 @@ const GROUND_SET = {
     [DIRT]: "path",
 };
 
-/* Collects triangles per material, then hands back one mesh for each. */
+/* A run of floats that grows as it is written, without the boxing and
+   copying of a plain array. */
+class Floats {
+    constructor(size = 3072) {
+        this.array = new Float32Array(size);
+        this.length = 0;
+    }
+
+    reserve(n) {
+        if (this.length + n <= this.array.length) return;
+        let size = this.array.length * 2;
+        while (size < this.length + n) size *= 2;
+        const next = new Float32Array(size);
+        next.set(this.array.subarray(0, this.length));
+        this.array = next;
+    }
+
+    push3(a, b, c) {
+        this.reserve(3);
+        const arr = this.array;
+        const i = this.length;
+        arr[i] = a;
+        arr[i + 1] = b;
+        arr[i + 2] = c;
+        this.length = i + 3;
+    }
+
+    /* The floats written, in an array of their own. */
+    take() {
+        return this.array.slice(0, this.length);
+    }
+}
+
+/*
+ * Collects triangles per material, then hands back one mesh for each. No
+ * normals: every material here shades flat, which takes its normals from
+ * the surface per pixel.
+ */
 export class Batch {
     constructor() {
         this.parts = new Map();
     }
 
     bucket(key) {
-        if (!this.parts.has(key)) this.parts.set(key, { pos: [], col: [], sway: [] });
-        return this.parts.get(key);
+        let b = this.parts.get(key);
+        if (!b) {
+            b = { pos: new Floats(), col: new Floats(), sway: key === "wind" ? new Floats(1024) : null };
+            this.parts.set(key, b);
+        }
+        return b;
     }
 
     shape(key, geometry, matrix, color) {
         const b = this.bucket(key);
         const src = geometry.attributes.position.array;
-        const v = new THREE.Vector3();
+        const e = matrix.elements;
+        const { r, g, b: bl } = color;
+        const count = src.length / 3;
+        b.pos.reserve(src.length);
+        b.col.reserve(src.length);
         for (let i = 0; i < src.length; i += 3) {
-            v.set(src[i], src[i + 1], src[i + 2]).applyMatrix4(matrix);
-            b.pos.push(v.x, v.y, v.z);
-            b.col.push(color.r, color.g, color.b);
-            b.sway.push(0);
+            const x = src[i];
+            const y = src[i + 1];
+            const z = src[i + 2];
+            b.pos.push3(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]);
+            b.col.push3(r, g, bl);
         }
+        /* Triangles, so whole threes of vertices. */
+        if (b.sway) for (let i = 0; i < count; i += 3) b.sway.push3(0, 0, 0);
     }
 
     /* One grass blade: a triangle rooted at (x, h, z) leaning toward (lx, lz). */
@@ -129,17 +177,28 @@ export class Batch {
         const b = this.bucket("wind");
         const cx = Math.cos(yaw) * width * 0.5;
         const cz = Math.sin(yaw) * width * 0.5;
-        b.pos.push(x - cx, h, z - cz, x + cx, h, z + cz, x + lx, h + height, z + lz);
-        b.col.push(root.r, root.g, root.b, root.r, root.g, root.b, tip.r, tip.g, tip.b);
-        b.sway.push(0, 0, 1);
+        b.pos.push3(x - cx, h, z - cz);
+        b.pos.push3(x + cx, h, z + cz);
+        b.pos.push3(x + lx, h + height, z + lz);
+        b.col.push3(root.r, root.g, root.b);
+        b.col.push3(root.r, root.g, root.b);
+        b.col.push3(tip.r, tip.g, tip.b);
+        /* Only the tip sways; one float per vertex, packed three at a time. */
+        b.sway.push3(0, 0, 1);
     }
 
     quad(key, a, b2, c, d, color) {
         const b = this.bucket(key);
-        b.pos.push(...a, ...b2, ...c, ...a, ...c, ...d);
-        for (let i = 0; i < 6; i += 1) {
-            b.col.push(color.r, color.g, color.b);
-            b.sway.push(0);
+        b.pos.push3(a[0], a[1], a[2]);
+        b.pos.push3(b2[0], b2[1], b2[2]);
+        b.pos.push3(c[0], c[1], c[2]);
+        b.pos.push3(a[0], a[1], a[2]);
+        b.pos.push3(c[0], c[1], c[2]);
+        b.pos.push3(d[0], d[1], d[2]);
+        for (let i = 0; i < 6; i += 1) b.col.push3(color.r, color.g, color.b);
+        if (b.sway) {
+            b.sway.push3(0, 0, 0);
+            b.sway.push3(0, 0, 0);
         }
     }
 
@@ -149,18 +208,18 @@ export class Batch {
             if (!data.pos.length) return;
             const [set, unlit] = key.split(":");
             const g = new THREE.BufferGeometry();
-            g.setAttribute("position", new THREE.Float32BufferAttribute(data.pos, 3));
-            g.setAttribute("color", new THREE.Float32BufferAttribute(data.col, 3));
+            g.setAttribute("position", new THREE.BufferAttribute(data.pos.take(), 3));
+            g.setAttribute("color", new THREE.BufferAttribute(data.col.take(), 3));
             const mesh =
                 key === "wind"
                     ? new THREE.Mesh(g, grassMaterial())
                     : new THREE.Mesh(g, material(0xffffff, set, { vertexColors: true, unlit: unlit === "glow" }));
+            g.computeBoundingSphere();
             if (key === "wind") {
-                g.setAttribute("sway", new THREE.Float32BufferAttribute(data.sway, 1));
-                /* Blades sway outside their resting bounds. */
-                mesh.frustumCulled = false;
-            } else {
-                g.computeVertexNormals();
+                g.setAttribute("sway", new THREE.BufferAttribute(data.sway.take(), 1));
+                /* Blades sway outside their resting bounds, by a little: pad
+                   the bounds rather than draw every chunk's grass always. */
+                g.boundingSphere.radius += 0.5;
             }
             mesh.receiveShadow = true;
             mesh.castShadow = key !== "wind" && (set === "leaves" || set === "rock" || set === "timber");
@@ -242,6 +301,9 @@ function addPlant(batch, x, y, h, resource) {
 
 const ROOT = new THREE.Color();
 const TIP = new THREE.Color();
+const BLADE_ROOT = new THREE.Color("#24402a");
+const BLADE_TIP = new THREE.Color("#79b46a");
+const BLADE_DRY = new THREE.Color("#b9d08a");
 
 /*
  * A meadow: thin blades, rooted dark and lit at the tips, leaning with the
@@ -255,8 +317,8 @@ export function addBlades(batch, x, y, h, count, tall) {
         const height = (0.22 + r * 0.38) * tall;
         const lean = hash(x, y, 400 + i) * Math.PI * 2;
         const reach = height * 0.35;
-        ROOT.set("#24402a");
-        TIP.set(r < 0.15 ? "#b9d08a" : "#79b46a").multiplyScalar(0.8 + hash(x, y, 500 + i) * 0.5);
+        ROOT.copy(BLADE_ROOT);
+        TIP.copy(r < 0.15 ? BLADE_DRY : BLADE_TIP).multiplyScalar(0.8 + hash(x, y, 500 + i) * 0.5);
         batch.blade(bx, h, bz, r * 6.28, 0.05 + r * 0.03, height, Math.cos(lean) * reach, Math.sin(lean) * reach, ROOT, TIP);
     }
 }
@@ -366,30 +428,56 @@ export function buildChunk(cx, cy, cleared, ground = null) {
     return group;
 }
 /*
- * The sea is one sheet that follows the camera, rippled every frame. Land
- * sits above it everywhere except where the generator put water.
+ * The sea is one sheet that follows the camera. It ripples in the vertex
+ * shader, by where each vertex sits in the world, so following the camera
+ * never makes it swim and nothing is uploaded per frame.
  */
+const sea = { uTime: { value: 0 }, uAmp: { value: 1 } };
+let seaMaterial = null;
+function waterMaterial() {
+    if (seaMaterial) return seaMaterial;
+    const color = new THREE.Color("#4f8fb0");
+    seaMaterial = new THREE.MeshLambertMaterial({
+        color,
+        flatShading: true,
+        emissive: color.clone().multiplyScalar(0.22),
+        blending: THREE.NoBlending,
+        transparent: false,
+        opacity: glyphCode(GLYPH_SETS.water),
+    });
+    seaMaterial.onBeforeCompile = (shader) => {
+        shader.uniforms.uSeaTime = sea.uTime;
+        shader.uniforms.uSeaAmp = sea.uAmp;
+        shader.vertexShader = shader.vertexShader
+            .replace("#include <common>", "#include <common>\nuniform float uSeaTime;\nuniform float uSeaAmp;")
+            .replace(
+                "#include <begin_vertex>",
+                `vec3 transformed = vec3(position);
+                vec4 seaWorld = modelMatrix * vec4(position, 1.0);
+                transformed.y += uSeaAmp * (sin(seaWorld.x * 0.9 + uSeaTime * 1.3) * 0.05
+                    + sin(seaWorld.z * 1.2 - uSeaTime * 0.9 + seaWorld.x * 0.3) * 0.045);`,
+            );
+    };
+    seaMaterial.customProgramCacheKey = () => "commons-sea";
+    /* Flat shading takes its normals from the surface per pixel, so the
+       ripples still catch the light. */
+    return cutaway(seaMaterial);
+}
+
 export function createWater(size) {
-    const geometry = new THREE.PlaneGeometry(size, size, size, size).toNonIndexed();
+    const geometry = new THREE.PlaneGeometry(size, size, size, size);
     geometry.rotateX(-Math.PI / 2);
-    const base = geometry.attributes.position.array.slice();
-    const mesh = new THREE.Mesh(geometry, material("#4f8fb0", "water"));
+    const mesh = new THREE.Mesh(geometry, waterMaterial());
     mesh.receiveShadow = true;
-    mesh.userData.base = base;
+    /* The ripple lifts it a little above its resting bounds. */
+    geometry.computeBoundingSphere();
+    geometry.boundingSphere.radius += 0.2;
     return mesh;
 }
 
+/* Set the ripple's clock; `still` lays the sea flat. Cheap, so it is safe to
+   call every frame. */
 export function rippleWater(mesh, t, still) {
-    const pos = mesh.geometry.attributes.position;
-    const base = mesh.userData.base;
-    const arr = pos.array;
-    const ox = mesh.position.x;
-    const oz = mesh.position.z;
-    for (let i = 0; i < arr.length; i += 3) {
-        const x = base[i] + ox;
-        const z = base[i + 2] + oz;
-        arr[i + 1] = still ? 0 : Math.sin(x * 0.9 + t * 1.3) * 0.05 + Math.sin(z * 1.2 - t * 0.9 + x * 0.3) * 0.045;
-    }
-    /* Flat shading derives normals per pixel, so none need recomputing. */
-    pos.needsUpdate = true;
+    sea.uTime.value = t;
+    sea.uAmp.value = still ? 0 : 1;
 }
