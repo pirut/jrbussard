@@ -468,3 +468,76 @@ describe("server-authoritative survival", () => {
     ).toBe(true);
   });
 });
+
+describe("walking", () => {
+  /* A patch of open ground three tiles square, its top-left corner. */
+  function openPatch() {
+    for (let y = -60; y <= 60; y++)
+      for (let x = -60; x <= 60; x++) {
+        let clear = true;
+        for (let j = 0; j < 3 && clear; j++)
+          for (let i = 0; i < 3 && clear; i++)
+            if (isSolid(x + i, y + j)) clear = false;
+        if (clear) return { x, y };
+      }
+    throw new Error("No open ground");
+  }
+  const step = (t: T, dx: number, dy: number) =>
+    t.mutation(api.world.move, { session: "alice", dx, dy });
+
+  it("answers each step with where you stand, diagonals included", async () => {
+    const t = make();
+    const at = openPatch();
+    await seed(t, "alice", at);
+    expect(await step(t, 1, 1)).toEqual({ x: at.x + 1, y: at.y + 1 });
+    vi.advanceTimersByTime(200);
+    expect(await step(t, 1, 0)).toEqual({ x: at.x + 2, y: at.y + 1 });
+  });
+
+  it("lets one step come early but holds the average pace", async () => {
+    const t = make();
+    const at = openPatch();
+    await seed(t, "alice", at);
+    expect(await step(t, 1, 0)).toEqual({ x: at.x + 1, y: at.y });
+    /* Bunched up behind the first: still taken. */
+    expect(await step(t, 1, 0)).toEqual({ x: at.x + 2, y: at.y });
+    /* A third at once is too many. */
+    expect(await step(t, 0, 1)).toEqual({ x: at.x + 2, y: at.y });
+    vi.advanceTimersByTime(130);
+    expect(await step(t, 0, 1)).toEqual({ x: at.x + 2, y: at.y + 1 });
+  });
+
+  it("never cuts a corner on a diagonal", async () => {
+    const t = make();
+    const at = openPatch();
+    await seed(t, "alice", at);
+    await block(t, "wall", at.x + 1, at.y);
+    expect(await step(t, 1, 1)).toEqual(at);
+  });
+
+  it("stops at someone standing in the way", async () => {
+    const t = make();
+    const at = openPatch();
+    await seed(t, "alice", at);
+    await seed(t, "bob", { x: at.x + 1, y: at.y });
+    expect(await step(t, 1, 0)).toEqual(at);
+  });
+
+  it("strikes a creature instead of stepping onto it", async () => {
+    const t = make();
+    const at = openPatch();
+    await seed(t, "alice", at);
+    const wolf = await t.run((ctx) =>
+      ctx.db.insert("monsters", {
+        kind: "wolf",
+        x: at.x + 1,
+        y: at.y + 1,
+        hp: 999,
+        maxHp: 999,
+      }),
+    );
+    expect(await step(t, 1, 1)).toEqual(at);
+    const hurt = await t.run((ctx) => ctx.db.get(wolf));
+    expect(hurt?.hp).toBeLessThan(999);
+  });
+});

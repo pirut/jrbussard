@@ -26,30 +26,34 @@ export function screenStep(turn, sx, sy) {
 
 /*
  * The isometric camera turns "up the screen" into a diagonal on the map,
- * but the Commons' server only takes steps along the grid. So a diagonal is
- * walked as a staircase: `acc` carries how far behind each axis is, and
- * every step goes along whichever is further behind, which alternates for
- * a true diagonal and leans the right way for anything between. If that
- * way is shut and the other is open, the other is taken, so you slide
- * along a wall rather than stop. `open(dx, dy)` says whether a step is.
+ * and the server takes diagonal steps, so a direction is walked as the
+ * nearest of the eight ways round a tile. `open(dx, dy)` says whether the
+ * tile that way can be walked onto; `clear(dx, dy)`, whether it is clear of
+ * walls, for the corners a diagonal passes (people and creatures there
+ * don't block a diagonal, as on the server). A diagonal that would cut a
+ * corner or is shut slides along whichever side is open, the one nearer
+ * the way you meant first, so you run along a wall rather than stop.
  */
-export function gridStep(dir, acc, open = () => true) {
-    acc.x += dir[0];
-    acc.y += dir[1];
-    const xFirst = Math.abs(acc.x) >= Math.abs(acc.y);
-    /* Which axis comes from `acc`; which way along it, from where you are
-       actually heading, so a wall never turns you round. */
-    const along = (axis) => (axis === "x" ? [Math.abs(dir[0]) > 1e-6 ? Math.sign(dir[0]) : 0, 0] : [0, Math.abs(dir[1]) > 1e-6 ? Math.sign(dir[1]) : 0]);
-    let step = along(xFirst ? "x" : "y");
-    const other = along(xFirst ? "y" : "x");
-    if (!step[0] && !step[1]) step = other;
-    const otherShare = Math.abs(xFirst ? dir[1] : dir[0]);
-    if (!open(...step) && otherShare > 0.3 && (other[0] || other[1]) && open(...other)) step = other;
-    if (!step[0] && !step[1]) return [0, 0];
-    acc.x -= step[0];
-    acc.y -= step[1];
-    /* Never bank more than a step's worth, or a turn would lag behind. */
-    acc.x = Math.max(-1, Math.min(1, acc.x));
-    acc.y = Math.max(-1, Math.min(1, acc.y));
-    return step;
+export function octStep(dir, open = () => true, clear = open) {
+    const [x, y] = dir;
+    if (Math.abs(x) < 1e-6 && Math.abs(y) < 1e-6) return [0, 0];
+    /* tan(22.5°): beyond it the minor axis counts. */
+    const T = 0.4142;
+    const ax = Math.abs(x);
+    const ay = Math.abs(y);
+    const sx = ax > 1e-6 && ax >= ay * T ? Math.sign(x) : 0;
+    const sy = ay > 1e-6 && ay >= ax * T ? Math.sign(y) : 0;
+    if (sx && sy) {
+        if (clear(sx, 0) && clear(0, sy) && open(sx, sy)) return [sx, sy];
+        const sides = ax >= ay ? [[sx, 0], [0, sy]] : [[0, sy], [sx, 0]];
+        const side = sides.find(([a, b]) => clear(a, b) && open(a, b));
+        return side || [0, 0];
+    }
+    return open(sx, sy) ? [sx, sy] : [0, 0];
+}
+
+/* How long a step takes: a diagonal covers more ground, so it takes longer,
+   and walking speed stays the same whichever way you go. */
+export function stepTime(dx, dy, base) {
+    return dx && dy ? base * Math.SQRT2 : base;
 }
