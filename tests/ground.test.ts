@@ -15,6 +15,8 @@ import {
   protectedGround,
   MAX_DIG,
 } from "../src/lib/ground";
+import { passability } from "../src/arcade/ascii3d/navigation";
+import { judgeStep } from "../src/arcade/ascii3d/prediction";
 
 /*
  * Digging, server side: the shovel's rules come from src/lib/ground.js (tested
@@ -310,5 +312,78 @@ describe("digging", () => {
     });
     const seen = await t.query(api.world.state, { session: "bob" });
     expect(seen.ground).toEqual([{ ...target, edit: -1 }]);
+  });
+});
+
+describe("walking on worked ground, client and server alike", () => {
+  /* A tile with open ground west, north-west and north of it. */
+  function corner(test: (x: number, y: number) => boolean) {
+    for (let y = 12; y < 200; y++)
+      for (let x = 12; x < 200; x++)
+        if (
+          test(x, y) &&
+          !protectedGround(x, y) &&
+          walkable(x - 1, y) &&
+          walkable(x - 1, y - 1) &&
+          walkable(x, y - 1)
+        )
+          return { x, y };
+    throw new Error("no such spot");
+  }
+  const dig = (t: T, at: { x: number; y: number }, edit: number) =>
+    t.run((ctx) =>
+      ctx.db.insert("ground", {
+        ...at,
+        chunk: chunkKey(at.x, at.y),
+        edit,
+        by: "alice",
+        at: Date.now(),
+      }),
+    );
+
+  /* Predict a step from the snapshot the browser would have, then take it
+     for real; both must land in the same place. */
+  async function both(
+    t: T,
+    id: any,
+    from: { x: number; y: number },
+    dx: number,
+    dy: number,
+  ) {
+    await t.run((ctx) => ctx.db.patch(id, { ...from, lastMove: 0 }));
+    const state = await t.query(api.world.state, { session: "alice" });
+    const guess = judgeStep(passability(state), from, dx, dy);
+    const at = await t.mutation(api.world.move, { session: "alice", dx, dy });
+    expect(at).toEqual(
+      guess.moved ? { x: from.x + dx, y: from.y + dy } : from,
+    );
+    return guess.moved;
+  }
+
+  it("refuses a flooded pit, straight on and round its corner", async () => {
+    const t = make();
+    const pit = corner(
+      (x, y) => tileAt(x, y) === GRASS && baseHeight(x, y) === 0,
+    );
+    const id = await seed(t, "alice", { x: pit.x - 1, y: pit.y });
+    await dig(t, pit, -1);
+    expect(await both(t, id, { x: pit.x - 1, y: pit.y }, 1, 0)).toBe(false);
+    expect(await both(t, id, { x: pit.x - 1, y: pit.y - 1 }, 1, 1)).toBe(
+      false,
+    );
+    expect(await both(t, id, { x: pit.x - 1, y: pit.y }, 1, -1)).toBe(false);
+  });
+
+  it("crosses a dug step, straight on and diagonally", async () => {
+    const t = make();
+    const step = corner(
+      (x, y) => tileAt(x, y) === GRASS && baseHeight(x, y) >= 0.9,
+    );
+    const id = await seed(t, "alice", { x: step.x - 1, y: step.y });
+    await dig(t, step, -1);
+    expect(await both(t, id, { x: step.x - 1, y: step.y }, 1, 0)).toBe(true);
+    expect(await both(t, id, { x: step.x - 1, y: step.y - 1 }, 1, 1)).toBe(
+      true,
+    );
   });
 });

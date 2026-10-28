@@ -79,7 +79,10 @@ export default class AsciiWorld {
         this.distanceGoal = ZOOMS[1];
         this.yawGoal = ISO_YAW;
         this.shake = 0;
-        this.predicted = null;
+        /* Once the game steers you itself, the server's word on where you
+           stand only reaches the screen through it (see predictSelf). */
+        this.selfDriven = false;
+        this.self = null;
         this.floaters = [];
         this.orbit = false;
         this.labels = new Map();
@@ -252,16 +255,17 @@ export default class AsciiWorld {
     }
 
     /* Move yourself at once, before the server confirms, so walking feels
-       like walking. If the server disagrees for long, its answer wins. */
-    predictSelf(x, y) {
+       like walking. The game squares this with the server step by step
+       (see prediction.js) and calls it again with any correction. */
+    predictSelf(x, y, duration = 0.15) {
         const self = this.selfEntity();
         if (!self) return;
-        this.moveEntity(self, x, y, 0.17);
-        this.predicted = { x, y, until: this.time + 0.9 };
+        this.selfDriven = true;
+        this.moveEntity(self, x, y, duration);
     }
 
     selfEntity() {
-        return [...this.players.values()].find((p) => p.data?.self) || null;
+        return this.self;
     }
 
     /* Words that rise off someone and fade: damage, gains, a level. */
@@ -295,7 +299,7 @@ export default class AsciiWorld {
 
     /* Swing the arm: chopping, mining, hitting. Purely for show. */
     swingSelf() {
-        const self = [...this.players.values()].find((p) => p.data.self);
+        const self = this.selfEntity();
         if (self) self.attackStart = this.time;
     }
 
@@ -438,6 +442,7 @@ export default class AsciiWorld {
 
     syncPlayers(state) {
         const seen = new Set();
+        let self = null;
         state.players.forEach((p) => {
             seen.add(p.id);
             const key = lookKey(p);
@@ -465,11 +470,9 @@ export default class AsciiWorld {
                 this.strikeFrom(this.creatures, entity);
             }
             entity.data = p;
-            if (p.self && this.predicted) {
-                /* Ours already went there; wait for the server to agree. */
-                if (p.x === this.predicted.x && p.y === this.predicted.y) this.predicted = null;
-                else if (this.time < this.predicted.until) return;
-                else this.predicted = null;
+            if (p.self) {
+                self = entity;
+                if (this.selfDriven) return;
             }
             this.moveEntity(entity, p.x, p.y, 0.15);
         });
@@ -478,6 +481,7 @@ export default class AsciiWorld {
             this.leave(this.players.get(id));
             this.players.delete(id);
         });
+        this.self = self;
     }
 
     /*
@@ -489,10 +493,11 @@ export default class AsciiWorld {
         const pool = [...this.creatures];
         const next = [];
         state.monsters.forEach((m) => {
-            let best = -1;
-            let bestDistance = 2.5;
+            let best = m.id ? pool.findIndex((c) => c && c.data?.id === m.id) : -1;
+            let bestDistance = best >= 0 ? -1 : 2.5;
             pool.forEach((c, i) => {
-                if (!c || c.kind !== m.kind) return;
+                /* Without ids, the nearest of its kind is probably it. */
+                if (!c || c.kind !== m.kind || (m.id && c.data?.id)) return;
                 const d = Math.hypot(c.to.x - m.x, c.to.y - m.y);
                 if (d <= bestDistance) {
                     best = i;
@@ -796,7 +801,15 @@ export default class AsciiWorld {
         const moved = Math.hypot(x - entity.pos.x, z - entity.pos.z);
         const fromH = this.entityHeight(entity.from.x, entity.from.y);
         const toH = this.entityHeight(entity.to.x, entity.to.y);
-        const h = fromH + (toH - fromH) * t + Math.sin(t * Math.PI) * (Math.abs(toH - fromH) > 0.05 ? 0.12 : 0);
+        const climb = Math.abs(toH - fromH) > 0.05;
+        /* Up or down a terrace, the feet follow how far along the step the
+           body really is, and ease over the lip, so nothing hops ahead of
+           the walk. */
+        const lift = (s) => {
+            const e = s * s * (3 - 2 * s);
+            return fromH + (toH - fromH) * e + Math.sin(s * Math.PI) * (climb ? 0.1 : 0);
+        };
+        const h = lift(t);
         if (entity.glide) {
             /*
              * People glide. The server moves everyone a whole tile at a time,
@@ -811,7 +824,11 @@ export default class AsciiWorld {
             const vx = gx - entity.pos.x;
             const vz = gz - entity.pos.z;
             if (Math.hypot(vx, vz) > dt * 0.8) entity.facing = Math.atan2(vx, vz);
-            entity.pos.set(gx, h, gz);
+            const sx = entity.to.x - entity.from.x;
+            const sz = entity.to.y - entity.from.y;
+            const span = sx * sx + sz * sz;
+            const along = span > 1e-6 ? Math.min(1, Math.max(0, ((gx - entity.from.x) * sx + (gz - entity.from.y) * sz) / span)) : 1;
+            entity.pos.set(gx, climb ? lift(along) : h, gz);
         } else entity.pos.set(x, h, z);
         const walking = this.time - entity.lastStep < (entity.duration > 0.3 ? 0.55 : 0.28);
         entity.moving += ((walking ? 1 : 0) - entity.moving) * Math.min(1, dt * 12);
@@ -977,7 +994,7 @@ export default class AsciiWorld {
     }
 
     updateCamera(dt) {
-        const self = [...this.players.values()].find((p) => p.data.self);
+        const self = this.self;
         let goal;
         if (self) goal = self.pos;
         else if (this.state?.view) {
@@ -988,7 +1005,16 @@ export default class AsciiWorld {
             if (!this.focusReady) {
                 this.focus.copy(goal);
                 this.focusReady = true;
-            } else this.focus.lerp(goal, Math.min(1, dt * 8));
+            } else {
+                /* Follow closely across the ground, so you stay near the
+                   middle while walking; settle more slowly up and down, so
+                   terraces don't bob the whole view. */
+                const k = 1 - Math.exp(-dt * 11);
+                const ky = 1 - Math.exp(-dt * 4);
+                this.focus.x += (goal.x - this.focus.x) * k;
+                this.focus.z += (goal.z - this.focus.z) * k;
+                this.focus.y += (goal.y - this.focus.y) * ky;
+            }
         }
         if (self && this.selfFacing !== null) {
             self.facing = this.selfFacing;
@@ -997,8 +1023,8 @@ export default class AsciiWorld {
 
         if (this.orbit) this.turnAngle = (this.turnAngle ?? ISO_YAW) + dt * 0.08;
         const goalYaw = this.orbit ? this.turnAngle : this.yawGoal;
-        this.yaw = this.orbit ? goalYaw : lerpAngle(this.yaw, goalYaw, Math.min(1, dt * 8));
-        this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * 8);
+        this.yaw = this.orbit ? goalYaw : lerpAngle(this.yaw, goalYaw, 1 - Math.exp(-dt * 9));
+        this.distance += (this.distanceGoal - this.distance) * (1 - Math.exp(-dt * 10));
 
         placeIsoCamera(this.camera, this.focus, this.yaw, this.distance, this.camera.userData.aspect || 1.6);
         if (this.shake > 0 && !this.reducedMotion) {

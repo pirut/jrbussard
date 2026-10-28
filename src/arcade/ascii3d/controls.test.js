@@ -1,4 +1,5 @@
-import { screenStep, TURN_UP, gridStep } from "./controls";
+import { screenStep, TURN_UP, octStep, stepTime } from "./controls";
+import { screenToMap, ISO_YAW } from "./iso";
 
 describe("screenStep", () => {
     it("leaves directions alone when north is up", () => {
@@ -20,28 +21,44 @@ describe("screenStep", () => {
     });
 });
 
-describe("gridStep", () => {
-    it("walks a diagonal as alternating steps", () => {
-        const acc = { x: 0, y: 0 };
-        const d = Math.SQRT1_2;
-        const steps = Array.from({ length: 6 }, () => gridStep([-d, -d], acc));
-        const xs = steps.filter(([x]) => x === -1).length;
-        const ys = steps.filter(([, y]) => y === -1).length;
-        expect(xs).toBe(3);
-        expect(ys).toBe(3);
-        steps.forEach(([x, y]) => expect(Math.abs(x) + Math.abs(y)).toBe(1));
+describe("octStep", () => {
+    const d = Math.SQRT1_2;
+
+    it("takes the nearest of the eight ways", () => {
+        expect(octStep([0, -1])).toEqual([0, -1]);
+        expect(octStep([-d, -d])).toEqual([-1, -1]);
+        expect(octStep([1, 0.2])).toEqual([1, 0]);
+        expect(octStep([1, 0.6])).toEqual([1, 1]);
+        expect(octStep([0, 0])).toEqual([0, 0]);
     });
 
-    it("walks straight along an axis", () => {
-        const acc = { x: 0, y: 0 };
-        for (let i = 0; i < 4; i += 1) expect(gridStep([0, -1], acc)).toEqual([0, -1]);
+    it("walks screen-up as one straight diagonal at every camera turn", () => {
+        for (let q = 0; q < 4; q += 1) {
+            const [dx, dy] = octStep(screenToMap(ISO_YAW + (q * Math.PI) / 2, 0, -1));
+            expect(Math.abs(dx)).toBe(1);
+            expect(Math.abs(dy)).toBe(1);
+        }
     });
 
-    it("slides along a wall when the preferred way is shut", () => {
-        const acc = { x: 0, y: 0 };
-        const d = Math.SQRT1_2;
-        /* A wall to the west: only north is open. */
-        const open = (dx) => dx !== -1;
-        for (let i = 0; i < 4; i += 1) expect(gridStep([-d, -d], acc, open)).toEqual([0, -1]);
+    it("never cuts a corner, and slides along the side that is open", () => {
+        /* A wall to the west: the diagonal north-west is shut, north is not. */
+        const clear = (dx) => dx !== -1;
+        expect(octStep([-d, -d], () => true, clear)).toEqual([0, -1]);
+    });
+
+    it("prefers the side nearer the way you meant", () => {
+        expect(octStep([-0.8, -0.6], (dx, dy) => !(dx && dy))).toEqual([-1, 0]);
+        expect(octStep([-0.6, -0.8], (dx, dy) => !(dx && dy))).toEqual([0, -1]);
+    });
+
+    it("stops dead against a wall head on", () => {
+        expect(octStep([0, -1], () => false)).toEqual([0, 0]);
+    });
+});
+
+describe("stepTime", () => {
+    it("keeps the same speed on a diagonal", () => {
+        expect(stepTime(1, 0, 150)).toBe(150);
+        expect(stepTime(1, 1, 150)).toBeCloseTo(150 * Math.SQRT2);
     });
 });

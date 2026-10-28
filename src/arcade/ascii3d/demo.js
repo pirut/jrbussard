@@ -133,7 +133,8 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         { kind: "troll", x: camp.x - 9, y: camp.y - 6 },
         { kind: "wolf", x: camp.x - 4, y: camp.y + 16 },
         { kind: "rat", x: camp.x + 14, y: camp.y + 6 },
-    ].map((m) => ({ ...m, ...(isSolid(m.x, m.y) ? openNear(m.x, m.y) : {}), hp: MONSTER_HP[m.kind], maxHp: MONSTER_HP[m.kind] }));
+    ].map((m, i) => ({ ...m, ...(isSolid(m.x, m.y) ? openNear(m.x, m.y) : {}), id: `m${i}`, hp: MONSTER_HP[m.kind], maxHp: MONSTER_HP[m.kind] }));
+    let monsterIds = monsters.length;
     const returning = [];
     const chat = [{ name: "", text: "You wake at the edge of a camp. Nothing here is saved.", kind: "system" }];
     const me = {
@@ -231,7 +232,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         while (returning.length && returning[0].at <= clock) {
             const { kind } = returning.shift();
             const spot = respawn({ x: you.x, y: you.y });
-            monsters.push({ kind, ...spot, hp: MONSTER_HP[kind], maxHp: MONSTER_HP[kind] });
+            monsters.push({ kind, ...spot, id: `m${(monsterIds += 1)}`, hp: MONSTER_HP[kind], maxHp: MONSTER_HP[kind] });
         }
         return true;
     }
@@ -356,18 +357,23 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
      * line the server would, or null.
      */
     const calls = {
+        /* Like the server: eight ways, no cutting corners, and the answer
+           is where you stand afterwards. */
         move({ dx, dy }) {
-            if (you.hp <= 0 || Math.abs(dx) + Math.abs(dy) !== 1) return null;
+            if (you.hp <= 0) return null;
+            const here = () => ({ x: you.x, y: you.y });
+            dx = Math.sign(dx);
+            dy = Math.sign(dy);
+            if (!dx && !dy) return here();
+            if (dx && dy && (solidAt(you.x + dx, you.y) || solidAt(you.x, you.y + dy))) return here();
             const target = monsters.find((m) => m.x === you.x + dx && m.y === you.y + dy);
             if (target) {
                 const swing = 3 + me.level * 2 + (you.tools.weapon || 0) * 4 + Math.floor(random() * 4);
-                const before = me.level;
                 wound(target, swing, you);
-                if (target.hp <= 0) return me.level > before ? `The ${target.kind} falls. You reach level ${me.level}.` : `The ${target.kind} falls.`;
-                return null;
+                return here();
             }
             tryStep(you, dx, dy);
-            return null;
+            return here();
         },
         harvest({ x, y }) {
             if (!withinReach(you, x, y)) return "out of reach";
