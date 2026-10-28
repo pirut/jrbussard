@@ -42,6 +42,10 @@ import {
  */
 
 const MOVE_COOLDOWN_MS = 120;
+/* How early a step may come. Steps sent at a steady pace can bunch up on
+   the way here; this lets one arrive a step early instead of being dropped,
+   while the average stays at one per MOVE_COOLDOWN_MS. */
+const MOVE_SLACK_MS = 120;
 const BUILD_COOLDOWN_MS = 600;
 const IDLE_MS = 45_000;
 const CHAT_LIMIT = 50;
@@ -50,6 +54,23 @@ const MAX_CHAT = 160;
 const BUBBLE_MS = 7000;
 /* Breathing room after arriving or reviving. */
 const GRACE_MS = 5000;
+
+/*
+ * Pacing for steps. `lastMove` holds when the next step is due (older rows
+ * hold the time of the last step, which reads the same way). A step is let
+ * through up to MOVE_SLACK_MS early, and a diagonal, which covers more
+ * ground, costs more. Returns when the step after this one is due, or null
+ * if this one comes too soon.
+ */
+function nextStepDue(
+  lastMove: number,
+  now: number,
+  diagonal = false,
+): number | null {
+  if (now < lastMove - MOVE_SLACK_MS) return null;
+  const cost = diagonal ? MOVE_COOLDOWN_MS * Math.SQRT2 : MOVE_COOLDOWN_MS;
+  return Math.max(lastMove, now) + cost;
+}
 
 async function getWorld(ctx: MutationCtx) {
   const existing = await ctx.db
@@ -197,25 +218,40 @@ export const heartbeat = mutation({
 
 export const move = mutation({
   args: { session: v.string(), dx: v.number(), dy: v.number() },
-  returns: v.null(),
+  /* Where you stand afterwards, so the client can square its guess with
+     the truth step by step instead of waiting for the next snapshot. */
+  returns: v.union(v.null(), v.object({ x: v.number(), y: v.number() })),
   handler: async (ctx, args) => {
     const player = await getPlayer(ctx, args.session);
     if (!player || player.hp <= 0) return null;
+    const here = { x: player.x, y: player.y };
 
-    const now = Date.now();
-    if (now - player.lastMove < MOVE_COOLDOWN_MS) return null;
-
-    if (!Number.isFinite(args.dx) || !Number.isFinite(args.dy)) return null;
+    if (!Number.isFinite(args.dx) || !Number.isFinite(args.dy)) return here;
     const dx = Math.sign(args.dx);
     const dy = Math.sign(args.dy);
-    if ((dx === 0 && dy === 0) || (dx !== 0 && dy !== 0)) return null;
+    if (dx === 0 && dy === 0) return here;
+    const diagonal = dx !== 0 && dy !== 0;
+
+    const now = Date.now();
+    const due = nextStepDue(player.lastMove, now, diagonal);
+    if (due === null) return here;
 
     const nx = player.x + dx;
     const ny = player.y + dy;
 
+    /* A diagonal never cuts a corner: both tiles beside it must be open. */
+    if (
+      diagonal &&
+      ((await blocked(ctx, player.x + dx, player.y)) ||
+        (await blocked(ctx, player.x, player.y + dy)))
+    )
+      return here;
+
     /* Walking into a monster is an attack. */
-    const monsters = await ctx.db.query("monsters").take(100);
-    const target = monsters.find((m) => m.x === nx && m.y === ny);
+    const target = await ctx.db
+      .query("monsters")
+      .withIndex("by_pos", (q) => q.eq("x", nx).eq("y", ny))
+      .first();
 
     if (target) {
       const spec = MONSTERS[target.kind];
@@ -229,10 +265,10 @@ export const move = mutation({
       if (left > 0) {
         await ctx.db.patch("monsters", target._id, { hp: left });
         await ctx.db.patch("players", player._id, {
-          lastMove: now,
+          lastMove: due,
           lastSeen: now,
         });
-        return null;
+        return here;
       }
 
       await ctx.db.delete("monsters", target._id);
@@ -260,7 +296,7 @@ export const move = mutation({
         }),
         kills: player.kills + 1,
         potions: Math.random() < 0.18 ? player.potions + 1 : player.potions,
-        lastMove: now,
+        lastMove: due,
         lastSeen: now,
       });
 
@@ -278,37 +314,38 @@ export const move = mutation({
           "level",
         );
       }
-      return null;
+      return here;
     }
 
-    if (await blocked(ctx, nx, ny)) return null;
+    if (await blocked(ctx, nx, ny)) return here;
 
-    const others = await ctx.db
+    /* Only the tile you are stepping onto, so walking never reads (and
+       never contends with) everyone else's every step. */
+    const standing = await ctx.db
       .query("players")
-      .withIndex("by_lastSeen", (q) => q.gt("lastSeen", Date.now() - IDLE_MS))
-      .take(200);
+      .withIndex("by_pos", (q) => q.eq("x", nx).eq("y", ny))
+      .take(8);
     if (
-      others.some(
+      standing.some(
         (other) =>
           other._id !== player._id &&
           other.hp > 0 &&
-          other.x === nx &&
-          other.y === ny,
+          other.lastSeen > now - IDLE_MS,
       )
     ) {
-      return null;
+      return here;
     }
 
     const distance = Math.round(Math.hypot(nx, ny));
     await ctx.db.patch("players", player._id, {
       x: nx,
       y: ny,
-      lastMove: now,
+      lastMove: due,
       lastSeen: now,
       far: Math.max(player.far || 0, distance),
     });
     await ensureTicking(ctx);
-    return null;
+    return { x: nx, y: ny };
   },
 });
 
@@ -782,6 +819,8 @@ export const state = query({
     ),
     monsters: v.array(
       v.object({
+        /* So the client can follow each animal rather than guess. */
+        id: v.string(),
         kind: v.string(),
         x: v.number(),
         y: v.number(),
@@ -844,9 +883,14 @@ export const state = query({
       }
     }
 
-    const monsters = (await ctx.db.query("monsters").take(100)).filter((m) =>
-      visible(m.x, m.y),
-    );
+    /* Only the band of the map in view, so creatures roaming elsewhere
+       don't wake this query on every step they take. */
+    const monsters = (
+      await ctx.db
+        .query("monsters")
+        .withIndex("by_pos", (q) => q.gte("x", minX).lte("x", maxX))
+        .take(100)
+    ).filter((m) => visible(m.x, m.y));
     const chat = await ctx.db.query("chat").order("desc").take(CHAT_LIMIT);
 
     return {
@@ -900,6 +944,7 @@ export const state = query({
           saidText: now - p.saidAt < BUBBLE_MS ? p.saidText : "",
         })),
       monsters: monsters.map((m) => ({
+        id: m._id,
         kind: m.kind,
         x: m.x,
         y: m.y,

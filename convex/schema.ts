@@ -59,7 +59,9 @@ export default defineSchema({
   })
     .index("by_session", ["session"])
     .index("by_lastSeen", ["lastSeen"])
-    .index("by_level", ["level", "kills"]),
+    .index("by_level", ["level", "kills"])
+    /* Lets a step check the one tile it lands on instead of every player. */
+    .index("by_pos", ["x", "y"]),
 
   monsters: defineTable({
     kind: v.string(),
@@ -68,7 +70,7 @@ export default defineSchema({
     hp: v.number(),
     maxHp: v.number(),
     lastHit: v.optional(v.number()),
-  }),
+  }).index("by_pos", ["x", "y"]),
 
   /*
    * Everything players have changed about the world: blocks they built and

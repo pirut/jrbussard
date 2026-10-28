@@ -27,10 +27,11 @@ import { playerColor } from "../lib/appearance";
 import { Fieldcraft, Compass } from "./CommonsPanels";
 import CharacterCreator, { CharacterPortrait } from "./CommonsCharacter";
 import AsciiField from "./ascii3d/AsciiField";
-import { gridStep } from "./ascii3d/controls";
+import { octStep, stepTime } from "./ascii3d/controls";
 import { ISO_YAW, screenToMap } from "./ascii3d/iso";
 import { passability, findPath } from "./ascii3d/navigation";
 import { createDemo } from "./ascii3d/demo";
+import { createWalker } from "./ascii3d/prediction";
 import "./arcade.css";
 import "./commons.css";
 import "./game.css";
@@ -283,7 +284,12 @@ function Online() {
  * against a local stand-in, so the world can be seen and played on any build.
  */
 function Offline() {
-  /* ?phase=night and ?weather=storm pin the sky, for looking at one light. */
+  /* ?phase=night and ?weather=storm pin the sky, for looking at one light.
+     ?lag=150 answers every call that many ms late, to feel a real server. */
+  const lag = useMemo(
+    () => Number(new URLSearchParams(window.location.search).get("lag")) || 0,
+    [],
+  );
   const demo = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return createDemo({
@@ -303,11 +309,17 @@ function Offline() {
 
   const call = useCallback(
     (kind, args = {}) => {
-      const message = demo.call(kind, args);
-      setSnapshot(demo.snapshot());
-      return Promise.resolve(message);
+      const answer = () => {
+        const message = demo.call(kind, args);
+        setSnapshot(demo.snapshot());
+        return message;
+      };
+      if (!lag) return Promise.resolve(answer());
+      return new Promise((resolve) =>
+        window.setTimeout(() => resolve(answer()), lag),
+      );
     },
-    [demo],
+    [demo, lag],
   );
 
   const saveCharacter = useCallback(
@@ -327,9 +339,12 @@ function Offline() {
   );
 }
 
-/* One step per this long while a movement key is held. The server allows
-   one every 120ms; a little slack keeps steps from being dropped. */
-const STEP_MS = 165;
+/* One step along the grid per this long while a movement key is held; a
+   diagonal takes √2 as long. The server allows one every 120ms and lets one
+   come a step early, so steps that bunch up on the way are not dropped. */
+const STEP_MS = 150;
+/* A blocked plan looks for a new way this many times before giving up. */
+const REPLANS = 3;
 /* How often a held mouse button swings again. */
 const SWING_MS = 430;
 
@@ -437,34 +452,41 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
 
   /* ── Walking ──────────────────────────────────────────────────────── */
 
-  /* Where you will be once the steps already sent land. Steps go out
-     before the server answers, so this runs ahead of `me` while you walk
-     and falls back to it when you stop. */
-  const posRef = useRef(null);
-  const lastStepRef = useRef(0);
+  /* Where you are: the server's word plus the steps still on their way to
+     it (see prediction.js), so walking never waits on a round trip. */
+  const walkerRef = useRef(null);
+  if (!walkerRef.current) walkerRef.current = createWalker();
+  /* When the next step may go. */
+  const nextStepRef = useRef(0);
   const facingRef = useRef({ dx: 0, dy: 1 });
   const planRef = useRef(null);
   const heldRef = useRef([]);
-  /* How far a diagonal walk is behind on each axis (see gridStep). */
-  const stairRef = useRef({ x: 0, y: 0 });
+  /* Keys pressed and let go between two frames still take their step. */
+  const tapRef = useRef(null);
   const mouseRef = useRef({ held: false, last: 0 });
+  /* When a movement key last went down, and when a step last went out. */
+  const downAtRef = useRef(0);
+  const stepAtRef = useRef(0);
 
   useEffect(() => {
+    const walker = walkerRef.current;
     if (!me) return;
-    if (
-      !posRef.current ||
-      performance.now() - lastStepRef.current > 700 ||
-      Math.abs(posRef.current.x - me.x) + Math.abs(posRef.current.y - me.y) > 3
-    )
-      posRef.current = { x: me.x, y: me.y };
+    if (me.hp <= 0) walker.reset(me);
+    else if (!walker.sync(me)) return;
+    const at = walker.position;
+    if (at) fieldApi.current?.predictSelf(at.x, at.y);
   }, [me]);
 
-  const here = useCallback(() => posRef.current || stateRef.current.me, []);
+  const here = useCallback(
+    () => walkerRef.current.position || stateRef.current.me,
+    [],
+  );
 
-  /* One tile. Returns whether you actually moved. */
+  /* One step, in any of the eight directions. Returns whether you moved. */
   const stepBy = useCallback(
     (dx, dy) => {
       const st = stateRef.current;
+      const walker = walkerRef.current;
       if (!st.me || st.me.hp <= 0) return false;
       const from = here();
       const nx = from.x + dx;
@@ -472,41 +494,52 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       const nav = passability(st);
       facingRef.current = { dx, dy };
       fieldApi.current?.faceSelf(dx, dy);
-      lastStepRef.current = performance.now();
-      const send = () =>
-        call("move", { dx, dy }).catch(() =>
-          flash("Movement interrupted. Reconnecting…"),
-        );
-      if (nav.creatureAt(nx, ny)) {
-        /* Walking into a creature is an attack. */
-        fieldApi.current?.swingSelf();
-        send();
-        return false;
+      const now = performance.now();
+      stepAtRef.current = now;
+      /* Keep the beat while walking; start it afresh after a pause. */
+      const base = now - nextStepRef.current > 60 ? now : nextStepRef.current;
+      nextStepRef.current = base + stepTime(dx, dy, STEP_MS);
+      const creature = nav.creatureAt(nx, ny);
+      const cornered =
+        dx && dy && !(nav.open(from.x + dx, from.y) && nav.open(from.x, from.y + dy));
+      /* A bump or a swing is still sent: it turns you to face the thing,
+         and walking into a creature is an attack. */
+      const moved = !creature && !cornered && nav.free(nx, ny);
+      if (creature) fieldApi.current?.swingSelf();
+      const ticket = walker.send(dx, dy, moved);
+      if (moved) {
+        fieldApi.current?.predictSelf(nx, ny, stepTime(dx, dy, STEP_MS) / 1000);
       }
-      if (!nav.free(nx, ny)) {
-        /* Still sent: bumping into something turns you to face it. */
-        send();
-        return false;
-      }
-      posRef.current = { x: nx, y: ny };
-      fieldApi.current?.predictSelf(nx, ny);
-      send();
-      return true;
+      const settle = (at) => {
+        if (walker.ack(ticket, at) && walker.position) {
+          /* The server saw it differently: go where it says. */
+          const p = walker.position;
+          fieldApi.current?.predictSelf(p.x, p.y);
+        }
+      };
+      call("move", { dx, dy })
+        .then(settle)
+        .catch(() => {
+          settle(null);
+          flash("Movement interrupted. Reconnecting…");
+        });
+      return moved;
     },
     [call, flash, here],
   );
 
   /* Walk to the nearest tile where `goal` holds, then do `then`. */
   const goThen = useCallback(
-    (goal, then, why = "can't find a way there") => {
+    (goal, then, why = "can't find a way there", replans = REPLANS) => {
       const st = stateRef.current;
-      const path = findPath(here(), goal, passability(st).free);
+      const nav = passability(st);
+      const path = findPath(here(), goal, nav.free, undefined, nav.open);
       if (path === null) {
         flash(why);
         planRef.current = null;
         return;
       }
-      planRef.current = { steps: path, then };
+      planRef.current = { steps: path, then, goal, why, replans };
       if (!path.length) {
         planRef.current = null;
         then?.();
@@ -565,7 +598,11 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       const from = here();
       const dx = creature.x - from.x;
       const dy = creature.y - from.y;
-      if (Math.abs(dx) + Math.abs(dy) === 1) {
+      const nav = passability(st);
+      const adjacent =
+        Math.max(Math.abs(dx), Math.abs(dy)) === 1 &&
+        (!dx || !dy || (nav.open(from.x + dx, from.y) && nav.open(from.x, from.y + dy)));
+      if (adjacent) {
         stepBy(dx, dy);
         return;
       }
@@ -629,9 +666,12 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const now = performance.now();
-      if (now - lastStepRef.current < STEP_MS) return;
-      const held = heldRef.current;
-      if (held.length) {
+      if (now < nextStepRef.current) return;
+      /* Too far ahead of the server already: let it catch up. */
+      if (!walkerRef.current.ready) return;
+      const held = heldRef.current.length ? heldRef.current : tapRef.current;
+      tapRef.current = null;
+      if (held?.length) {
         planRef.current = null;
         /* Every key held counts, so W and D together walk up and to the
            right of the screen, which from the isometric corner is due
@@ -642,19 +682,38 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         if (!dir[0] && !dir[1]) return;
         const from = here();
         const nav = passability(stateRef.current);
-        const [dx, dy] = gridStep(dir, stairRef.current, (x, y) => nav.free(from.x + x, from.y + y));
+        const [dx, dy] = octStep(
+          dir,
+          (x, y) => nav.free(from.x + x, from.y + y) || Boolean(nav.creatureAt(from.x + x, from.y + y)),
+          (x, y) => nav.open(from.x + x, from.y + y),
+        );
         if (dx || dy) stepBy(dx, dy);
+        else {
+          /* Up against a wall: turn to it, but don't send anything. */
+          const [fx, fy] = [Math.round(dir[0]), Math.round(dir[1])];
+          if (fx || fy) {
+            facingRef.current = { dx: fx, dy: fy };
+            fieldApi.current?.faceSelf(fx, fy);
+          }
+        }
         return;
       }
-      stairRef.current = { x: 0, y: 0 };
       const plan = planRef.current;
       if (plan) {
         if (plan.steps.length) {
-          const next = plan.steps.shift();
+          const next = plan.steps[0];
           const from = here();
           const dx = next.x - from.x;
           const dy = next.y - from.y;
-          if (Math.abs(dx) + Math.abs(dy) !== 1 || !stepBy(dx, dy)) {
+          const nav = passability(stateRef.current);
+          if (Math.max(Math.abs(dx), Math.abs(dy)) === 1 && nav.free(next.x, next.y)) {
+            plan.steps.shift();
+            if (!stepBy(dx, dy)) planRef.current = null;
+          } else if (plan.replans > 0) {
+            /* Someone stepped into the way, or the guess was corrected:
+               find a new way to the same place. */
+            goThen(plan.goal, plan.then, plan.why, plan.replans - 1);
+          } else {
             planRef.current = null;
           }
         } else {
@@ -680,7 +739,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [stepBy, primary, here]);
+  }, [stepBy, primary, here, goThen]);
 
   /* ── Feedback ─────────────────────────────────────────────────────── */
 
@@ -744,8 +803,10 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       if (move) {
         event.preventDefault();
         if (!playing) setPlaying(true);
-        if (!heldRef.current.includes(move))
+        if (!heldRef.current.includes(move)) {
           heldRef.current = [...heldRef.current, move];
+          downAtRef.current = performance.now();
+        }
         return;
       }
       if (event.key === "Enter" || event.key === "t") {
@@ -798,9 +859,15 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     };
     const onKeyUp = (event) => {
       const key = MOVES[event.key] ? event.key : event.key.toLowerCase();
-      heldRef.current = heldRef.current.filter(
-        (k) => k !== key && k !== event.key,
-      );
+      const before = heldRef.current;
+      heldRef.current = before.filter((k) => k !== key && k !== event.key);
+      /* Let go before the step it asked for was taken: take it anyway. */
+      if (
+        before.length !== heldRef.current.length &&
+        !heldRef.current.length &&
+        stepAtRef.current < downAtRef.current
+      )
+        tapRef.current = before;
     };
     const release = () => {
       heldRef.current = [];
@@ -857,6 +924,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         x: event.clientX,
         y: event.clientY,
         moved: 0,
+        turn: 0,
         button: event.button,
       };
       stageRef.current?.setPointerCapture?.(event.pointerId);
@@ -882,6 +950,12 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       drag.y = event.clientY;
       drag.moved += Math.abs(dx) + Math.abs(dy);
       if (drag.moved > 4 && !dragging) setDragging(true);
+      /* Dragging sideways swings the camera round, a quarter at a time. */
+      drag.turn += dx;
+      if (Math.abs(drag.turn) > 90) {
+        fieldApi.current?.rotate(-Math.sign(drag.turn) * (Math.PI / 2));
+        drag.turn = 0;
+      }
       return;
     }
     if (event.pointerType !== "touch") setHover(pick(event));
@@ -893,9 +967,11 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     if (!drag) return;
     dragRef.current = null;
     setDragging(false);
-    /* A right click that did not drag leaves build mode. */
-    if (drag.moved <= 4 && drag.button === 2 && buildingRef.current)
-      setBuilding(false);
+    /* A right click that did not drag leaves build mode, or stops a walk. */
+    if (drag.moved <= 4 && drag.button === 2) {
+      if (buildingRef.current) setBuilding(false);
+      else planRef.current = null;
+    }
   };
 
   /* ── Talking ──────────────────────────────────────────────────────── */
