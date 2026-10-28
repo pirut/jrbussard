@@ -3,6 +3,10 @@ import MiniMap from "./MiniMap";
 
 const PHASE_GLYPH = { dawn: "◒", day: "☼", dusk: "◓", night: "☾" };
 
+/* iPhone Safari has no full screen for a page, so no button for it. */
+const canFullscreen = () =>
+  typeof document !== "undefined" && Boolean(document.fullscreenEnabled);
+
 /* The world, top right: sky and place, the window buttons, the map. */
 export default function WorldPanel({
   state,
@@ -13,6 +17,7 @@ export default function WorldPanel({
   onHelp,
   onMap,
   onFullscreen,
+  onTurn,
 }) {
   return (
     <section className="hud-world hud-card" aria-label="The world">
@@ -25,6 +30,22 @@ export default function WorldPanel({
           <span>{state.weather}</span>
         </p>
         <div className="hud-buttons">
+          {/* Touch screens only (see game.css): keys and right drag turn
+              the camera everywhere else. */}
+          <button
+            className="hud-turn"
+            onClick={() => onTurn(-1)}
+            aria-label="Turn the camera left"
+          >
+            <span aria-hidden="true">⟲</span>
+          </button>
+          <button
+            className="hud-turn"
+            onClick={() => onTurn(1)}
+            aria-label="Turn the camera right"
+          >
+            <span aria-hidden="true">⟳</span>
+          </button>
           <button
             onClick={onMap}
             aria-pressed={mapOpen}
@@ -36,13 +57,15 @@ export default function WorldPanel({
           <button onClick={onHelp} title="Controls (H)" aria-label="Controls">
             ?
           </button>
-          <button
-            onClick={onFullscreen}
-            title="Full screen (F)"
-            aria-label={fullscreen ? "Leave full screen" : "Full screen"}
-          >
-            <span aria-hidden="true">{fullscreen ? "⤡" : "⤢"}</span>
-          </button>
+          {canFullscreen() && (
+            <button
+              onClick={onFullscreen}
+              title="Full screen (F)"
+              aria-label={fullscreen ? "Leave full screen" : "Full screen"}
+            >
+              <span aria-hidden="true">{fullscreen ? "⤡" : "⤢"}</span>
+            </button>
+          )}
         </div>
       </div>
       <p className="hud-where">

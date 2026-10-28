@@ -1,0 +1,242 @@
+/*
+ * The Commons on a phone: the thumbstick, the buttons that stand in for
+ * keys, and a HUD small enough to leave the world in view. Loaded after
+ * game.css, so these win where both speak.
+ */
+
+/* The thumbstick, wherever a dragging finger landed (Commons.js). */
+.touch-stick {
+  position: absolute;
+  z-index: 2;
+  width: 112px;
+  height: 112px;
+  margin: -56px 0 0 -56px;
+  border: 1px solid #e2c89559;
+  border-radius: 50%;
+  background: #060a0866;
+  pointer-events: none;
+}
+.touch-stick i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border: 1px solid #e2c895;
+  border-radius: 50%;
+  background: #e2c89533;
+}
+
+/* No callout, magnifier or double-tap zoom over the game. */
+.commons-game .game-stage {
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.commons-game .game-hud,
+.commons-game .hud-window {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Keys' stand-ins, shown only where there are no keys. */
+.hud-buttons .hud-turn,
+.hud-target .build-touch {
+  display: none;
+}
+.hud-target .build-touch {
+  gap: 4px;
+  pointer-events: auto;
+}
+.hud-target .build-touch button {
+  min-width: 52px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #ffffff2e;
+  background: #0008;
+  color: var(--ink);
+}
+.hud-target .build-touch button:active {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+@media (pointer: coarse) {
+  .hud-buttons .hud-turn,
+  .hud-target .build-touch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hud-target .build-keys {
+    display: none;
+  }
+  /* The key lists mean nothing without keys: only the touch one shows. */
+  .hud-help__groups > section:not(.hud-help__touch) {
+    display: none;
+  }
+  .hud-help__groups {
+    grid-template-columns: 1fr;
+  }
+  .hud-help dt {
+    white-space: normal;
+  }
+  .hud-dig button {
+    min-height: 36px;
+    min-width: 40px;
+  }
+}
+
+/* ── Phones, upright ───────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+  .hud-vitals {
+    gap: 0;
+    padding: 5px 8px 6px;
+  }
+  .hud-vitals header {
+    padding-bottom: 3px;
+    margin-bottom: 2px;
+  }
+  .hud-meter {
+    line-height: 1.35;
+  }
+  .hud-purse {
+    margin-top: 1px;
+  }
+  .hud-world {
+    padding: 6px 8px;
+  }
+  .hud-buttons {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  .hud-buttons button {
+    width: 27px;
+    height: 32px;
+  }
+  .hud-quest {
+    padding: 5px 8px;
+  }
+  /* Glyphs only: the shovel's row fits beside the hotbar's corner. */
+  .hud-dig__word,
+  .hud-dig > kbd {
+    display: none;
+  }
+  /* Stood on end at the right edge, clear of the target line. */
+  .game-hud .hud-dig {
+    right: var(--hud-pad);
+    bottom: 150px;
+    padding: 3px;
+  }
+  .hud-dig div {
+    flex-direction: column;
+  }
+  /* No shovel yet: nothing to switch, so nothing to show. */
+  .hud-dig.is-empty {
+    display: none;
+  }
+}
+
+/* ── Phones on their side ──────────────────────────────────────────── */
+
+@media (max-height: 500px) {
+  .game-hud {
+    --hud-pad: 6px;
+    font-size: 10px;
+  }
+  .hud-vitals {
+    width: min(210px, 32vw);
+    gap: 0;
+    padding: 4px 8px 5px;
+  }
+  .hud-vitals header {
+    padding-bottom: 2px;
+    margin-bottom: 1px;
+  }
+  .hud-name b {
+    font-size: 12px;
+  }
+  .hud-meter {
+    grid-template-columns: 4.5ch 1fr auto;
+    gap: 6px;
+    line-height: 1.3;
+  }
+  .hud-meter > span,
+  .game-bar {
+    font-size: 9px;
+    overflow: hidden;
+  }
+  .hud-purse {
+    margin-top: 0;
+    font-size: 10px;
+  }
+  .hud-side {
+    width: min(210px, 32vw);
+    gap: 4px;
+  }
+  .hud-world {
+    padding: 4px 6px;
+  }
+  .hud-world__top {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .hud-buttons button {
+    width: 30px;
+    height: 30px;
+  }
+  .hud-where span,
+  .hud-quest small {
+    display: none;
+  }
+  .hud-quest {
+    padding: 4px 8px;
+  }
+  .hud-bottom {
+    gap: 4px;
+  }
+  .hud-hotbar {
+    padding: 3px;
+  }
+  .hud-hotbar button {
+    width: 52px;
+    height: 40px;
+  }
+  .hud-hotbar kbd,
+  .hud-build kbd {
+    display: none;
+  }
+  .hud-build {
+    max-width: calc(100vw - 2 * min(210px, 32vw) - 32px);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .hud-build button {
+    width: 46px;
+    height: 38px;
+  }
+  .hud-dig__tool,
+  .hud-dig__word,
+  .hud-dig > kbd,
+  .hud-dig.is-empty {
+    display: none;
+  }
+  .game-hud .hud-dig {
+    right: var(--hud-pad);
+    bottom: var(--hud-pad);
+    padding: 3px;
+  }
+  .hud-chat {
+    bottom: 56px;
+  }
+  .hud-notice {
+    bottom: 64px;
+  }
+  .is-building .hud-notice {
+    bottom: 150px;
+  }
+  .hud-window {
+    max-height: calc(100% - 12px);
+  }
+}

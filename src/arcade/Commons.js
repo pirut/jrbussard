@@ -42,6 +42,7 @@ import { linePath, ORIENTED, BUILD_COOLDOWN_MS } from "../lib/building";
 import "./arcade.css";
 import "./commons.css";
 import "./game.css";
+import "./commons/touch.css";
 
 /*
  * THE COMMONS — a shared world, modelled in 3D and drawn in characters.
@@ -216,6 +217,23 @@ const STEP_MS = 150;
 /* A blocked plan looks for a new way this many times before giving up. */
 const REPLANS = 3;
 
+/* Touch: how far a finger may wander and still be a tap, how long a press
+   lasts before it is a hold, how far the thumbstick reaches and how much of
+   the middle of it does nothing, and how far a twist turns the camera. */
+const TAP_SLOP = 12;
+const HOLD_MS = 320;
+const STICK_REACH = 56;
+const STICK_DEAD = 12;
+const TWIST = Math.PI / 6;
+
+const touchFirst = () => {
+  try {
+    return window.matchMedia("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
+};
+
 /* Set or clear one entry of a Map held in state. */
 const editMap = (setter, k, value) =>
   setter((current) => {
@@ -244,6 +262,14 @@ const isCleared = (cell) =>
  *   Tab or C, I, J   craft, pack, journal
  *   Enter            talk
  *   F                full screen
+ *
+ * And on a touch screen:
+ *
+ *   tap              walk there, or go and chop, mine, open, attack
+ *   press and hold   keep attacking or gathering
+ *   drag             walk that way, a thumbstick wherever the finger landed;
+ *                    in build mode, lay a run
+ *   pinch · twist    zoom · turn the camera a quarter
  */
 function Game({ state: served, call, live, status = "", onSaveCharacter }) {
   const rootRef = useRef(null);
@@ -267,8 +293,9 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
   const [dragging, setDragging] = useState(false);
   /* Offline, the camera circles the camp until you step in. */
   const [playing, setPlaying] = useState(live);
+  /* Larger cells on phones: easier to read, and far fewer to draw. */
   const [density] = useState(() =>
-    window.innerWidth < 700 ? "coarse" : "normal",
+    window.innerWidth < 700 || touchFirst() ? "coarse" : "normal",
   );
 
   /* Placements on their way to the server, and pieces being taken down,
@@ -360,6 +387,8 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
   const heldRef = useRef([]);
   /* Keys pressed and let go between two frames still take their step. */
   const tapRef = useRef(null);
+  /* The touch thumbstick's lean, in screen pixels, while a finger drags. */
+  const stickRef = useRef(null);
   const mouseRef = useRef({ held: false, last: 0 });
   /* When a movement key last went down, and when a step last went out. */
   const downAtRef = useRef(0);
@@ -680,13 +709,18 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
       if (!walkerRef.current.ready) return;
       const held = heldRef.current.length ? heldRef.current : tapRef.current;
       tapRef.current = null;
-      if (held?.length) {
+      /* Every key held counts, so W and D together walk up and to the
+         right of the screen, which from the isometric corner is due north
+         on the map. The thumbstick leans any way at all. */
+      const lean = held?.length
+        ? [
+            Math.sign(held.reduce((sum, k) => sum + MOVES[k][0], 0)),
+            Math.sign(held.reduce((sum, k) => sum + MOVES[k][1], 0)),
+          ]
+        : stickRef.current;
+      if (lean) {
         planRef.current = null;
-        /* Every key held counts, so W and D together walk up and to the
-           right of the screen, which from the isometric corner is due
-           north on the map. */
-        const sx = Math.sign(held.reduce((sum, k) => sum + MOVES[k][0], 0));
-        const sy = Math.sign(held.reduce((sum, k) => sum + MOVES[k][1], 0));
+        const [sx, sy] = lean;
         const dir = screenToMap(fieldApi.current?.heading() ?? ISO_YAW, sx, sy);
         if (!dir[0] && !dir[1]) return;
         const from = here();
@@ -779,6 +813,37 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
         );
     });
   }, [me]);
+
+  /* Take down what you are aiming at, or facing, if it is yours. */
+  const removeAimed = useCallback(() => {
+    const spot = hoverRef.current || facingSpot();
+    const built = spot && stateRef.current.cells.find((c) => c.x === spot.x && c.y === spot.y);
+    if (!built || isCleared(built)) flash("nothing built there");
+    else if (!built.mine) flash(`${built.ownerName || "someone else"} built that`);
+    else if (withinReach(here(), spot.x, spot.y)) removeAt(spot);
+    else goThen(inReach(spot), () => removeAt(spot), "can't reach that spot");
+  }, [facingSpot, flash, here, removeAt, goThen]);
+
+  /* Take back the last piece that went up: all of it comes back. */
+  const undoLast = useCallback(() => {
+    const last = undoRef.current[undoRef.current.length - 1];
+    if (!last) flash("nothing to take back");
+    else if (withinReach(here(), last.x, last.y)) removeAt(last);
+    else goThen(inReach(last), () => removeAt(last), "can't reach that spot");
+  }, [flash, here, removeAt, goThen]);
+
+  /* Turn a door, sign or bench a quarter. */
+  const turnPiece = useCallback(() => {
+    if (!ORIENTED.includes(selectedRef.current))
+      flash("this piece looks the same any way round");
+    else setFacing((f) => ((f ?? -1) + 1) % 4);
+  }, [flash]);
+
+  const stopBuilding = useCallback(() => {
+    setBuilding(false);
+    queueRef.current = [];
+    setPaint(null);
+  }, []);
 
   /* ── Keyboard ─────────────────────────────────────────────────────── */
 
@@ -883,24 +948,10 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
         setSelected(slot.kind);
         setBuilding(true);
       } else if (key === "b") setBuilding((b) => !b);
-      else if (key === "x") {
-        const spot = hoverRef.current || facingSpot();
-        const built = spot && stateRef.current.cells.find((c) => c.x === spot.x && c.y === spot.y);
-        if (!built || built.kind === "stump" || built.kind === "rubble") flash("nothing built there");
-        else if (!built.mine) flash(`${built.ownerName || "someone else"} built that`);
-        else if (withinReach(here(), spot.x, spot.y)) removeAt(spot);
-        else goThen(inReach(spot), () => removeAt(spot), "can't reach that spot");
-      } else if (key === "z") {
-        /* Take back the last piece that went up: all of it comes back. */
-        const last = undoRef.current[undoRef.current.length - 1];
-        if (!last) flash("nothing to take back");
-        else if (withinReach(here(), last.x, last.y)) removeAt(last);
-        else goThen(inReach(last), () => removeAt(last), "can't reach that spot");
-      } else if (key === "r" && buildingRef.current && me?.hp > 0) {
-        if (!ORIENTED.includes(selectedRef.current))
-          flash("this piece looks the same any way round");
-        else setFacing((f) => ((f ?? -1) + 1) % 4);
-      } else if (key === "q") act("drink");
+      else if (key === "x") removeAimed();
+      else if (key === "z") undoLast();
+      else if (key === "r" && buildingRef.current && me?.hp > 0) turnPiece();
+      else if (key === "q") act("drink");
       else if (key === "e")
         act("eat", {
           item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries",
@@ -959,6 +1010,9 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
     flash,
     here,
     removeAt,
+    undoLast,
+    turnPiece,
+    removeAimed,
   ]);
 
   /* ── Mouse ────────────────────────────────────────────────────────── */
@@ -979,10 +1033,147 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
     return () => stage.removeEventListener("wheel", onWheel);
   }, []);
 
+  /* ── Touch ────────────────────────────────────────────────────────── */
+
+  /* The fingers down, where the first one landed, and what it has become:
+     null until it is a tap, "hold", "stick", "paint" or "pinch". */
+  const touchRef = useRef({ points: new Map(), start: null, mode: null, timer: 0 });
+  const [stick, setStick] = useState(null);
+  useEffect(() => () => window.clearTimeout(touchRef.current.timer), []);
+
+  /* Let go of whatever one finger was doing. */
+  const dropFinger = () => {
+    const t = touchRef.current;
+    window.clearTimeout(t.timer);
+    mouseRef.current.held = false;
+    stickRef.current = null;
+    setStick(null);
+    t.start = null;
+  };
+
+  const twoFingers = () => {
+    const [a, b] = [...touchRef.current.points.values()];
+    return {
+      dist: Math.hypot(b.x - a.x, b.y - a.y),
+      angle: Math.atan2(b.y - a.y, b.x - a.x),
+    };
+  };
+
+  const onTouchDown = (event) => {
+    const t = touchRef.current;
+    t.points.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    stageRef.current?.setPointerCapture?.(event.pointerId);
+    if (t.points.size === 2) {
+      /* A second finger: the camera, and nothing else. */
+      dropFinger();
+      setPaint(null);
+      t.mode = "pinch";
+      t.pinch = { ...twoFingers(), twist: 0 };
+      return;
+    }
+    if (t.points.size > 2 || t.mode === "pinch") return;
+    const spot = pick(event);
+    setHover(spot);
+    t.start = { x: event.clientX, y: event.clientY, id: event.pointerId, spot };
+    t.mode = null;
+    window.clearTimeout(t.timer);
+    /* Held still, it keeps at whatever is under it (see commons/held.js).
+       In build mode a held finger is waiting to drag a run. */
+    t.timer = window.setTimeout(() => {
+      if (t.mode !== null || !t.start || buildingRef.current) return;
+      t.mode = "hold";
+      mouseRef.current = { held: true, last: performance.now() };
+      primary(t.start.spot);
+    }, HOLD_MS);
+  };
+
+  const onTouchMove = (event) => {
+    const t = touchRef.current;
+    if (!t.points.has(event.pointerId)) return;
+    t.points.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (t.mode === "pinch") {
+      if (t.points.size < 2) return;
+      const now = twoFingers();
+      const p = t.pinch;
+      if (p.dist > 0 && now.dist > 0) fieldApi.current?.zoomBy(p.dist / now.dist);
+      let turn = now.angle - p.angle;
+      if (turn > Math.PI) turn -= 2 * Math.PI;
+      if (turn < -Math.PI) turn += 2 * Math.PI;
+      p.twist += turn;
+      if (Math.abs(p.twist) > TWIST) {
+        fieldApi.current?.rotate(-Math.sign(p.twist) * (Math.PI / 2));
+        p.twist = 0;
+      }
+      p.dist = now.dist;
+      p.angle = now.angle;
+      return;
+    }
+    const s = t.start;
+    if (!s || event.pointerId !== s.id) return;
+    let dx = event.clientX - s.x;
+    let dy = event.clientY - s.y;
+    if (t.mode === null || t.mode === "hold") {
+      if (Math.hypot(dx, dy) < TAP_SLOP) return;
+      window.clearTimeout(t.timer);
+      mouseRef.current.held = false;
+      if (buildingRef.current && s.spot && stateRef.current.me?.hp > 0) {
+        t.mode = "paint";
+        setPaint({ anchor: s.spot, end: s.spot });
+      } else {
+        t.mode = "stick";
+        setHover(null);
+      }
+    }
+    if (t.mode === "paint") {
+      const spot = pick(event);
+      setHover(spot);
+      const run = paintRef.current;
+      if (run && spot && !sameSpot(run.end, spot))
+        setPaint({ anchor: run.anchor, end: spot });
+      return;
+    }
+    /* The stick's ring follows a finger that runs past its edge, so
+       turning round never means dragging all the way back. */
+    const far = Math.hypot(dx, dy);
+    if (far > STICK_REACH) {
+      s.x = event.clientX - (dx / far) * STICK_REACH;
+      s.y = event.clientY - (dy / far) * STICK_REACH;
+      dx = event.clientX - s.x;
+      dy = event.clientY - s.y;
+    }
+    stickRef.current = Math.hypot(dx, dy) > STICK_DEAD ? [dx, dy] : null;
+    setStick({ x: s.x, y: s.y, dx, dy });
+  };
+
+  const onTouchUp = (event) => {
+    const t = touchRef.current;
+    t.points.delete(event.pointerId);
+    if (t.mode === "pinch") {
+      /* Lifting the fingers after a pinch never counts as a tap. */
+      if (!t.points.size) t.mode = null;
+      return;
+    }
+    const s = t.start;
+    if (!s || event.pointerId !== s.id) return;
+    const mode = t.mode;
+    t.mode = null;
+    dropFinger();
+    const run = paintRef.current;
+    if (mode === "paint") setPaint(null);
+    if (event.type === "pointercancel") return;
+    if (mode === "paint" && run && buildingRef.current)
+      enqueue(linePath(run.anchor, run.end));
+    else if (mode === null) primary(s.spot);
+  };
+
   const onPointerDown = (event) => {
     if (event.target.closest("button, a, input, form")) return;
     if (!playing) {
       setPlaying(true);
+      return;
+    }
+    if (event.pointerType === "touch") {
+      onTouchDown(event);
       return;
     }
     if (event.button === 2 || event.button === 1) {
@@ -1000,10 +1191,6 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
     if (event.button !== 0) return;
     const spot = pick(event);
     setHover(spot);
-    if (event.pointerType === "touch") {
-      primary(spot);
-      return;
-    }
     if (buildingRef.current && spot && me?.hp > 0) {
       /* Press, drag along a row, let go: the whole run goes up. */
       setPaint({ anchor: spot, end: spot });
@@ -1015,6 +1202,10 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
   };
 
   const onPointerMove = (event) => {
+    if (event.pointerType === "touch") {
+      onTouchMove(event);
+      return;
+    }
     const drag = dragRef.current;
     if (drag) {
       const dx = event.clientX - drag.x;
@@ -1031,16 +1222,18 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
       }
       return;
     }
-    if (event.pointerType !== "touch") {
-      const spot = pick(event);
-      setHover(spot);
-      const run = paintRef.current;
-      if (run && spot && !sameSpot(run.end, spot))
-        setPaint({ anchor: run.anchor, end: spot });
-    }
+    const spot = pick(event);
+    setHover(spot);
+    const run = paintRef.current;
+    if (run && spot && !sameSpot(run.end, spot))
+      setPaint({ anchor: run.anchor, end: spot });
   };
 
   const onPointerUp = (event) => {
+    if (event.pointerType === "touch") {
+      onTouchUp(event);
+      return;
+    }
     mouseRef.current.held = false;
     const run = paintRef.current;
     if (run && event.button === 0) {
@@ -1134,7 +1327,10 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => !dragRef.current && setHover(null)}
+        onPointerLeave={(event) =>
+          /* A finger lifting leaves too: keep what it last aimed at. */
+          event.pointerType !== "touch" && !dragRef.current && setHover(null)
+        }
         onContextMenu={(e) => e.preventDefault()}
       >
         <AsciiField
@@ -1156,6 +1352,15 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
             />
           )}
         </AsciiField>
+        {stick && (
+          <div
+            className="touch-stick"
+            style={{ left: stick.x, top: stick.y }}
+            aria-hidden="true"
+          >
+            <i style={{ transform: `translate(${stick.dx}px, ${stick.dy}px)` }} />
+          </div>
+        )}
       </div>
 
       {playing && (
@@ -1185,6 +1390,7 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
               onHelp={() => setHelp((h) => !h)}
               onMap={() => setMapOpen((m) => !m)}
               onFullscreen={toggleFullscreen}
+              onTurn={(way) => fieldApi.current?.rotate(way * (Math.PI / 2))}
             />
             <Objective journey={journey} onOpen={() => setPanel("Journal")} />
           </div>
@@ -1218,6 +1424,10 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
             }
             onDrink={() => act("drink")}
             onPanel={() => setPanel((p) => (p ? null : "Craft"))}
+            onTurn={turnPiece}
+            onUndo={undoLast}
+            onRemove={removeAimed}
+            onStop={stopBuilding}
           />
 
           <DigControl

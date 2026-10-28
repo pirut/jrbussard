@@ -4,6 +4,28 @@ import { ORIENTED, affordableCount } from "../../lib/building";
 import { buildCost, costText } from "./hud";
 import "./build.css";
 
+/* On a touch screen, the target line names taps and buttons, not keys. */
+const TOUCH = (() => {
+  try {
+    return window.matchMedia("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
+})();
+const TOUCH_WORDS = [
+  [/\bclick/g, "tap"],
+  [/ · B to build$/, ""],
+  [/^B to build here$/, "build here with the build button"],
+  [/^B to bridge it$/, "bridge it with the build button"],
+  [/^G for the shovel · B to build$/, "dig with the shovel, or build on it"],
+  [/^Tab opens/, "pack opens"],
+  [/X removes( it)?/, "remove it in build mode"],
+];
+const say = (verb) =>
+  TOUCH && verb
+    ? TOUCH_WORDS.reduce((text, [from, to]) => text.replace(from, to), verb)
+    : verb;
+
 export const BUILD_MENU = Object.keys(STRUCTURES).map((kind, i) => ({
   kind,
   key: String((i + 1) % 10),
@@ -23,7 +45,7 @@ const SHORT = {
  * While building: the piece, what it costs against what you have, and
  * whether the ghost under the cursor will go up, or why not.
  */
-function BuildLine({ selected, me, ghosts, facing }) {
+function BuildLine({ selected, me, ghosts, facing, onTurn, onUndo, onRemove, onStop }) {
   const spec = STRUCTURES[selected];
   const { parts, affordable } = buildCost(selected, me);
   const run = ghosts || [];
@@ -65,18 +87,29 @@ function BuildLine({ selected, me, ghosts, facing }) {
         {" · "}
         <kbd>Z</kbd> undo · <kbd>X</kbd> remove · <kbd>Esc</kbd>
       </span>
+      {/* What the keys do, as buttons, for a touch screen (see game.css). */}
+      <span className="build-touch">
+        {ORIENTED.includes(selected) && (
+          <button onClick={onTurn}>
+            turn {facing === undefined ? "(auto)" : `${facing * 90}°`}
+          </button>
+        )}
+        <button onClick={onUndo}>undo</button>
+        <button onClick={onRemove}>remove</button>
+        <button onClick={onStop}>done</button>
+      </span>
     </p>
   );
 }
 
-function TargetLine({ aimInfo, building, selected, me, ghosts, facing }) {
-  if (building) return <BuildLine selected={selected} me={me} ghosts={ghosts} facing={facing} />;
+function TargetLine({ aimInfo, building, ...build }) {
+  if (building) return <BuildLine {...build} />;
   return (
     <p className={`hud-target ${aimInfo ? "" : "is-empty"}`}>
       {aimInfo && (
         <>
           <b>{aimInfo.label}</b>
-          <span>{aimInfo.verb}</span>
+          <span>{say(aimInfo.verb)}</span>
         </>
       )}
     </p>
@@ -145,6 +178,10 @@ export default function ActionBar({
   onEat,
   onDrink,
   onPanel,
+  onTurn,
+  onUndo,
+  onRemove,
+  onStop,
 }) {
   const spec = STRUCTURES[selected];
   const food = (me?.inventory?.meal || 0) + (me?.inventory?.berries || 0);
@@ -157,6 +194,10 @@ export default function ActionBar({
         ghosts={ghosts}
         facing={facing}
         me={me}
+        onTurn={onTurn}
+        onUndo={onUndo}
+        onRemove={onRemove}
+        onStop={onStop}
       />
       {building && <BuildStrip selected={selected} me={me} onPick={onPick} />}
       <div className="hud-hotbar" role="toolbar" aria-label="Actions">

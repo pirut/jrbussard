@@ -71,7 +71,7 @@ export default function DigControl({ mode, setMode, me, disabled = false }) {
 
     if (!me) return null;
     return (
-        <section className={`hud-dig ${mode ? "is-on" : ""}`} aria-label="Shovel">
+        <section className={`hud-dig ${mode ? "is-on" : ""} ${tier ? "" : "is-empty"}`} aria-label="Shovel">
             <span className="hud-dig__tool">{tier ? TOOL_NAMES.shovel[Math.min(tier, 2)] : "No shovel · craft one"}</span>
             <div role="radiogroup" aria-label="Shovel mode">
                 {DIG_MODES.map((m) => (
@@ -82,8 +82,9 @@ export default function DigControl({ mode, setMode, me, disabled = false }) {
                         className={mode === m ? "is-on" : ""}
                         onClick={() => setMode(mode === m ? null : m)}
                         title={`${LABEL[m]} (G cycles, Esc stops)`}
+                        aria-label={LABEL[m]}
                     >
-                        <span aria-hidden="true">{GLYPH[m]}</span> {LABEL[m]}
+                        <span aria-hidden="true">{GLYPH[m]}</span> <span className="hud-dig__word">{LABEL[m]}</span>
                     </button>
                 ))}
             </div>
