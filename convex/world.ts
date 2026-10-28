@@ -11,21 +11,29 @@ import {
   resourceAt,
   recipeBlocker,
 } from "../src/lib/survival.js";
+import {
+  planTerraform,
+  solidAt,
+  SHOVEL_COOLDOWN_MS,
+} from "../src/lib/ground.js";
+import {
+  planBuild,
+  planDemolish,
+  BUILDABLE,
+  BUILD_COOLDOWN_MS,
+} from "../src/lib/building.js";
 import { inventoryPatch, experience, stationsNear } from "./survival";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import {
   MONSTERS,
   BLOCKS,
-  BUILDABLE,
   REGROW_TREE_MS,
   REGROW_ROCK_MS,
-  TREE,
-  ROCK,
+  CHUNK,
   VIEW_W,
   VIEW_H,
-  tileAt,
   isSolid,
-  inSafeZone,
   withinReach,
   chunkKey,
   chunksInBox,
@@ -33,6 +41,7 @@ import {
   phaseAt,
   regionName,
   xpForLevel,
+  TICK_STALL_MS,
 } from "./field";
 
 /*
@@ -42,7 +51,13 @@ import {
  */
 
 const MOVE_COOLDOWN_MS = 120;
-const BUILD_COOLDOWN_MS = 600;
+/* How early a step may come. Steps sent at a steady pace can bunch up on
+   the way here; this lets one arrive a step early instead of being dropped,
+   while the average stays at one per MOVE_COOLDOWN_MS. */
+const MOVE_SLACK_MS = 120;
+/* Gathering, crafting and fuelling a fire. Building and taking down have
+   their own, shorter beat (BUILD_COOLDOWN_MS in src/lib/building.js). */
+const ACTION_COOLDOWN_MS = 600;
 const IDLE_MS = 45_000;
 const CHAT_LIMIT = 50;
 const MAX_NAME = 18;
@@ -50,6 +65,23 @@ const MAX_CHAT = 160;
 const BUBBLE_MS = 7000;
 /* Breathing room after arriving or reviving. */
 const GRACE_MS = 5000;
+
+/*
+ * Pacing for steps. `lastMove` holds when the next step is due (older rows
+ * hold the time of the last step, which reads the same way). A step is let
+ * through up to MOVE_SLACK_MS early, and a diagonal, which covers more
+ * ground, costs more. Returns when the step after this one is due, or null
+ * if this one comes too soon.
+ */
+function nextStepDue(
+  lastMove: number,
+  now: number,
+  diagonal = false,
+): number | null {
+  if (now < lastMove - MOVE_SLACK_MS) return null;
+  const cost = diagonal ? MOVE_COOLDOWN_MS * Math.SQRT2 : MOVE_COOLDOWN_MS;
+  return Math.max(lastMove, now) + cost;
+}
 
 async function getWorld(ctx: MutationCtx) {
   const existing = await ctx.db
@@ -68,14 +100,23 @@ async function getWorld(ctx: MutationCtx) {
   return (await ctx.db.get("world", id))!;
 }
 
+/*
+ * Start the tick loop if it is parked, or if it has gone quiet: a tick that
+ * fails never schedules the next one, and would otherwise leave `ticking`
+ * set for good. Restarting moves `loop` on, so if the old loop was only
+ * running late it stands down rather than running alongside the new one.
+ */
 async function ensureTicking(ctx: MutationCtx) {
   const world = await getWorld(ctx);
-  if (world.ticking) return;
+  const now = Date.now();
+  if (world.ticking && now - world.lastTick < TICK_STALL_MS) return;
+  const loop = (world.loop ?? 0) + 1;
   await ctx.db.patch("world", world._id, {
     ticking: true,
-    lastTick: Date.now(),
+    lastTick: now,
+    loop,
   });
-  await ctx.scheduler.runAfter(0, internal.tick.run, {});
+  await ctx.scheduler.runAfter(0, internal.tick.run, { loop });
 }
 
 async function getPlayer(ctx: MutationCtx | QueryCtx, session: string) {
@@ -90,6 +131,50 @@ async function cellAt(ctx: MutationCtx | QueryCtx, x: number, y: number) {
     .query("cells")
     .withIndex("by_pos", (q) => q.eq("x", x).eq("y", y))
     .unique();
+}
+
+async function groundAt(ctx: MutationCtx | QueryCtx, x: number, y: number) {
+  return await ctx.db
+    .query("ground")
+    .withIndex("by_x_and_y", (q) => q.eq("x", x).eq("y", y))
+    .unique();
+}
+
+/*
+ * Somebody alive and still around standing on the tile, other than `except`.
+ * Characters stay where their owners left them, so only those seen recently
+ * are read; however many have been left on a tile, they cost nothing here.
+ */
+async function standingAt(
+  ctx: MutationCtx,
+  x: number,
+  y: number,
+  now: number,
+  except?: Id<"players">,
+): Promise<boolean> {
+  const present = ctx.db
+    .query("players")
+    .withIndex("by_x_and_y_and_lastSeen", (q) =>
+      q.eq("x", x).eq("y", y).gt("lastSeen", now - IDLE_MS),
+    );
+  for await (const other of present)
+    if (other._id !== except && other.hp > 0) return true;
+  return false;
+}
+
+/* Somebody alive, or a creature, standing on the tile. */
+async function occupiedAt(
+  ctx: MutationCtx,
+  x: number,
+  y: number,
+  now: number,
+): Promise<boolean> {
+  const monster = await ctx.db
+    .query("monsters")
+    .withIndex("by_pos", (q) => q.eq("x", x).eq("y", y))
+    .first();
+  if (monster) return true;
+  return await standingAt(ctx, x, y, now);
 }
 
 async function post(
@@ -120,7 +205,9 @@ async function blocked(
     if (cell.kind === "door") return cell.open === false;
     return BLOCKS[cell.kind] ? BLOCKS[cell.kind].solid : false;
   }
-  return isSolid(x, y);
+  /* Dug or piled ground is walkable unless it has flooded. */
+  const ground = await groundAt(ctx, x, y);
+  return ground ? solidAt(x, y, ground.edit) : isSolid(x, y);
 }
 
 export const join = mutation({
@@ -197,25 +284,40 @@ export const heartbeat = mutation({
 
 export const move = mutation({
   args: { session: v.string(), dx: v.number(), dy: v.number() },
-  returns: v.null(),
+  /* Where you stand afterwards, so the client can square its guess with
+     the truth step by step instead of waiting for the next snapshot. */
+  returns: v.union(v.null(), v.object({ x: v.number(), y: v.number() })),
   handler: async (ctx, args) => {
     const player = await getPlayer(ctx, args.session);
     if (!player || player.hp <= 0) return null;
+    const here = { x: player.x, y: player.y };
 
-    const now = Date.now();
-    if (now - player.lastMove < MOVE_COOLDOWN_MS) return null;
-
-    if (!Number.isFinite(args.dx) || !Number.isFinite(args.dy)) return null;
+    if (!Number.isFinite(args.dx) || !Number.isFinite(args.dy)) return here;
     const dx = Math.sign(args.dx);
     const dy = Math.sign(args.dy);
-    if ((dx === 0 && dy === 0) || (dx !== 0 && dy !== 0)) return null;
+    if (dx === 0 && dy === 0) return here;
+    const diagonal = dx !== 0 && dy !== 0;
+
+    const now = Date.now();
+    const due = nextStepDue(player.lastMove, now, diagonal);
+    if (due === null) return here;
 
     const nx = player.x + dx;
     const ny = player.y + dy;
 
+    /* A diagonal never cuts a corner: both tiles beside it must be open. */
+    if (
+      diagonal &&
+      ((await blocked(ctx, player.x + dx, player.y)) ||
+        (await blocked(ctx, player.x, player.y + dy)))
+    )
+      return here;
+
     /* Walking into a monster is an attack. */
-    const monsters = await ctx.db.query("monsters").take(100);
-    const target = monsters.find((m) => m.x === nx && m.y === ny);
+    const target = await ctx.db
+      .query("monsters")
+      .withIndex("by_pos", (q) => q.eq("x", nx).eq("y", ny))
+      .first();
 
     if (target) {
       const spec = MONSTERS[target.kind];
@@ -229,10 +331,10 @@ export const move = mutation({
       if (left > 0) {
         await ctx.db.patch("monsters", target._id, { hp: left });
         await ctx.db.patch("players", player._id, {
-          lastMove: now,
+          lastMove: due,
           lastSeen: now,
         });
-        return null;
+        return here;
       }
 
       await ctx.db.delete("monsters", target._id);
@@ -260,7 +362,7 @@ export const move = mutation({
         }),
         kills: player.kills + 1,
         potions: Math.random() < 0.18 ? player.potions + 1 : player.potions,
-        lastMove: now,
+        lastMove: due,
         lastSeen: now,
       });
 
@@ -278,37 +380,25 @@ export const move = mutation({
           "level",
         );
       }
-      return null;
+      return here;
     }
 
-    if (await blocked(ctx, nx, ny)) return null;
+    if (await blocked(ctx, nx, ny)) return here;
 
-    const others = await ctx.db
-      .query("players")
-      .withIndex("by_lastSeen", (q) => q.gt("lastSeen", Date.now() - IDLE_MS))
-      .take(200);
-    if (
-      others.some(
-        (other) =>
-          other._id !== player._id &&
-          other.hp > 0 &&
-          other.x === nx &&
-          other.y === ny,
-      )
-    ) {
-      return null;
-    }
+    /* Only the tile you are stepping onto, so walking never reads (and
+       never contends with) everyone else's every step. */
+    if (await standingAt(ctx, nx, ny, now, player._id)) return here;
 
     const distance = Math.round(Math.hypot(nx, ny));
     await ctx.db.patch("players", player._id, {
       x: nx,
       y: ny,
-      lastMove: now,
+      lastMove: due,
       lastSeen: now,
       far: Math.max(player.far || 0, distance),
     });
     await ensureTicking(ctx);
-    return null;
+    return { x: nx, y: ny };
   },
 });
 
@@ -321,11 +411,13 @@ export const harvest = mutation({
     if (!player || player.hp <= 0) return "no";
 
     const now = Date.now();
-    if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
+    if (now - player.lastBuild < ACTION_COOLDOWN_MS) return "wait";
     if (!withinReach(player, args.x, args.y)) return "too far";
 
     const existing = await cellAt(ctx, args.x, args.y);
     if (existing) return "nothing to gather";
+    /* Worked ground is bare earth: whatever grew there was dug out. */
+    if (await groundAt(ctx, args.x, args.y)) return "nothing to gather";
 
     const resource = resourceAt(args.x, args.y);
     if (!resource) return "nothing to gather";
@@ -379,6 +471,7 @@ export const build = mutation({
     y: v.number(),
     kind: v.string(),
     text: v.optional(v.string()),
+    facing: v.optional(v.number()),
   },
   returns: v.string(),
   handler: async (ctx, args) => {
@@ -388,39 +481,28 @@ export const build = mutation({
 
     const now = Date.now();
     if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
-    if (!withinReach(player, args.x, args.y)) return "too far";
-    if (inSafeZone(args.x, args.y)) return "not at the crossroads";
-
-    const existing = await cellAt(ctx, args.x, args.y);
-    if (existing && existing.regrowAt === 0) return "something is there";
 
     /*
-     * tileAt() describes the generated landscape, which never changes —
-     * a chopped tree still reads as TREE forever. What you actually did
-     * to it lives in the overlay, so a stump or rubble here means the
-     * ground is clear and yours to build on. Without this, harvesting a
-     * tile made it permanently unbuildable, which is backwards.
+     * The rules live in src/lib/building.js, so the ghost in the browser and
+     * the offline stand-in agree with this exactly. A stump or rubble on the
+     * tile means it was cleared; tileAt() alone still reads it as a tree.
      */
-    const cleared =
-      existing && (existing.kind === "stump" || existing.kind === "rubble");
-    const tile = tileAt(args.x, args.y);
-    if ((tile === ROCK || tile === TREE) && !cleared) return "clear it first";
-
-    const monsters = await ctx.db.query("monsters").take(100);
-    if (monsters.some((m) => m.x === args.x && m.y === args.y))
-      return "occupied";
-    const standing = await ctx.db
-      .query("players")
-      .withIndex("by_lastSeen", (q) => q.gt("lastSeen", Date.now() - IDLE_MS))
-      .take(200);
-    if (standing.some((p) => p.hp > 0 && p.x === args.x && p.y === args.y)) {
-      return "someone is standing there";
-    }
-
-    const spec = BLOCKS[args.kind];
-    if (player.wood < spec.wood || player.stone < spec.stone) {
-      return `need ${spec.wood} wood, ${spec.stone} stone`;
-    }
+    const existing = await cellAt(ctx, args.x, args.y);
+    const ground = await groundAt(ctx, args.x, args.y);
+    const underfoot = await groundAt(ctx, player.x, player.y);
+    const plan = planBuild({
+      kind: args.kind,
+      x: args.x,
+      y: args.y,
+      from: player,
+      fromEdit: underfoot?.edit,
+      edit: ground?.edit,
+      cell: existing,
+      occupied: await occupiedAt(ctx, args.x, args.y, now),
+      bag: inventoryOf(player),
+      facing: args.facing,
+    });
+    if (plan.error !== undefined) return plan.error;
 
     if (existing) await ctx.db.delete("cells", existing._id);
     await ctx.db.insert("cells", {
@@ -435,11 +517,12 @@ export const build = mutation({
       open: args.kind === "door" ? true : undefined,
       fuelUntil: args.kind === "campfire" ? now + 180_000 : undefined,
       stock: args.kind === "chest" ? {} : undefined,
+      facing: plan.facing,
     });
 
     await ctx.db.patch("players", player._id, {
-      wood: player.wood - spec.wood,
-      stone: player.stone - spec.stone,
+      wood: player.wood - plan.cost.wood,
+      stone: player.stone - plan.cost.stone,
       placed: player.placed + 1,
       milestones: [...new Set([...(player.milestones || []), args.kind])],
       lastBuild: now,
@@ -447,11 +530,91 @@ export const build = mutation({
     });
 
     await ensureTicking(ctx);
-    return `built a ${spec.label}`;
+    return `built a ${BLOCKS[args.kind].label.toLowerCase()}`;
   },
 });
 
-/* You can only take down your own work. */
+/*
+ * One swing of a shovel: dig the tile down a step, pile it up a step, or
+ * bring it a step toward the height you are standing at. The rules live in
+ * src/lib/ground.js so the offline stand-in plays by the same ones; this
+ * only gathers what they need and writes down the outcome.
+ */
+export const terraform = mutation({
+  args: {
+    session: v.string(),
+    x: v.number(),
+    y: v.number(),
+    mode: v.union(v.literal("dig"), v.literal("raise"), v.literal("level")),
+  },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const player = await getPlayer(ctx, args.session);
+    if (!player || player.hp <= 0) return "no";
+
+    const now = Date.now();
+    const shovel = Math.min(player.tools?.shovel || 0, SHOVEL_COOLDOWN_MS.length - 1);
+    if (shovel > 0 && now - player.lastBuild < SHOVEL_COOLDOWN_MS[shovel])
+      return "wait";
+    if (!withinReach(player, args.x, args.y)) return "too far";
+
+    const cell = await cellAt(ctx, args.x, args.y);
+    if (cell && cell.regrowAt === 0) return "something is built there";
+    const monsters = await ctx.db.query("monsters").take(100);
+    if (monsters.some((m) => m.x === args.x && m.y === args.y))
+      return "occupied";
+    if (await standingAt(ctx, args.x, args.y, now))
+      return "someone is standing there";
+
+    const ground = await groundAt(ctx, args.x, args.y);
+    const underfoot = await groundAt(ctx, player.x, player.y);
+    const plan = planTerraform({
+      mode: args.mode,
+      x: args.x,
+      y: args.y,
+      from: player,
+      fromEdit: underfoot?.edit,
+      edit: ground?.edit,
+      fill: ground?.fill,
+      cleared: Boolean(cell),
+      shovel,
+      bag: inventoryOf(player),
+    });
+    if (plan.error !== undefined) return plan.error;
+
+    if (ground)
+      await ctx.db.patch("ground", ground._id, {
+        edit: plan.edit,
+        fill: plan.fill,
+        by: player.name,
+        at: now,
+      });
+    else
+      await ctx.db.insert("ground", {
+        x: args.x,
+        y: args.y,
+        chunk: chunkKey(args.x, args.y),
+        edit: plan.edit,
+        fill: plan.fill,
+        by: player.name,
+        at: now,
+      });
+    /* A stump or rubble is dug out with the ground, so nothing grows back. */
+    if (cell) await ctx.db.delete("cells", cell._id);
+
+    await ctx.db.patch("players", player._id, {
+      ...inventoryPatch(player, { [plan.item]: plan.change }),
+      ...experience(player, plan.xp),
+      milestones: [...new Set([...(player.milestones || []), "dig"])],
+      lastBuild: now,
+      lastSeen: now,
+    });
+    await ensureTicking(ctx);
+    return plan.message;
+  },
+});
+
+/* You can only take down your own work. Fresh work comes back whole. */
 export const demolish = mutation({
   args: { session: v.string(), x: v.number(), y: v.number() },
   returns: v.string(),
@@ -461,27 +624,25 @@ export const demolish = mutation({
 
     const now = Date.now();
     if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
-    if (!withinReach(player, args.x, args.y)) return "too far";
+    if (!withinReach(player, args.x, args.y)) return "out of reach";
 
     const cell = await cellAt(ctx, args.x, args.y);
-    if (!cell || cell.regrowAt !== 0) return "nothing built here";
-    if (cell.owner !== player.session) return `${cell.ownerName} built that`;
-
-    if (
-      cell.kind === "chest" &&
-      Object.values(cell.stock || {}).some((n) => n > 0)
-    )
-      return "empty the chest first";
-    const spec = BLOCKS[cell.kind];
-    await ctx.db.delete("cells", cell._id);
+    const plan = planDemolish({
+      cell: cell && cell.regrowAt === 0 ? cell : null,
+      owner: player.session,
+      placedAt: cell?._creationTime,
+      now,
+    });
+    if (plan.error !== undefined) return plan.error;
+    await ctx.db.delete("cells", cell!._id);
     await ctx.db.patch("players", player._id, {
-      wood: player.wood + Math.floor(spec.wood / 2),
-      stone: player.stone + Math.floor(spec.stone / 2),
+      wood: player.wood + plan.refund.wood,
+      stone: player.stone + plan.refund.stone,
       placed: Math.max(0, player.placed - 1),
       lastBuild: now,
       lastSeen: now,
     });
-    return "taken down";
+    return plan.message;
   },
 });
 
@@ -505,17 +666,8 @@ export const use = mutation({
       const shut = cell.open === false;
       /* Do not shut a door on somebody standing in the doorway. */
       if (!shut) {
-        const standing = await ctx.db
-          .query("players")
-          .withIndex("by_lastSeen", (q) =>
-            q.gt("lastSeen", Date.now() - IDLE_MS),
-          )
-          .take(200);
-        if (
-          standing.some((p) => p.hp > 0 && p.x === args.x && p.y === args.y)
-        ) {
+        if (await standingAt(ctx, args.x, args.y, Date.now()))
           return "someone is in the doorway";
-        }
         const monsters = await ctx.db.query("monsters").take(100);
         if (monsters.some((m) => m.x === args.x && m.y === args.y)) {
           return "something is in the doorway";
@@ -528,7 +680,7 @@ export const use = mutation({
 
     const now = Date.now();
     if (cell.kind === "campfire") {
-      if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
+      if (now - player.lastBuild < ACTION_COOLDOWN_MS) return "wait";
       if (player.wood < 1) return "need 1 wood to fuel the fire";
       if ((cell.fuelUntil || 0) > now + 540_000)
         return "the fire is fully fueled";
@@ -626,7 +778,7 @@ export const say = mutation({
         await post(
           ctx,
           "world",
-          "/me · /who · /where · /home · /help — wasd moves, g gathers, b builds, x removes",
+          "/me · /who · /where · /home · /help — wasd moves, click gathers, b builds, x removes, g digs",
           "system",
         );
         return "";
@@ -782,6 +934,8 @@ export const state = query({
     ),
     monsters: v.array(
       v.object({
+        /* So the client can follow each animal rather than guess. */
+        id: v.string(),
         kind: v.string(),
         x: v.number(),
         y: v.number(),
@@ -800,8 +954,13 @@ export const state = query({
         mine: v.boolean(),
         fuelUntil: v.number(),
         stock: v.record(v.string(), v.number()),
+        facing: v.optional(v.number()),
       }),
     ),
+    /* Worked ground in every chunk the view touches, whole chunks at a
+       time, listed in groundChunks so the browser knows what it now has. */
+    ground: v.array(v.object({ x: v.number(), y: v.number(), edit: v.number() })),
+    groundChunks: v.array(v.string()),
     chat: v.array(
       v.object({ name: v.string(), text: v.string(), kind: v.string() }),
     ),
@@ -844,9 +1003,29 @@ export const state = query({
       }
     }
 
-    const monsters = (await ctx.db.query("monsters").take(100)).filter((m) =>
-      visible(m.x, m.y),
+    const groundChunks = chunksInBox(
+      minX - CHUNK / 2,
+      minY - CHUNK / 2,
+      maxX + CHUNK / 2,
+      maxY + CHUNK / 2,
     );
+    const ground = [];
+    for (const key of groundChunks) {
+      const rows = await ctx.db
+        .query("ground")
+        .withIndex("by_chunk", (q) => q.eq("chunk", key))
+        .take(CHUNK * CHUNK);
+      for (const g of rows) ground.push({ x: g.x, y: g.y, edit: g.edit });
+    }
+
+    /* Only the band of the map in view, so creatures roaming elsewhere
+       don't wake this query on every step they take. */
+    const monsters = (
+      await ctx.db
+        .query("monsters")
+        .withIndex("by_pos", (q) => q.gte("x", minX).lte("x", maxX))
+        .take(100)
+    ).filter((m) => visible(m.x, m.y));
     const chat = await ctx.db.query("chat").order("desc").take(CHAT_LIMIT);
 
     return {
@@ -900,6 +1079,7 @@ export const state = query({
           saidText: now - p.saidAt < BUBBLE_MS ? p.saidText : "",
         })),
       monsters: monsters.map((m) => ({
+        id: m._id,
         kind: m.kind,
         x: m.x,
         y: m.y,
@@ -917,7 +1097,10 @@ export const state = query({
         fuelUntil: c.fuelUntil || 0,
         stock:
           me && Math.hypot(c.x - me.x, c.y - me.y) <= 4 ? c.stock || {} : {},
+        facing: c.facing,
       })),
+      ground,
+      groundChunks,
       chat: chat.map((c) => ({ name: c.name, text: c.text, kind: c.kind })),
     };
   },
@@ -962,7 +1145,7 @@ export const craft = mutation({
     const recipe = RECIPES.find((r) => r.id === args.recipe);
     if (!recipe) return "unknown recipe";
     const now = Date.now();
-    if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
+    if (now - player.lastBuild < ACTION_COOLDOWN_MS) return "wait";
     const blocker = recipeBlocker(
       recipe,
       player,

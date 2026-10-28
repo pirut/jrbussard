@@ -1,24 +1,34 @@
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { inventoryOf } from "../src/lib/survival.js";
-import { chunksInBox, xpForLevel } from "./field";
+import { xpForLevel } from "./field";
 
+/* Blocks within a short radius of a point. Read a column of tiles at a time
+   rather than by chunk, so a built-up neighbourhood costs at most the tiles
+   in reach, never the whole chunk around them. */
 export async function nearbyCells(
   ctx: MutationCtx | QueryCtx,
   x: number,
   y: number,
   radius = 4,
 ) {
-  const chunks = await Promise.all(
-    chunksInBox(x - radius, y - radius, x + radius, y + radius).map(
-      (key: string) =>
-        ctx.db
-          .query("cells")
-          .withIndex("by_chunk", (q) => q.eq("chunk", key))
-          .take(256),
+  const reach = Math.floor(radius);
+  const columns = [];
+  for (let cx = x - reach; cx <= x + reach; cx++) columns.push(cx);
+  const cells = await Promise.all(
+    columns.map((cx) =>
+      ctx.db
+        .query("cells")
+        .withIndex("by_pos", (q) =>
+          q
+            .eq("x", cx)
+            .gte("y", y - reach)
+            .lte("y", y + reach),
+        )
+        .take(2 * reach + 1),
     ),
   );
-  return chunks.flat().filter((c) => Math.hypot(c.x - x, c.y - y) <= radius);
+  return cells.flat().filter((c) => Math.hypot(c.x - x, c.y - y) <= radius);
 }
 export function inventoryPatch(
   player: Doc<"players">,

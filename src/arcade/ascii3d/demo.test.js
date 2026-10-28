@@ -4,7 +4,7 @@ import { isSolid } from "../../lib/terrain";
 describe("offline stand-in", () => {
     it("produces the same snapshot shape the server sends", () => {
         const s = createDemo().snapshot(0);
-        ["now", "phase", "weather", "region", "view", "online", "me", "players", "monsters", "cells", "chat"].forEach((key) =>
+        ["now", "phase", "weather", "region", "view", "online", "me", "players", "monsters", "cells", "ground", "groundChunks", "chat"].forEach((key) =>
             expect(s).toHaveProperty(key),
         );
         expect(s.players.filter((p) => p.self)).toHaveLength(1);
@@ -51,5 +51,42 @@ describe("offline stand-in", () => {
         }
         expect(lost).toBe(true);
         expect(demo.snapshot().monsters.length).toBeGreaterThan(count - 3);
+    });
+
+    it("digs and fills by the shared rules", () => {
+        const demo = createDemo();
+        const me = demo.snapshot().me;
+        /* Try the four tiles around you until one is diggable ground. */
+        const spots = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: me.x + dx, y: me.y + dy }));
+        const spot = spots.find((s) => /^(dug|the pit floods)/.test(demo.call("terraform", { ...s, mode: "dig" }) || ""));
+        expect(spot).toBeDefined();
+        const after = demo.snapshot();
+        expect(after.ground).toContainEqual({ ...spot, edit: -1 });
+        expect(after.groundChunks).toContain(`${Math.floor(spot.x / 16)}:${Math.floor(spot.y / 16)}`);
+        const bag = after.me.inventory;
+        expect((bag.dirt || 0) + (bag.sand || 0)).toBeGreaterThan(3);
+        expect(demo.call("terraform", { ...spot, mode: "raise" })).toMatch(/^filled/);
+        expect(demo.snapshot().ground).toContainEqual({ ...spot, edit: 0 });
+        expect(demo.call("terraform", { x: 0, y: 0, mode: "dig" })).toBeTruthy();
+        expect(demo.snapshot().ground).toHaveLength(1);
+    });
+
+    it("gives nothing for digging up and filling in the same earth", () => {
+        const demo = createDemo();
+        const me = demo.snapshot().me;
+        const spots = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: me.x + dx, y: me.y + dy }));
+        /* Three steps down, into the stone, without flooding. */
+        const spot = spots.find((s) => [0, 1, 2].every(() => /^dug/.test(demo.call("terraform", { ...s, mode: "dig" }) || "")));
+        expect(spot).toBeDefined();
+        const pack = () => {
+            const s = demo.snapshot().me;
+            return { dirt: s.inventory.dirt || 0, sand: s.inventory.sand || 0, stone: s.stone };
+        };
+        const dug = pack();
+        for (let i = 0; i < 4; i += 1) {
+            expect(demo.call("terraform", { ...spot, mode: "raise" })).toMatch(/^filled/);
+            expect(demo.call("terraform", { ...spot, mode: "dig" })).toMatch(/^dug/);
+        }
+        expect(pack()).toEqual(dug);
     });
 });

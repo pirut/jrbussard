@@ -1,5 +1,7 @@
 import { isSolid, tileAt, WATER, TREE, ROCK, inSafeZone, withinReach } from "../../lib/terrain";
 import { STRUCTURES, resourceAt, ITEMS } from "../../lib/survival";
+import { planTerraform, solidAt as groundSolid } from "../../lib/ground";
+import { planBuild, planDemolish } from "../../lib/building";
 
 /*
  * A pretend server, for when there is no real one.
@@ -112,7 +114,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
 
     const players = [
         /* Start a few steps back, so the first view takes in the camp. */
-        { id: "you", name: "wanderer", ...(isSolid(hx + 3, hy + 9) ? openNear(hx + 3, hy + 9) : { x: hx + 3, y: hy + 9 }), self: true, look: LOOKS[4], tools: { weapon: 1 } },
+        { id: "you", name: "wanderer", ...(isSolid(hx + 3, hy + 9) ? openNear(hx + 3, hy + 9) : { x: hx + 3, y: hy + 9 }), self: true, look: LOOKS[4], tools: { weapon: 1, shovel: 1 } },
         ...NAMES.map((name, i) => ({
             id: name,
             name,
@@ -132,7 +134,8 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         { kind: "troll", x: camp.x - 9, y: camp.y - 6 },
         { kind: "wolf", x: camp.x - 4, y: camp.y + 16 },
         { kind: "rat", x: camp.x + 14, y: camp.y + 6 },
-    ].map((m) => ({ ...m, ...(isSolid(m.x, m.y) ? openNear(m.x, m.y) : {}), hp: MONSTER_HP[m.kind], maxHp: MONSTER_HP[m.kind] }));
+    ].map((m, i) => ({ ...m, ...(isSolid(m.x, m.y) ? openNear(m.x, m.y) : {}), id: `m${i}`, hp: MONSTER_HP[m.kind], maxHp: MONSTER_HP[m.kind] }));
+    let monsterIds = monsters.length;
     const returning = [];
     const chat = [{ name: "", text: "You wake at the edge of a camp. Nothing here is saved.", kind: "system" }];
     const me = {
@@ -141,10 +144,11 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         gold: 0,
         potions: 2,
         kills: 0,
-        wood: 4,
-        stone: 2,
+        /* Enough to put up a hut and a fire straight away. */
+        wood: 40,
+        stone: 24,
         placed: 0,
-        inventory: {},
+        inventory: { dirt: 3 },
         hunger: 100,
         warmth: 100,
         gathered: 0,
@@ -153,9 +157,15 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
     };
     const xpNeeded = (level) => 20 + level * 15;
 
+    /* Dug and piled ground, "x,y" → steps, and the chunks it has touched. */
+    const ground = new Map();
+    const groundChunks = new Set();
+    const editAt = (x, y) => ground.get(`${x},${y}`);
+    /* What was shovelled into each tile, so digging it out returns the same. */
+    const fills = new Map();
     const solidAt = (x, y) => {
         const c = cells.find((cell) => cell.x === x && cell.y === y);
-        if (!c) return isSolid(x, y);
+        if (!c) return groundSolid(x, y, editAt(x, y));
         if (c.kind === "floor") return false;
         if (c.kind === "door") return !c.open;
         return Boolean(STRUCTURES[c.kind]?.solid);
@@ -226,7 +236,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         while (returning.length && returning[0].at <= clock) {
             const { kind } = returning.shift();
             const spot = respawn({ x: you.x, y: you.y });
-            monsters.push({ kind, ...spot, hp: MONSTER_HP[kind], maxHp: MONSTER_HP[kind] });
+            monsters.push({ kind, ...spot, id: `m${(monsterIds += 1)}`, hp: MONSTER_HP[kind], maxHp: MONSTER_HP[kind] });
         }
         return true;
     }
@@ -332,6 +342,11 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             })),
             monsters: monsters.map((m) => ({ ...m })),
             cells: cells.map((c) => ({ ...c })),
+            ground: [...ground].map(([k, edit]) => {
+                const [x, y] = k.split(",").map(Number);
+                return { x, y, edit };
+            }),
+            groundChunks: [...groundChunks],
             chat: chat.slice(-12).reverse(),
         };
     }
@@ -346,24 +361,29 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
      * line the server would, or null.
      */
     const calls = {
+        /* Like the server: eight ways, no cutting corners, and the answer
+           is where you stand afterwards. */
         move({ dx, dy }) {
-            if (you.hp <= 0 || Math.abs(dx) + Math.abs(dy) !== 1) return null;
+            if (you.hp <= 0) return null;
+            const here = () => ({ x: you.x, y: you.y });
+            dx = Math.sign(dx);
+            dy = Math.sign(dy);
+            if (!dx && !dy) return here();
+            if (dx && dy && (solidAt(you.x + dx, you.y) || solidAt(you.x, you.y + dy))) return here();
             const target = monsters.find((m) => m.x === you.x + dx && m.y === you.y + dy);
             if (target) {
                 const swing = 3 + me.level * 2 + (you.tools.weapon || 0) * 4 + Math.floor(random() * 4);
-                const before = me.level;
                 wound(target, swing, you);
-                if (target.hp <= 0) return me.level > before ? `The ${target.kind} falls. You reach level ${me.level}.` : `The ${target.kind} falls.`;
-                return null;
+                return here();
             }
             tryStep(you, dx, dy);
-            return null;
+            return here();
         },
         harvest({ x, y }) {
             if (!withinReach(you, x, y)) return "out of reach";
             const item = resourceAt(x, y);
             const tile = tileAt(x, y);
-            if (!item || item === "fish" || cells.some((c) => c.x === x && c.y === y)) return "nothing to gather there";
+            if (!item || item === "fish" || editAt(x, y) !== undefined || cells.some((c) => c.x === x && c.y === y)) return "nothing to gather there";
             if (item === "wood") me.wood += 1;
             else if (item === "stone") me.stone += 1;
             else me.inventory[item] = (me.inventory[item] || 0) + 1;
@@ -375,24 +395,83 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             }
             return `+1 ${ITEMS[item].name.toLowerCase()}`;
         },
-        build({ x, y, kind, text }) {
-            if (!STRUCTURES[kind] || !withinReach(you, x, y)) return "out of reach";
+        /* The same rules as the server's, from src/lib/building.js. */
+        build({ x, y, kind, text, facing }) {
+            if (you.hp <= 0) return "no";
+            const existing = cells.find((c) => c.x === x && c.y === y);
+            const plan = planBuild({
+                kind,
+                x,
+                y,
+                from: you,
+                fromEdit: editAt(you.x, you.y),
+                edit: editAt(x, y),
+                cell: existing,
+                occupied: occupied(x, y),
+                bag: { wood: me.wood, stone: me.stone },
+                facing,
+            });
+            if (plan.error !== undefined) return plan.error;
+            if (existing) cells.splice(cells.indexOf(existing), 1);
+            put(x, y, kind, {
+                ownerName: you.name,
+                mine: true,
+                open: kind === "door",
+                text: text || "",
+                fuelUntil: kind === "campfire" ? Infinity : 0,
+                facing: plan.facing,
+                placedAt: Date.now(),
+            });
+            me.wood -= plan.cost.wood;
+            me.stone -= plan.cost.stone;
+            me.placed += 1;
+            if (!me.milestones.includes(kind)) me.milestones.push(kind);
+            return `built a ${STRUCTURES[kind].label.toLowerCase()}`;
+        },
+        /* The same rules as the server's, from src/lib/ground.js. */
+        terraform({ x, y, mode }) {
+            if (you.hp <= 0) return "no";
             const existing = cells.find((c) => c.x === x && c.y === y);
             const cleared = existing && (existing.kind === "stump" || existing.kind === "rubble");
-            const overWater = tileAt(x, y) === WATER;
-            if ((existing && !cleared) || occupied(x, y)) return "something is already there";
-            if (isSolid(x, y) && !cleared && !(overWater && kind === "floor")) return "you cannot build there";
+            if (!withinReach(you, x, y)) return "too far";
+            if (existing && !cleared) return "something is built there";
+            if (occupied(x, y)) return "someone is standing there";
+            const plan = planTerraform({
+                mode,
+                x,
+                y,
+                from: you,
+                fromEdit: editAt(you.x, you.y),
+                edit: editAt(x, y),
+                fill: fills.get(`${x},${y}`),
+                cleared: Boolean(cleared),
+                shovel: you.tools.shovel || 0,
+                bag: { ...me.inventory, wood: me.wood, stone: me.stone },
+            });
+            if (plan.error !== undefined) return plan.error;
+            ground.set(`${x},${y}`, plan.edit);
+            fills.set(`${x},${y}`, plan.fill);
+            groundChunks.add(`${Math.floor(x / 16)}:${Math.floor(y / 16)}`);
             if (cleared) cells.splice(cells.indexOf(existing), 1);
-            put(x, y, kind, { ownerName: you.name, mine: true, text: text || "", fuelUntil: kind === "campfire" ? Infinity : 0 });
-            me.placed += 1;
-            if (kind === "campfire" && !me.milestones.includes("campfire")) me.milestones.push("campfire");
-            return `${STRUCTURES[kind].label.toLowerCase()} placed · free in the preview`;
+            if (plan.item === "stone") me.stone += plan.change;
+            else me.inventory[plan.item] = (me.inventory[plan.item] || 0) + plan.change;
+            return plan.message;
         },
         demolish({ x, y }) {
+            if (!withinReach(you, x, y)) return "out of reach";
             const c = cells.find((cell) => cell.x === x && cell.y === y);
-            if (!c || !c.mine) return "not yours to remove";
+            const plan = planDemolish({
+                cell: c && { ...c, owner: c.mine ? "you" : c.ownerName },
+                owner: "you",
+                placedAt: c?.placedAt || 0,
+                now: Date.now(),
+            });
+            if (plan.error !== undefined) return plan.error;
             cells.splice(cells.indexOf(c), 1);
-            return `${c.kind} removed`;
+            me.wood += plan.refund.wood;
+            me.stone += plan.refund.stone;
+            me.placed = Math.max(0, me.placed - 1);
+            return plan.message;
         },
         use({ x, y }) {
             const c = cells.find((cell) => cell.x === x && cell.y === y);

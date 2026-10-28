@@ -26,6 +26,7 @@ export default function AsciiField({
     state,
     aim = null,
     aimOk = true,
+    ghosts = null,
     turn = 0,
     zoom = 1,
     raw = false,
@@ -76,6 +77,10 @@ export default function AsciiField({
     useEffect(() => {
         worldRef.current?.setAim(aim, aimOk);
     }, [aim, aimOk]);
+
+    useEffect(() => {
+        worldRef.current?.setGhosts(ghosts);
+    }, [ghosts]);
 
     useEffect(() => {
         worldRef.current?.setTurn(turn);

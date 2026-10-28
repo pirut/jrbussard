@@ -1,7 +1,10 @@
 import * as THREE from "three";
-import { CHUNK, WATER, tileAt } from "../../lib/terrain";
+import { CHUNK, WATER } from "../../lib/terrain";
 import { AsciiPass, glyphCode } from "./asciiPass";
-import { buildChunk, createWater, rippleWater, groundHeight, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
+import { buildChunk, createWater, rippleWater, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
+import { GroundMap } from "../../lib/ground";
+import { autoFacing } from "../../lib/building";
+import { Ghosts } from "./ghost";
 import {
     buildSurvivor,
     buildCreature,
@@ -14,7 +17,9 @@ import {
     disposeModel,
 } from "./models";
 import { disposeMaterials } from "./materials";
-import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera } from "./iso";
+import { disposeMerged, mergeModel } from "./mergeModel";
+import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera, snapIsoCamera } from "./iso";
+import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality } from "./perf";
 
 /*
  * The Commons, as a 3D scene drawn in characters.
@@ -42,6 +47,10 @@ export const ZOOMS = [8, 11, 15, 21];
 const NEAREST = 6;
 const FARTHEST = 30;
 const MAX_LIGHTS = 6;
+/* Main-thread time a frame may spend building chunks once the first view
+   is up. Walking brings a chunk or two into reach at a time; spreading them
+   out keeps the step that crosses a border from hitching. */
+const CHUNK_BUDGET_MS = 4;
 
 /* Sky, sun and fill for each part of the day. Colours are sRGB hex. */
 export const PHASES = {
@@ -54,6 +63,33 @@ const WEATHER_DIM = { clear: 1, rain: 0.72, storm: 0.55, fog: 0.82 };
 
 const tmp = new THREE.Vector3();
 const ndc = new THREE.Vector2();
+const m4 = new THREE.Matrix4();
+const goalColor = new THREE.Color();
+const lightRight = new THREE.Vector3();
+const lightUp = new THREE.Vector3();
+const lightDir = new THREE.Vector3();
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+/*
+ * Only a figure's larger parts throw a shadow. A button or an eye casts one a
+ * cell or two across at most, which the ASCII pass cannot draw, yet each is
+ * another draw call in the shadow pass for every person on screen.
+ */
+const SHADOW_PART = 0.09;
+const partScale = new THREE.Vector3();
+function trimShadows(model) {
+    model.updateMatrixWorld(true);
+    model.traverse((node) => {
+        if (!node.isMesh || !node.castShadow) return;
+        const g = node.geometry;
+        if (!g.boundingSphere) g.computeBoundingSphere();
+        node.getWorldScale(partScale);
+        const size = g.boundingSphere.radius * Math.max(partScale.x, partScale.y, partScale.z);
+        if (size < SHADOW_PART) node.castShadow = false;
+    });
+    return model;
+}
 
 function lerpAngle(a, b, t) {
     let d = b - a;
@@ -78,7 +114,10 @@ export default class AsciiWorld {
         this.distanceGoal = ZOOMS[1];
         this.yawGoal = ISO_YAW;
         this.shake = 0;
-        this.predicted = null;
+        /* Once the game steers you itself, the server's word on where you
+           stand only reaches the screen through it (see predictSelf). */
+        this.selfDriven = false;
+        this.self = null;
         this.floaters = [];
         this.orbit = false;
         this.labels = new Map();
@@ -87,6 +126,19 @@ export default class AsciiWorld {
         this.leaving = [];
         this.structures = new Map();
         this.chunks = new Map();
+        /* Chunks waiting to be built, nearest first, and what the last look
+           round for them saw (see updateChunks). */
+        this.chunkQueue = [];
+        this.chunkScan = null;
+        this.chunksDirty = true;
+        /* Per chunk, the signature of its harvested tiles. */
+        this.clearedByChunk = new Map();
+        this.fires = [];
+        this.lit = [];
+        this.cellShift = new THREE.Vector2();
+        this.quality = { shadow: 1024, cell: 1 };
+        /* Dug and piled ground, as last heard from the server. */
+        this.ground = new GroundMap();
         this.flames = [];
         this.focus = new THREE.Vector3();
         this.focusReady = false;
@@ -101,6 +153,9 @@ export default class AsciiWorld {
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
         this.renderer.autoClear = true;
+        /* Counted over the whole frame (scene, shadows, both passes), not
+           just the last render call. */
+        this.renderer.info.autoReset = false;
         const canvas = this.renderer.domElement;
         canvas.className = "ascii3d__canvas";
         canvas.style.width = "100%";
@@ -145,6 +200,7 @@ export default class AsciiWorld {
         this.cursor = buildCursor();
         this.cursor.visible = false;
         this.scene.add(this.cursor);
+        this.ghosts = new Ghosts(this.scene);
 
         this.splashes = this.createSplashes();
         this.scene.add(this.splashes);
@@ -155,6 +211,15 @@ export default class AsciiWorld {
 
         /* The ASCII pass reads the offscreen render and draws characters. */
         this.ascii = new AsciiPass();
+
+        /* ?perf=1 shows the numbers; the governor trades quality for speed
+           on machines that cannot keep up (see perf.js). */
+        this.perf = perfEnabled() ? new PerfOverlay(container) : null;
+        const pinned = pinnedQuality();
+        this.governor = new QualityGovernor({ enabled: pinned === null, onChange: (quality) => this.applyQuality(quality) });
+        if (pinned) this.governor.set(pinned);
+        /* For poking at from the console while tuning. */
+        if (this.perf) window.asciiWorld = this;
 
         this.resize = this.resize.bind(this);
         this.frame = this.frame.bind(this);
@@ -171,8 +236,9 @@ export default class AsciiWorld {
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const width = Math.max(1, Math.floor(box.width * dpr));
         const height = Math.max(1, Math.floor(box.height * dpr));
-        const cellW = Math.max(3, Math.round(this.cellCss.w * dpr));
-        const cellH = Math.max(5, Math.round(this.cellCss.h * dpr));
+        const scale = this.quality.cell;
+        const cellW = Math.max(3, Math.round(this.cellCss.w * scale * dpr));
+        const cellH = Math.max(5, Math.round(this.cellCss.h * scale * dpr));
         const cols = Math.max(8, Math.floor(width / cellW));
         const rows = Math.max(6, Math.floor(height / cellH));
         this.grid = {
@@ -192,6 +258,23 @@ export default class AsciiWorld {
         this.camera.userData.aspect = (cols * cellW) / (rows * cellH);
     }
 
+    /* A step of the governor: shadow detail, then cell size. */
+    applyQuality(quality) {
+        const resize = quality.cell !== this.quality.cell;
+        this.quality = quality;
+        const shadows = quality.shadow > 0;
+        /* three.js sees the change in lights and recompiles what it must. */
+        this.sun.castShadow = shadows;
+        if (shadows && this.sun.shadow.mapSize.x !== quality.shadow) {
+            this.sun.shadow.mapSize.set(quality.shadow, quality.shadow);
+            if (this.sun.shadow.map) {
+                this.sun.shadow.map.dispose();
+                this.sun.shadow.map = null;
+            }
+        }
+        if (resize) this.resize();
+    }
+
     setCellSize(w, h) {
         this.cellCss = { w, h };
         this.resize();
@@ -205,7 +288,10 @@ export default class AsciiWorld {
 
     setState(state) {
         this.state = state;
+        this.ground.absorb(state);
+        this.chunksDirty = true;
         if (!state) return;
+        this.indexCleared(state);
         this.syncStructures(state);
         this.syncPlayers(state);
         this.syncCreatures(state);
@@ -215,6 +301,15 @@ export default class AsciiWorld {
     setAim(aim, ok = true) {
         this.aim = aim;
         this.aimOk = ok;
+    }
+
+    /* The build ghosts (see ghost.js), seated like real structures. */
+    setGhosts(list) {
+        this.ghosts.set(list, (x, y) => ({
+            height: this.ground.height(x, y),
+            overWater: this.ground.tile(x, y) === WATER,
+            deck: WATER_LEVEL + 0.12,
+        }));
     }
 
     /* Snap to a quarter turn, the nearest way round. */
@@ -248,16 +343,17 @@ export default class AsciiWorld {
     }
 
     /* Move yourself at once, before the server confirms, so walking feels
-       like walking. If the server disagrees for long, its answer wins. */
-    predictSelf(x, y) {
+       like walking. The game squares this with the server step by step
+       (see prediction.js) and calls it again with any correction. */
+    predictSelf(x, y, duration = 0.15) {
         const self = this.selfEntity();
         if (!self) return;
-        this.moveEntity(self, x, y, 0.17);
-        this.predicted = { x, y, until: this.time + 0.9 };
+        this.selfDriven = true;
+        this.moveEntity(self, x, y, duration);
     }
 
     selfEntity() {
-        return [...this.players.values()].find((p) => p.data?.self) || null;
+        return this.self;
     }
 
     /* Words that rise off someone and fade: damage, gains, a level. */
@@ -291,7 +387,7 @@ export default class AsciiWorld {
 
     /* Swing the arm: chopping, mining, hitting. Purely for show. */
     swingSelf() {
-        const self = [...this.players.values()].find((p) => p.data.self);
+        const self = this.selfEntity();
         if (self) self.attackStart = this.time;
     }
 
@@ -320,7 +416,7 @@ export default class AsciiWorld {
             const hit = ray.ray.intersectPlane(plane, tmp);
             if (!hit) return tile;
             tile = { x: Math.round(hit.x), y: Math.round(hit.z) };
-            const next = Math.max(WATER_LEVEL, groundHeight(tile.x, tile.y));
+            const next = Math.max(WATER_LEVEL, this.ground.height(tile.x, tile.y));
             if (Math.abs(next - height) < 0.01) break;
             height = next;
         }
@@ -335,41 +431,69 @@ export default class AsciiWorld {
     }
 
     entityHeight(x, y) {
-        return standHeight(x, y, this.bridged(x, y));
+        return standHeight(x, y, this.bridged(x, y), this.ground.editAt(x, y));
+    }
+
+    /* Harvested tiles, gathered by chunk once per snapshot rather than once
+       per frame. */
+    indexCleared(state) {
+        const byChunk = new Map();
+        state.cells.forEach((c) => {
+            if (c.kind !== "stump" && c.kind !== "rubble") return;
+            const key = `${Math.floor(c.x / CHUNK)}:${Math.floor(c.y / CHUNK)}`;
+            if (!byChunk.has(key)) byChunk.set(key, []);
+            byChunk.get(key).push(`${c.x},${c.y}`);
+        });
+        this.clearedByChunk = new Map();
+        byChunk.forEach((list, key) => {
+            list.sort();
+            this.clearedByChunk.set(key, { list, signature: list.join(";") });
+        });
     }
 
     syncStructures(state) {
         const seen = new Set();
+        const walls = new Set(state.cells.filter((c) => c.kind === "wall").map((c) => `${c.x},${c.y}`));
+        const wallAt = (x, y) => walls.has(`${x},${y}`);
+        /* Anything new after the first snapshot rises out of the ground, so
+           somebody else's wall going up reads as building, not a pop. */
+        const grow = this.structuresSeen;
+        this.structuresSeen = true;
         state.cells.forEach((cell) => {
             const key = `${cell.x},${cell.y}`;
             seen.add(key);
-            const overWater = tileAt(cell.x, cell.y) === WATER;
+            const overWater = this.ground.tile(cell.x, cell.y) === WATER;
             const ctx = {
                 lit: cell.kind === "campfire" ? cell.fuelUntil > state.now : true,
                 overWater,
                 deck: WATER_LEVEL + 0.12,
             };
             const k = structureKey(cell, ctx);
+            /* Turned by hand, or a door or sign set across its wall. */
+            const facing = cell.facing ?? (cell.kind === "door" || cell.kind === "sign" ? autoFacing(cell.x, cell.y, wallAt) : 0);
             const existing = this.structures.get(key);
             if (existing && existing.key === k) {
                 if (existing.group.userData.hinge) existing.group.userData.open = cell.open ? 1 : 0;
+                existing.group.rotation.y = (facing * Math.PI) / 2;
                 return;
             }
             if (existing) this.removeStructure(key);
             const group = buildStructure(cell, ctx);
             if (!group) return;
-            group.position.set(cell.x, overWater ? 0 : groundHeight(cell.x, cell.y), cell.y);
-            /* Doors and signs face whichever way has open ground. */
-            if (cell.kind === "door") {
-                const walls = state.cells.filter((c) => c.kind === "wall");
-                const ew = walls.some((c) => c.y === cell.y && Math.abs(c.x - cell.x) === 1);
-                if (!ew) group.rotation.y = Math.PI / 2;
+            group.position.set(cell.x, overWater ? 0 : this.ground.height(cell.x, cell.y), cell.y);
+            group.rotation.y = (facing * Math.PI) / 2;
+            /* Judged at full height, before it starts to rise. */
+            mergeModel(trimShadows(group));
+            if (grow && !existing && !this.reducedMotion) {
+                group.userData.born = this.time;
+                group.scale.set(1, 0.05, 1);
             }
             group.traverse((node) => {
                 if (node.userData.flame) this.flames.push(node);
             });
             this.scene.add(group);
             this.structures.set(key, { group, key: k, kind: cell.kind });
+            this.firesDirty = true;
         });
         [...this.structures.keys()].forEach((key) => {
             if (!seen.has(key)) this.removeStructure(key);
@@ -383,8 +507,10 @@ export default class AsciiWorld {
             if (node.userData.flame) this.flames = this.flames.filter((f) => f !== node);
         });
         disposeModel(s.group);
+        disposeMerged(s.group);
         this.scene.remove(s.group);
         this.structures.delete(key);
+        this.firesDirty = true;
     }
 
     moveEntity(entity, x, y, duration) {
@@ -393,6 +519,10 @@ export default class AsciiWorld {
         const dx = x - entity.to.x;
         const dy = y - entity.to.y;
         entity.from = far ? { x, y } : { x: entity.pos.x, y: entity.pos.z };
+        /* A step taken mid-stride starts between tiles, where the ground
+           overlay has nothing to say; start it from the height the body is
+           at instead of looking one up. */
+        entity.fromH = far ? null : entity.pos.y;
         entity.to = { x, y };
         entity.start = this.time;
         /* Steps that come in a steady rhythm glide into one another instead of
@@ -407,6 +537,7 @@ export default class AsciiWorld {
     }
 
     makeEntity(model, x, y) {
+        mergeModel(trimShadows(model));
         this.scene.add(model);
         const h = this.entityHeight(x, y);
         model.position.set(x, h, y);
@@ -434,13 +565,15 @@ export default class AsciiWorld {
 
     syncPlayers(state) {
         const seen = new Set();
+        let self = null;
         state.players.forEach((p) => {
             seen.add(p.id);
             const key = lookKey(p);
             let entity = this.players.get(p.id);
             if (entity && entity.key !== key) {
                 this.scene.remove(entity.model);
-                const model = buildSurvivor(p);
+                disposeMerged(entity.model);
+                const model = mergeModel(trimShadows(buildSurvivor(p)));
                 model.position.copy(entity.pos);
                 this.scene.add(model);
                 entity.model = model;
@@ -461,11 +594,9 @@ export default class AsciiWorld {
                 this.strikeFrom(this.creatures, entity);
             }
             entity.data = p;
-            if (p.self && this.predicted) {
-                /* Ours already went there; wait for the server to agree. */
-                if (p.x === this.predicted.x && p.y === this.predicted.y) this.predicted = null;
-                else if (this.time < this.predicted.until) return;
-                else this.predicted = null;
+            if (p.self) {
+                self = entity;
+                if (this.selfDriven) return;
             }
             this.moveEntity(entity, p.x, p.y, 0.15);
         });
@@ -474,6 +605,7 @@ export default class AsciiWorld {
             this.leave(this.players.get(id));
             this.players.delete(id);
         });
+        this.self = self;
     }
 
     /*
@@ -485,10 +617,11 @@ export default class AsciiWorld {
         const pool = [...this.creatures];
         const next = [];
         state.monsters.forEach((m) => {
-            let best = -1;
-            let bestDistance = 2.5;
+            let best = m.id ? pool.findIndex((c) => c && c.data?.id === m.id) : -1;
+            let bestDistance = best >= 0 ? -1 : 2.5;
             pool.forEach((c, i) => {
-                if (!c || c.kind !== m.kind) return;
+                /* Without ids, the nearest of its kind is probably it. */
+                if (!c || c.kind !== m.kind || (m.id && c.data?.id)) return;
                 const d = Math.hypot(c.to.x - m.x, c.to.y - m.y);
                 if (d <= bestDistance) {
                     best = i;
@@ -528,6 +661,7 @@ export default class AsciiWorld {
 
     /* A spray of sparks where a blow lands. */
     burst(at, size = 1) {
+        this.lastBurst = this.time;
         const seeds = this.sparks.userData.seeds;
         for (let n = 0; n < 8; n += 1) {
             const i = this.sparks.userData.next;
@@ -561,7 +695,9 @@ export default class AsciiWorld {
 
     updateSparks() {
         const mesh = this.sparks;
-        const m = new THREE.Matrix4();
+        /* Nothing struck for a while: nothing to move. */
+        if (!mesh.visible && this.time - (this.lastBurst ?? -10) > 0.4) return;
+        const m = m4;
         let any = false;
         mesh.userData.seeds.forEach((s, i) => {
             const t = s ? this.time - s.born : 1;
@@ -672,6 +808,7 @@ export default class AsciiWorld {
             const k = (age - linger) / 0.45;
             if (k >= 1) {
                 this.scene.remove(e.model);
+                disposeMerged(e.model);
                 return false;
             }
             const scale = e.baseScale * (1 - k * k);
@@ -707,14 +844,14 @@ export default class AsciiWorld {
         mesh.visible = on;
         if (!on) return;
         const life = mesh.userData.life;
-        const m = new THREE.Matrix4();
+        const m = m4;
         for (let i = 0; i < life.length; i += 1) {
             life[i] -= dt * 2.5;
             if (life[i] <= 0) {
                 life[i] = 0.4 + Math.random() * 0.6;
                 const x = Math.round(this.focus.x + (Math.random() - 0.5) * 22);
                 const z = Math.round(this.focus.z + (Math.random() - 0.5) * 22);
-                mesh.userData[i] = [x + Math.random() - 0.5, Math.max(WATER_LEVEL, groundHeight(x, z)) + 0.04, z + Math.random() - 0.5];
+                mesh.userData[i] = [x + Math.random() - 0.5, Math.max(WATER_LEVEL, this.ground.height(x, z)) + 0.04, z + Math.random() - 0.5];
             }
             const [x, y, z] = mesh.userData[i];
             const grow = 1.2 - life[i] * 0.6;
@@ -737,18 +874,31 @@ export default class AsciiWorld {
         return mesh;
     }
 
-    updateEmbers() {
-        const fires = [];
+    /* Everything that gives off light, gathered when the structures change
+       rather than every frame. */
+    refreshFires() {
+        if (!this.firesDirty) return;
+        this.firesDirty = false;
+        this.lit = [];
+        this.fires = [];
         this.structures.forEach((s) => {
-            if (s.group.userData.light && s.kind !== "furnace") fires.push(s.group.position.clone().setY(s.group.position.y + s.group.userData.light.y - 0.3));
+            const light = s.group.userData.light;
+            if (!light) return;
+            this.lit.push({ s, light, d: 0 });
+            if (s.kind !== "furnace") this.fires.push({ at: s.group.position.clone().setY(s.group.position.y + light.y - 0.3), d: 0 });
         });
+    }
+
+    updateEmbers() {
+        const list = this.fires;
         const mesh = this.embers;
-        mesh.visible = fires.length > 0 && !this.reducedMotion;
+        mesh.visible = list.length > 0 && !this.reducedMotion;
         if (!mesh.visible) return;
-        fires.sort((a, b) => a.distanceTo(this.focus) - b.distanceTo(this.focus));
-        const m = new THREE.Matrix4();
+        list.forEach((f) => (f.d = f.at.distanceToSquared(this.focus)));
+        list.sort((a, b) => a.d - b.d);
+        const m = m4;
         mesh.userData.seeds.forEach(([a, b, c], i) => {
-            const fire = fires[i % Math.min(fires.length, 6)];
+            const fire = list[i % Math.min(list.length, 6)].at;
             const t = (this.time * (0.5 + b * 0.5) + a) % 1;
             const x = fire.x + Math.sin(a * 40 + this.time * 2) * 0.25 * t + (c - 0.5) * 0.3;
             const z = fire.z + Math.cos(b * 40 + this.time * 1.7) * 0.25 * t;
@@ -778,7 +928,7 @@ export default class AsciiWorld {
         u.uStars.value += (stars * (1 - clouds * 0.6) - u.uStars.value) * k;
         u.uClouds.value += (clouds - u.uClouds.value) * k;
         const day = this.phaseName === "day" || this.phaseName === "dawn";
-        const tint = new THREE.Color(day ? 0x3c4a66 : 0x283350);
+        const tint = goalColor.setHex(day ? 0x3c4a66 : 0x283350);
         if (this.flash > 0.2) tint.setHex(0x8f9fd0);
         u.uCloudColor.value.lerp(tint, this.flash > 0.2 ? 1 : k);
         /* Turning the camera slides the sky along. */
@@ -790,9 +940,17 @@ export default class AsciiWorld {
         const x = entity.from.x + (entity.to.x - entity.from.x) * t;
         const z = entity.from.y + (entity.to.y - entity.from.y) * t;
         const moved = Math.hypot(x - entity.pos.x, z - entity.pos.z);
-        const fromH = this.entityHeight(entity.from.x, entity.from.y);
+        const fromH = entity.fromH ?? this.entityHeight(entity.from.x, entity.from.y);
         const toH = this.entityHeight(entity.to.x, entity.to.y);
-        const h = fromH + (toH - fromH) * t + Math.sin(t * Math.PI) * (Math.abs(toH - fromH) > 0.05 ? 0.12 : 0);
+        const climb = Math.abs(toH - fromH) > 0.05;
+        /* Up or down a terrace, the feet follow how far along the step the
+           body really is, and ease over the lip, so nothing hops ahead of
+           the walk. */
+        const lift = (s) => {
+            const e = s * s * (3 - 2 * s);
+            return fromH + (toH - fromH) * e + Math.sin(s * Math.PI) * (climb ? 0.1 : 0);
+        };
+        const h = lift(t);
         if (entity.glide) {
             /*
              * People glide. The server moves everyone a whole tile at a time,
@@ -807,7 +965,11 @@ export default class AsciiWorld {
             const vx = gx - entity.pos.x;
             const vz = gz - entity.pos.z;
             if (Math.hypot(vx, vz) > dt * 0.8) entity.facing = Math.atan2(vx, vz);
-            entity.pos.set(gx, h, gz);
+            const sx = entity.to.x - entity.from.x;
+            const sz = entity.to.y - entity.from.y;
+            const span = sx * sx + sz * sz;
+            const along = span > 1e-6 ? Math.min(1, Math.max(0, ((gx - entity.from.x) * sx + (gz - entity.from.y) * sz) / span)) : 1;
+            entity.pos.set(gx, climb ? lift(along) : h, gz);
         } else entity.pos.set(x, h, z);
         const walking = this.time - entity.lastStep < (entity.duration > 0.3 ? 0.55 : 0.28);
         entity.moving += ((walking ? 1 : 0) - entity.moving) * Math.min(1, dt * 12);
@@ -845,15 +1007,32 @@ export default class AsciiWorld {
         const radius = this.distance * 1.3 + 18;
         const cx = Math.floor(this.focus.x / CHUNK);
         const cy = Math.floor(this.focus.z / CHUNK);
-        const reach = Math.ceil(radius / CHUNK);
-        const cleared = new Map();
-        (this.state?.cells || []).forEach((c) => {
-            if (c.kind !== "stump" && c.kind !== "rubble") return;
-            const key = `${Math.floor(c.x / CHUNK)}:${Math.floor(c.y / CHUNK)}`;
-            if (!cleared.has(key)) cleared.set(key, []);
-            cleared.get(key).push(`${c.x},${c.y}`);
-        });
+        /* Which chunks are wanted only changes on crossing into another
+           chunk, zooming, or a new snapshot; between those, only the queue
+           is worked through. */
+        const scan = this.chunkScan;
+        if (this.chunksDirty || !scan || scan.cx !== cx || scan.cy !== cy || Math.abs(scan.radius - radius) > 1) {
+            this.chunksDirty = false;
+            this.chunkScan = { cx, cy, radius };
+            this.scanChunks(cx, cy, radius);
+        }
+        if (!this.chunkQueue.length) return;
+        /* The first view goes up whole; after that, as many as fit in the
+           frame's budget, nearest first, and always at least one. */
+        const all = this.chunks.size === 0;
+        const start = now();
+        while (this.chunkQueue.length && (all || now() - start < CHUNK_BUDGET_MS)) {
+            const w = this.chunkQueue.shift();
+            const old = this.chunks.get(w.key);
+            const group = buildChunk(w.x, w.y, new Set(w.list), this.ground);
+            this.scene.add(group);
+            if (old) this.dropChunk(old);
+            this.chunks.set(w.key, { group, signature: w.signature, x: w.x, y: w.y });
+        }
+    }
 
+    scanChunks(cx, cy, radius) {
+        const reach = Math.ceil(radius / CHUNK);
         const wanted = [];
         for (let y = cy - reach; y <= cy + reach; y += 1) {
             for (let x = cx - reach; x <= cx + reach; x += 1) {
@@ -862,21 +1041,14 @@ export default class AsciiWorld {
                 const d = Math.hypot(mx - this.focus.x, my - this.focus.z);
                 if (d > radius + CHUNK * 0.7) continue;
                 const key = `${x}:${y}`;
-                const list = cleared.get(key) || [];
-                const signature = list.sort().join(";");
+                const cleared = this.clearedByChunk.get(key);
+                const signature = `${cleared ? cleared.signature : ""}#${this.ground.chunkSignature(x, y)}`;
                 const have = this.chunks.get(key);
-                if (!have || have.signature !== signature) wanted.push({ key, x, y, d, list, signature });
+                if (!have || have.signature !== signature) wanted.push({ key, x, y, d, list: cleared ? cleared.list : [], signature });
             }
         }
         wanted.sort((a, b) => a.d - b.d);
-        /* A couple of chunks a frame keeps walking smooth at the edge. */
-        wanted.slice(0, this.chunks.size === 0 ? wanted.length : 2).forEach((w) => {
-            const old = this.chunks.get(w.key);
-            const group = buildChunk(w.x, w.y, new Set(w.list));
-            this.scene.add(group);
-            if (old) this.dropChunk(old);
-            this.chunks.set(w.key, { group, signature: w.signature, x: w.x, y: w.y });
-        });
+        this.chunkQueue = wanted;
 
         this.chunks.forEach((chunk, key) => {
             const d = Math.hypot((chunk.x + 0.5) * CHUNK - this.focus.x, (chunk.y + 0.5) * CHUNK - this.focus.z);
@@ -902,10 +1074,10 @@ export default class AsciiWorld {
         p.sun += (goal.sun * dimming - p.sun) * k;
         p.hemi += (goal.hemi * dimming - p.hemi) * k;
         p.angle += (goal.angle - p.angle) * k;
-        p.sunColor.lerp(new THREE.Color(goal.sunColor), k);
-        p.sky.lerp(new THREE.Color(goal.sky), k);
-        p.ground.lerp(new THREE.Color(goal.ground), k);
-        p.bg.lerp(new THREE.Color(goal.bg), k);
+        p.sunColor.lerp(goalColor.set(goal.sunColor), k);
+        p.sky.lerp(goalColor.set(goal.sky), k);
+        p.ground.lerp(goalColor.set(goal.ground), k);
+        p.bg.lerp(goalColor.set(goal.bg), k);
 
         let flash = 0;
         if (this.weather === "storm" && !this.reducedMotion) {
@@ -942,19 +1114,39 @@ export default class AsciiWorld {
         this.ascii.uniforms.uNear.value = this.camera.near;
         this.ascii.uniforms.uFar.value = this.camera.far;
 
-        /* The sun swings around a little with the time of day. */
+        /* The sun swings around a little with the time of day. Its shadow
+           camera follows you in whole shadow-map texels, so shadows hold
+           still while you walk instead of crawling along their edges. */
         const a = p.angle;
-        this.sun.position.set(this.focus.x - 10 * Math.cos(a), this.focus.y + 18 * Math.sin(a) + 4, this.focus.z + 8);
-        this.sun.target.position.copy(this.focus);
+        lightDir.set(-10 * Math.cos(a), 18 * Math.sin(a) + 4, 8).normalize();
+        lightRight.crossVectors(WORLD_UP, lightDir).normalize();
+        lightUp.crossVectors(lightDir, lightRight);
+        /* Just wide enough for what is on screen and the tall things just
+           off it, in steps so zooming does not resize it every frame. A
+           tighter box puts the same map's texels closer together and leaves
+           more of the far field out of the shadow pass. */
+        const sc = this.sun.shadow.camera;
+        const half = Math.min(40, Math.ceil((this.distance * 1.3 + 6) / 2) * 2);
+        if (sc.right !== half) {
+            sc.left = -half;
+            sc.right = half;
+            sc.top = half;
+            sc.bottom = -half;
+            sc.updateProjectionMatrix();
+        }
+        const texel = (sc.right - sc.left) / this.sun.shadow.mapSize.x;
+        const fr = this.focus.dot(lightRight);
+        const fu = this.focus.dot(lightUp);
+        tmp.copy(this.focus)
+            .addScaledVector(lightRight, Math.round(fr / texel) * texel - fr)
+            .addScaledVector(lightUp, Math.round(fu / texel) * texel - fu);
+        this.sun.target.position.copy(tmp);
+        this.sun.position.set(tmp.x - 10 * Math.cos(a), tmp.y + 18 * Math.sin(a) + 4, tmp.z + 8);
 
         /* The nearest fires get real lights; there are only so many. */
-        const lit = [];
-        this.structures.forEach((s) => {
-            const light = s.group.userData.light;
-            if (!light) return;
-            const d = s.group.position.distanceTo(this.focus);
-            lit.push({ s, light, d });
-        });
+        this.refreshFires();
+        const lit = this.lit;
+        lit.forEach((entry) => (entry.d = entry.s.group.position.distanceToSquared(this.focus)));
         lit.sort((x, y) => x.d - y.d);
         const night = this.phaseName === "night" ? 1.6 : this.phaseName === "day" ? 0.6 : 1.1;
         this.lightPool.forEach((light, i) => {
@@ -973,18 +1165,27 @@ export default class AsciiWorld {
     }
 
     updateCamera(dt) {
-        const self = [...this.players.values()].find((p) => p.data.self);
+        const self = this.self;
         let goal;
         if (self) goal = self.pos;
         else if (this.state?.view) {
             goal = tmp.set(this.state.view.x + this.state.view.w / 2, 0, this.state.view.y + this.state.view.h / 2);
-            goal.y = groundHeight(Math.round(goal.x), Math.round(goal.z));
+            goal.y = this.ground.height(Math.round(goal.x), Math.round(goal.z));
         }
         if (goal) {
             if (!this.focusReady) {
                 this.focus.copy(goal);
                 this.focusReady = true;
-            } else this.focus.lerp(goal, Math.min(1, dt * 8));
+            } else {
+                /* Follow closely across the ground, so you stay near the
+                   middle while walking; settle more slowly up and down, so
+                   terraces don't bob the whole view. */
+                const k = 1 - Math.exp(-dt * 11);
+                const ky = 1 - Math.exp(-dt * 4);
+                this.focus.x += (goal.x - this.focus.x) * k;
+                this.focus.z += (goal.z - this.focus.z) * k;
+                this.focus.y += (goal.y - this.focus.y) * ky;
+            }
         }
         if (self && this.selfFacing !== null) {
             self.facing = this.selfFacing;
@@ -993,10 +1194,13 @@ export default class AsciiWorld {
 
         if (this.orbit) this.turnAngle = (this.turnAngle ?? ISO_YAW) + dt * 0.08;
         const goalYaw = this.orbit ? this.turnAngle : this.yawGoal;
-        this.yaw = this.orbit ? goalYaw : lerpAngle(this.yaw, goalYaw, Math.min(1, dt * 8));
-        this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * 8);
+        this.yaw = this.orbit ? goalYaw : lerpAngle(this.yaw, goalYaw, 1 - Math.exp(-dt * 9));
+        this.distance += (this.distanceGoal - this.distance) * (1 - Math.exp(-dt * 10));
 
         placeIsoCamera(this.camera, this.focus, this.yaw, this.distance, this.camera.userData.aspect || 1.6);
+        /* Whole cells only, so the picture does not crawl as it follows. */
+        snapIsoCamera(this.camera, this.grid.cols, this.grid.rows, this.cellShift);
+        this.ascii.uniforms.uCellShift.value.copy(this.cellShift);
         if (this.shake > 0 && !this.reducedMotion) {
             this.shake = Math.max(0, this.shake - dt);
             const k = this.shake * 0.35;
@@ -1051,8 +1255,12 @@ export default class AsciiWorld {
 
     frame() {
         this.raf = requestAnimationFrame(this.frame);
-        const dt = Math.min(0.1, this.clock.getDelta());
+        const begin = now();
+        const raw = this.clock.getDelta();
+        this.governor.sample(raw * 1000);
+        const dt = Math.min(0.1, raw);
         this.time += dt;
+        this.renderer.info.reset();
 
         this.players.forEach((p) => this.updateEntity(p, dt));
         this.creatures.forEach((c) => this.updateEntity(c, dt));
@@ -1066,8 +1274,16 @@ export default class AsciiWorld {
         this.updateEmbers();
         wind.uTime.value = this.reducedMotion ? 0 : this.time;
         this.updateCursor();
+        this.ghosts.update(this.time, this.reducedMotion);
 
         this.structures.forEach((s) => {
+            const born = s.group.userData.born;
+            if (born !== undefined) {
+                /* A quick rise with a little settle at the top. */
+                const t = Math.min(1, (this.time - born) / 0.28);
+                s.group.scale.y = t >= 1 ? 1 : 0.05 + 0.95 * (1 - (1 - t) ** 3) * (1 + Math.sin(t * Math.PI) * 0.12);
+                if (t >= 1) delete s.group.userData.born;
+            }
             const hinge = s.group.userData.hinge;
             if (hinge) hinge.rotation.y += (-s.group.userData.open * Math.PI * 0.5 - hinge.rotation.y) * Math.min(1, dt * 10);
         });
@@ -1091,6 +1307,13 @@ export default class AsciiWorld {
         this.updateLabels();
         this.updateBars();
         this.updateFloaters();
+        if (this.perf) {
+            this.perf.frame(now() - begin, this.renderer.info, {
+                chunks: `${this.chunks.size} (+${this.chunkQueue.length} queued)`,
+                cells: `${this.grid.cols}x${this.grid.rows}`,
+                q: `${this.governor.level} (shadow ${this.quality.shadow || "off"}, cell x${this.quality.cell})`,
+            });
+        }
     }
 
     dispose() {
@@ -1099,7 +1322,15 @@ export default class AsciiWorld {
         this.observer.disconnect();
         this.chunks.forEach((c) => this.dropChunk(c));
         this.chunks.clear();
+        this.players.forEach((e) => disposeMerged(e.model));
+        this.creatures.concat(this.leaving).forEach((e) => disposeMerged(e.model));
+        this.structures.forEach((s) => {
+            disposeModel(s.group);
+            disposeMerged(s.group);
+        });
+        this.ghosts.dispose();
         this.ascii.dispose();
+        if (this.perf) this.perf.dispose();
         this.fxLayer.remove();
         disposeMaterials();
         this.renderer.dispose();

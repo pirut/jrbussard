@@ -5,7 +5,8 @@ import { buildSurvivor, buildCursor, pose } from "../arcade/ascii3d/models";
 import { Batch, P, place, tint, hash, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
 import { streetlamp } from "../arcade/ascii3d/architecture";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
-import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera } from "../arcade/ascii3d/iso";
+import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera, snapIsoCamera } from "../arcade/ascii3d/iso";
+import { PerfOverlay, perfEnabled } from "../arcade/ascii3d/perf";
 import { KIND } from "../world/tiles";
 import { fbm } from "../lib/noise";
 import { buildProp, buildTorch, disposeProps } from "./props";
@@ -152,6 +153,9 @@ export default class SiteScene {
         this.scene.add(this.cursor);
 
         this.ascii = new AsciiPass();
+        /* ?perf=1: frame time, draw calls and triangles in the corner. */
+        this.perf = perfEnabled() ? new PerfOverlay(container) : null;
+        this.renderer.info.autoReset = !this.perf;
 
         this.resize = this.resize.bind(this);
         this.frame = this.frame.bind(this);
@@ -587,6 +591,9 @@ export default class SiteScene {
         this.yaw = lerpAngle(this.yaw, this.yawGoal, Math.min(1, dt * 8));
         this.distance += (this.distanceGoal - this.distance) * Math.min(1, dt * (intro ? 1.5 : 6));
         placeIsoCamera(this.camera, this.focus, this.yaw, this.distance, this.camera.userData.aspect || 1.6);
+        /* Whole character cells only, so the city does not crawl as the
+           camera follows (see iso.js). */
+        snapIsoCamera(this.camera, this.grid.cols, this.grid.rows, this.ascii.uniforms.uCellShift.value);
         /* Open up whatever stands between the camera and JR. */
         aimCutaway(this.camera, this.player.position, { on: !intro, width: 3.2 + this.distance * 0.1, height: 3 + this.distance * 0.08 });
         this.water.position.x = Math.round(this.focus.x);
@@ -698,6 +705,8 @@ export default class SiteScene {
 
     frame() {
         this.raf = requestAnimationFrame(this.frame);
+        const begin = performance.now();
+        if (this.perf) this.renderer.info.reset();
         const dt = Math.min(0.1, this.clock.getDelta());
         this.time += dt;
         this.updatePlayer(dt);
@@ -723,6 +732,7 @@ export default class SiteScene {
         u.uCamToWorld.value.copy(this.camera.matrixWorld);
         this.ascii.render(this.renderer);
         this.updateLabels();
+        if (this.perf) this.perf.frame(performance.now() - begin, this.renderer.info, { chunks: this.chunks.size, cells: `${this.grid.cols}x${this.grid.rows}` });
     }
 
     dispose() {
@@ -742,6 +752,7 @@ export default class SiteScene {
         this.torches.forEach((t) => disposeProps(t.group));
         this.ascii.dispose();
         this.labelLayer.remove();
+        if (this.perf) this.perf.dispose();
         disposeMaterials();
         this.renderer.dispose();
         this.renderer.domElement.remove();

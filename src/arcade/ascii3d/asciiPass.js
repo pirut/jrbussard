@@ -261,6 +261,7 @@ const pickShader = /* glsl */ `
     uniform mat4 uInvProj;
     uniform mat4 uCamToWorld;
     uniform float uOrtho;
+    uniform vec2 uCellShift;
 
     const int COUNT = ${GLYPHS.length};
     const float CODES = ${CODES.toFixed(1)};
@@ -514,8 +515,14 @@ const pickShader = /* glsl */ `
             /* Paving with its joints drawn needs only a light grain between
                them; the joints and the light carry the floor. */
             if (uJoints > 0.0 && set == PATH) level = min(level, uOrtho > 0.5 ? 2.0 : 4.0);
-            float shuffle = set == WATER ? floor(uTime * 0.6) : 0.0;
-            float variant = floor(hash(cell + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
+            /* Keyed to the world rather than the screen (uCellShift is how
+               many whole cells the camera has moved), so walking slides the
+               texture along with the ground instead of re-rolling it. Water
+               turns over a cell at a time, each on its own beat, rather than
+               the whole sea at once. */
+            vec2 key = cell + uCellShift;
+            float shuffle = set == WATER ? floor(uTime * 0.6 + hash(key.yx + 5.3)) : 0.0;
+            float variant = floor(hash(key + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
             choice = int(texelFetch(tShapes, ivec2(int(level * ${VARIANTS}.0 + variant), 2 + ${Object.keys(GLYPH_SETS).length} + setIndex), 0).r);
         }
 
@@ -687,6 +694,40 @@ const pickShader = /* glsl */ `
     }
 `;
 
+/*
+ * Light spilling from windows, lanterns and fire onto what is around them:
+ * a soft wash behind the characters, gathered from a ring of samples about
+ * the cell. Only sets that shine contribute. It depends only on the cell, so
+ * it runs once per cell into its own small target rather than for every
+ * pixel of the screen.
+ */
+const glowShader = /* glsl */ `
+    precision highp float;
+
+    uniform sampler2D tColor;
+    uniform vec2 uCells;
+
+    const float CODES = ${CODES.toFixed(1)};
+
+    void main() {
+        vec2 cell = floor(gl_FragCoord.xy);
+        vec3 sum = vec3(0.0);
+        for (int r = 1; r <= 2; r++) {
+            float rad = float(r) * 1.6;
+            for (int i = 0; i < 8; i++) {
+                float a = float(i) * 0.7854 + float(r) * 0.39;
+                vec2 at = (cell + 0.5 + vec2(cos(a), sin(a) * 0.6) * rad) / uCells;
+                vec4 c = texture(tColor, at);
+                float set = floor(c.a * CODES);
+                if (set == ${GLYPH_SETS.light}.0 || set == ${GLYPH_SETS.fire}.0) {
+                    sum += pow(max(c.rgb, 0.0), vec3(1.0 / 2.2)) / float(r);
+                }
+            }
+        }
+        gl_FragColor = vec4(sum / 12.0, 1.0);
+    }
+`;
+
 /* Pass two: stamp each cell's character. */
 const drawShader = /* glsl */ `
     precision highp float;
@@ -704,28 +745,7 @@ const drawShader = /* glsl */ `
     uniform float uRaw;
     uniform sampler2D tDepth;
     uniform float uWash;
-
-    const float CODES = ${CODES.toFixed(1)};
-
-    /* Light spilling from windows, lanterns and fire onto what is around
-       them: a soft wash behind the characters, gathered from a ring of
-       samples about the cell. Only sets that shine contribute. */
-    vec3 spill(vec2 cell) {
-        vec3 sum = vec3(0.0);
-        for (int r = 1; r <= 2; r++) {
-            float rad = float(r) * 1.6;
-            for (int i = 0; i < 8; i++) {
-                float a = float(i) * 0.7854 + float(r) * 0.39;
-                vec2 at = (cell + 0.5 + vec2(cos(a), sin(a) * 0.6) * rad) / uCells;
-                vec4 c = texture(tColor, at);
-                float set = floor(c.a * CODES);
-                if (set == ${GLYPH_SETS.light}.0 || set == ${GLYPH_SETS.fire}.0) {
-                    sum += pow(max(c.rgb, 0.0), vec3(1.0 / 2.2)) / float(r);
-                }
-            }
-        }
-        return sum / 12.0;
-    }
+    uniform sampler2D tGlow;
 
     void main() {
         vec2 frag = gl_FragCoord.xy - uOffset;
@@ -746,7 +766,7 @@ const drawShader = /* glsl */ `
         vec2 local = fract(frag / uCellPx);
         vec2 at = vec2((glyph + local.x) / uCount, local.y);
         float mask = texture(tGlyphs, at).r;
-        vec3 glow = uGlow > 0.0 ? spill(cell) * uGlow : vec3(0.0);
+        vec3 glow = uGlow > 0.0 ? texelFetch(tGlow, ivec2(cell), 0).rgb * uGlow : vec3(0.0);
         /* The wash behind the type is the scene itself, read at the
            pixel and smoothed, so a wall is a soft painted mass with
            characters on it rather than a mosaic of flat cells. The sky
@@ -811,6 +831,8 @@ export class AsciiPass {
                 uCamToWorld: { value: new THREE.Matrix4() },
                 /* 1 for an orthographic (isometric) camera. */
                 uOrtho: { value: 0 },
+                /* Whole cells the camera has moved, from snapIsoCamera(). */
+                uCellShift: { value: new THREE.Vector2(0, 0) },
             },
         });
         this.drawMaterial = new THREE.ShaderMaterial({
@@ -833,8 +855,23 @@ export class AsciiPass {
                 tDepth: { value: null },
                 /* How bright the scene is in the wash behind the type. */
                 uWash: { value: 0.9 },
+                tGlow: { value: null },
             },
         });
+        this.glowMaterial = new THREE.ShaderMaterial({
+            vertexShader: fullscreen,
+            fragmentShader: glowShader,
+            blending: THREE.NoBlending,
+            depthTest: false,
+            depthWrite: false,
+            uniforms: {
+                tColor: { value: null },
+                uCells: { value: new THREE.Vector2(1, 1) },
+            },
+        });
+        /* Both passes' uniforms by name, made once: the objects inside are
+           the materials' own, so setting a value here sets it there. */
+        this.shared = { ...this.pickMaterial.uniforms, ...this.drawMaterial.uniforms };
         this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.pickMaterial);
         this.quad.frustumCulled = false;
         this.scene = new THREE.Scene();
@@ -846,7 +883,7 @@ export class AsciiPass {
 
     /* Shared uniforms, by name, across both passes. */
     get uniforms() {
-        return { ...this.pickMaterial.uniforms, ...this.drawMaterial.uniforms };
+        return this.shared;
     }
 
     setSize({ cols, rows, cellW, cellH, offX, offY }) {
@@ -858,6 +895,7 @@ export class AsciiPass {
             this.target.depthTexture.dispose();
             this.target.dispose();
             this.pick.dispose();
+            this.glow.dispose();
         }
         const w = cols * SAMPLE_X;
         const h = rows * SAMPLE_Y;
@@ -878,6 +916,13 @@ export class AsciiPass {
             magFilter: THREE.NearestFilter,
             depthBuffer: false,
         });
+        this.glow = new THREE.WebGLRenderTarget(cols, rows, {
+            minFilter: THREE.NearestFilter,
+            magFilter: THREE.NearestFilter,
+            depthBuffer: false,
+        });
+        this.glowMaterial.uniforms.tColor.value = this.target.texture;
+        this.glowMaterial.uniforms.uCells.value.set(cols, rows);
 
         const p = this.pickMaterial.uniforms;
         p.tColor.value = this.target.texture;
@@ -887,6 +932,7 @@ export class AsciiPass {
         p.uCellPx.value.set(cellW, cellH);
         const d = this.drawMaterial.uniforms;
         d.tPick.value = this.pick.texture;
+        d.tGlow.value = this.glow.texture;
         d.tGlyphs.value = this.atlas.texture;
         d.tColor.value = this.target.texture;
         d.tDepth.value = this.target.depthTexture;
@@ -907,6 +953,11 @@ export class AsciiPass {
     }
 
     render(renderer) {
+        if (this.drawMaterial.uniforms.uGlow.value > 0) {
+            this.quad.material = this.glowMaterial;
+            renderer.setRenderTarget(this.glow);
+            renderer.render(this.scene, this.camera);
+        }
         this.quad.material = this.pickMaterial;
         renderer.setRenderTarget(this.pick);
         renderer.render(this.scene, this.camera);
@@ -922,11 +973,13 @@ export class AsciiPass {
             this.target.depthTexture.dispose();
             this.target.dispose();
             this.pick.dispose();
+            this.glow.dispose();
         }
         if (this.ghost) {
             this.ghost.depthTexture.dispose();
             this.ghost.dispose();
         }
+        this.glowMaterial.dispose();
         this.pickMaterial.dispose();
         this.drawMaterial.dispose();
         this.quad.geometry.dispose();
