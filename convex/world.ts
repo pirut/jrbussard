@@ -14,24 +14,25 @@ import {
 import {
   planTerraform,
   solidAt,
-  effectiveTile,
   SHOVEL_COOLDOWN_MS,
 } from "../src/lib/ground.js";
+import {
+  planBuild,
+  planDemolish,
+  BUILDABLE,
+  BUILD_COOLDOWN_MS,
+} from "../src/lib/building.js";
 import { inventoryPatch, experience, stationsNear } from "./survival";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   MONSTERS,
   BLOCKS,
-  BUILDABLE,
   REGROW_TREE_MS,
   REGROW_ROCK_MS,
-  TREE,
-  ROCK,
   CHUNK,
   VIEW_W,
   VIEW_H,
   isSolid,
-  inSafeZone,
   withinReach,
   chunkKey,
   chunksInBox,
@@ -52,7 +53,9 @@ const MOVE_COOLDOWN_MS = 120;
    the way here; this lets one arrive a step early instead of being dropped,
    while the average stays at one per MOVE_COOLDOWN_MS. */
 const MOVE_SLACK_MS = 120;
-const BUILD_COOLDOWN_MS = 600;
+/* Gathering, crafting and fuelling a fire. Building and taking down have
+   their own, shorter beat (BUILD_COOLDOWN_MS in src/lib/building.js). */
+const ACTION_COOLDOWN_MS = 600;
 const IDLE_MS = 45_000;
 const CHAT_LIMIT = 50;
 const MAX_NAME = 18;
@@ -124,6 +127,25 @@ async function groundAt(ctx: MutationCtx | QueryCtx, x: number, y: number) {
     .query("ground")
     .withIndex("by_x_and_y", (q) => q.eq("x", x).eq("y", y))
     .unique();
+}
+
+/* Somebody alive, or a creature, standing on the tile. */
+async function occupiedAt(
+  ctx: MutationCtx,
+  x: number,
+  y: number,
+  now: number,
+): Promise<boolean> {
+  const monster = await ctx.db
+    .query("monsters")
+    .withIndex("by_pos", (q) => q.eq("x", x).eq("y", y))
+    .first();
+  if (monster) return true;
+  const standing = await ctx.db
+    .query("players")
+    .withIndex("by_lastSeen", (q) => q.gt("lastSeen", now - IDLE_MS))
+    .take(200);
+  return standing.some((p) => p.hp > 0 && p.x === x && p.y === y);
 }
 
 async function post(
@@ -373,7 +395,7 @@ export const harvest = mutation({
     if (!player || player.hp <= 0) return "no";
 
     const now = Date.now();
-    if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
+    if (now - player.lastBuild < ACTION_COOLDOWN_MS) return "wait";
     if (!withinReach(player, args.x, args.y)) return "too far";
 
     const existing = await cellAt(ctx, args.x, args.y);
@@ -433,6 +455,7 @@ export const build = mutation({
     y: v.number(),
     kind: v.string(),
     text: v.optional(v.string()),
+    facing: v.optional(v.number()),
   },
   returns: v.string(),
   handler: async (ctx, args) => {
@@ -442,40 +465,28 @@ export const build = mutation({
 
     const now = Date.now();
     if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
-    if (!withinReach(player, args.x, args.y)) return "too far";
-    if (inSafeZone(args.x, args.y)) return "not at the crossroads";
-
-    const existing = await cellAt(ctx, args.x, args.y);
-    if (existing && existing.regrowAt === 0) return "something is there";
 
     /*
-     * tileAt() describes the generated landscape, which never changes —
-     * a chopped tree still reads as TREE forever. What you actually did
-     * to it lives in the overlay, so a stump or rubble here means the
-     * ground is clear and yours to build on. Without this, harvesting a
-     * tile made it permanently unbuildable, which is backwards.
+     * The rules live in src/lib/building.js, so the ghost in the browser and
+     * the offline stand-in agree with this exactly. A stump or rubble on the
+     * tile means it was cleared; tileAt() alone still reads it as a tree.
      */
-    const cleared =
-      existing && (existing.kind === "stump" || existing.kind === "rubble");
+    const existing = await cellAt(ctx, args.x, args.y);
     const ground = await groundAt(ctx, args.x, args.y);
-    const tile = effectiveTile(args.x, args.y, ground?.edit);
-    if ((tile === ROCK || tile === TREE) && !cleared) return "clear it first";
-
-    const monsters = await ctx.db.query("monsters").take(100);
-    if (monsters.some((m) => m.x === args.x && m.y === args.y))
-      return "occupied";
-    const standing = await ctx.db
-      .query("players")
-      .withIndex("by_lastSeen", (q) => q.gt("lastSeen", Date.now() - IDLE_MS))
-      .take(200);
-    if (standing.some((p) => p.hp > 0 && p.x === args.x && p.y === args.y)) {
-      return "someone is standing there";
-    }
-
-    const spec = BLOCKS[args.kind];
-    if (player.wood < spec.wood || player.stone < spec.stone) {
-      return `need ${spec.wood} wood, ${spec.stone} stone`;
-    }
+    const underfoot = await groundAt(ctx, player.x, player.y);
+    const plan = planBuild({
+      kind: args.kind,
+      x: args.x,
+      y: args.y,
+      from: player,
+      fromEdit: underfoot?.edit,
+      edit: ground?.edit,
+      cell: existing,
+      occupied: await occupiedAt(ctx, args.x, args.y, now),
+      bag: inventoryOf(player),
+      facing: args.facing,
+    });
+    if (plan.error !== undefined) return plan.error;
 
     if (existing) await ctx.db.delete("cells", existing._id);
     await ctx.db.insert("cells", {
@@ -490,11 +501,12 @@ export const build = mutation({
       open: args.kind === "door" ? true : undefined,
       fuelUntil: args.kind === "campfire" ? now + 180_000 : undefined,
       stock: args.kind === "chest" ? {} : undefined,
+      facing: plan.facing,
     });
 
     await ctx.db.patch("players", player._id, {
-      wood: player.wood - spec.wood,
-      stone: player.stone - spec.stone,
+      wood: player.wood - plan.cost.wood,
+      stone: player.stone - plan.cost.stone,
       placed: player.placed + 1,
       milestones: [...new Set([...(player.milestones || []), args.kind])],
       lastBuild: now,
@@ -502,7 +514,7 @@ export const build = mutation({
     });
 
     await ensureTicking(ctx);
-    return `built a ${spec.label}`;
+    return `built a ${BLOCKS[args.kind].label.toLowerCase()}`;
   },
 });
 
@@ -587,7 +599,7 @@ export const terraform = mutation({
   },
 });
 
-/* You can only take down your own work. */
+/* You can only take down your own work. Fresh work comes back whole. */
 export const demolish = mutation({
   args: { session: v.string(), x: v.number(), y: v.number() },
   returns: v.string(),
@@ -597,27 +609,25 @@ export const demolish = mutation({
 
     const now = Date.now();
     if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
-    if (!withinReach(player, args.x, args.y)) return "too far";
+    if (!withinReach(player, args.x, args.y)) return "out of reach";
 
     const cell = await cellAt(ctx, args.x, args.y);
-    if (!cell || cell.regrowAt !== 0) return "nothing built here";
-    if (cell.owner !== player.session) return `${cell.ownerName} built that`;
-
-    if (
-      cell.kind === "chest" &&
-      Object.values(cell.stock || {}).some((n) => n > 0)
-    )
-      return "empty the chest first";
-    const spec = BLOCKS[cell.kind];
-    await ctx.db.delete("cells", cell._id);
+    const plan = planDemolish({
+      cell: cell && cell.regrowAt === 0 ? cell : null,
+      owner: player.session,
+      placedAt: cell?._creationTime,
+      now,
+    });
+    if (plan.error !== undefined) return plan.error;
+    await ctx.db.delete("cells", cell!._id);
     await ctx.db.patch("players", player._id, {
-      wood: player.wood + Math.floor(spec.wood / 2),
-      stone: player.stone + Math.floor(spec.stone / 2),
+      wood: player.wood + plan.refund.wood,
+      stone: player.stone + plan.refund.stone,
       placed: Math.max(0, player.placed - 1),
       lastBuild: now,
       lastSeen: now,
     });
-    return "taken down";
+    return plan.message;
   },
 });
 
@@ -664,7 +674,7 @@ export const use = mutation({
 
     const now = Date.now();
     if (cell.kind === "campfire") {
-      if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
+      if (now - player.lastBuild < ACTION_COOLDOWN_MS) return "wait";
       if (player.wood < 1) return "need 1 wood to fuel the fire";
       if ((cell.fuelUntil || 0) > now + 540_000)
         return "the fire is fully fueled";
@@ -938,6 +948,7 @@ export const state = query({
         mine: v.boolean(),
         fuelUntil: v.number(),
         stock: v.record(v.string(), v.number()),
+        facing: v.optional(v.number()),
       }),
     ),
     /* Worked ground in every chunk the view touches, whole chunks at a
@@ -1080,6 +1091,7 @@ export const state = query({
         fuelUntil: c.fuelUntil || 0,
         stock:
           me && Math.hypot(c.x - me.x, c.y - me.y) <= 4 ? c.stock || {} : {},
+        facing: c.facing,
       })),
       ground,
       groundChunks,
@@ -1127,7 +1139,7 @@ export const craft = mutation({
     const recipe = RECIPES.find((r) => r.id === args.recipe);
     if (!recipe) return "unknown recipe";
     const now = Date.now();
-    if (now - player.lastBuild < BUILD_COOLDOWN_MS) return "wait";
+    if (now - player.lastBuild < ACTION_COOLDOWN_MS) return "wait";
     const blocker = recipeBlocker(
       recipe,
       player,

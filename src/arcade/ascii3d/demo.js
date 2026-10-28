@@ -1,6 +1,7 @@
 import { isSolid, tileAt, WATER, TREE, ROCK, inSafeZone, withinReach } from "../../lib/terrain";
 import { STRUCTURES, resourceAt, ITEMS } from "../../lib/survival";
-import { planTerraform, solidAt as groundSolid, effectiveTile } from "../../lib/ground";
+import { planTerraform, solidAt as groundSolid } from "../../lib/ground";
+import { planBuild, planDemolish } from "../../lib/building";
 
 /*
  * A pretend server, for when there is no real one.
@@ -143,8 +144,9 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         gold: 0,
         potions: 2,
         kills: 0,
-        wood: 4,
-        stone: 2,
+        /* Enough to put up a hut and a fire straight away. */
+        wood: 40,
+        stone: 24,
         placed: 0,
         inventory: { dirt: 3 },
         hunger: 100,
@@ -391,18 +393,38 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             }
             return `+1 ${ITEMS[item].name.toLowerCase()}`;
         },
-        build({ x, y, kind, text }) {
-            if (!STRUCTURES[kind] || !withinReach(you, x, y)) return "out of reach";
+        /* The same rules as the server's, from src/lib/building.js. */
+        build({ x, y, kind, text, facing }) {
+            if (you.hp <= 0) return "no";
             const existing = cells.find((c) => c.x === x && c.y === y);
-            const cleared = existing && (existing.kind === "stump" || existing.kind === "rubble");
-            const overWater = effectiveTile(x, y, editAt(x, y)) === WATER;
-            if ((existing && !cleared) || occupied(x, y)) return "something is already there";
-            if (groundSolid(x, y, editAt(x, y)) && !cleared && !(overWater && kind === "floor")) return "you cannot build there";
-            if (cleared) cells.splice(cells.indexOf(existing), 1);
-            put(x, y, kind, { ownerName: you.name, mine: true, text: text || "", fuelUntil: kind === "campfire" ? Infinity : 0 });
+            const plan = planBuild({
+                kind,
+                x,
+                y,
+                from: you,
+                fromEdit: editAt(you.x, you.y),
+                edit: editAt(x, y),
+                cell: existing,
+                occupied: occupied(x, y),
+                bag: { wood: me.wood, stone: me.stone },
+                facing,
+            });
+            if (plan.error !== undefined) return plan.error;
+            if (existing) cells.splice(cells.indexOf(existing), 1);
+            put(x, y, kind, {
+                ownerName: you.name,
+                mine: true,
+                open: kind === "door",
+                text: text || "",
+                fuelUntil: kind === "campfire" ? Infinity : 0,
+                facing: plan.facing,
+                placedAt: Date.now(),
+            });
+            me.wood -= plan.cost.wood;
+            me.stone -= plan.cost.stone;
             me.placed += 1;
-            if (kind === "campfire" && !me.milestones.includes("campfire")) me.milestones.push("campfire");
-            return `${STRUCTURES[kind].label.toLowerCase()} placed · free in the preview`;
+            if (!me.milestones.includes(kind)) me.milestones.push(kind);
+            return `built a ${STRUCTURES[kind].label.toLowerCase()}`;
         },
         /* The same rules as the server's, from src/lib/ground.js. */
         terraform({ x, y, mode }) {
@@ -432,10 +454,20 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             return plan.message;
         },
         demolish({ x, y }) {
+            if (!withinReach(you, x, y)) return "out of reach";
             const c = cells.find((cell) => cell.x === x && cell.y === y);
-            if (!c || !c.mine) return "not yours to remove";
+            const plan = planDemolish({
+                cell: c && { ...c, owner: c.mine ? "you" : c.ownerName },
+                owner: "you",
+                placedAt: c?.placedAt || 0,
+                now: Date.now(),
+            });
+            if (plan.error !== undefined) return plan.error;
             cells.splice(cells.indexOf(c), 1);
-            return `${c.kind} removed`;
+            me.wood += plan.refund.wood;
+            me.stone += plan.refund.stone;
+            me.placed = Math.max(0, me.placed - 1);
+            return plan.message;
         },
         use({ x, y }) {
             const c = cells.find((cell) => cell.x === x && cell.y === y);

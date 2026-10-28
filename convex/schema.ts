@@ -90,6 +90,9 @@ export default defineSchema({
     open: v.optional(v.boolean()),
     fuelUntil: v.optional(v.number()),
     stock: v.optional(v.record(v.string(), v.number())),
+    /* Quarter turns for doors, signs and the like. Absent: it faces
+       whichever way its walls run (see src/lib/building.js). */
+    facing: v.optional(v.number()),
   })
     .index("by_pos", ["x", "y"])
     .index("by_chunk", ["chunk"])

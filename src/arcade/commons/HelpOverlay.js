@@ -29,7 +29,10 @@ const GROUPS = [
     rows: [
       [<K>B</K>, "build mode on and off"],
       [<><K>1</K>–<K>0</K></>, "pick what to build"],
-      [<>click</>, "place it"],
+      [<>click</>, "place it where the ghost is green"],
+      [<>drag</>, "lay a straight row"],
+      [<K>R</K>, "turn a door, sign or bench"],
+      [<K>Z</K>, "take back the last piece, all of it refunded"],
       [<>right click · <K>Esc</K></>, "stop building"],
     ],
   },
