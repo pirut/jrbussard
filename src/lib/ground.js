@@ -30,9 +30,9 @@ export const MAX_RAISE = 3;
    there is always a way home and nobody arrives in a pit. */
 export const DIG_MARGIN = SAFE_RADIUS + 2;
 
-/* Per shovel tier: how long between swings, and how much each one moves. */
+/* Per shovel tier: how long between swings. Every swing moves one step of
+   earth, so a better shovel is faster, never a source of extra earth. */
 export const SHOVEL_COOLDOWN_MS = [Infinity, 700, 400];
-export const SHOVEL_YIELD = [0, 1, 2];
 
 /*
  * The generated height of a tile. Land rises gently off the shore, then
@@ -84,11 +84,13 @@ export function protectedGround(x, y) {
 }
 
 /* What comes up out of a hole: sand from sand, stone from deep down, dirt
-   from anywhere else. Stone counts in the pack's stone, like a mined rock. */
+   from anywhere else. Stone counts in the pack's stone, like a mined rock.
+   A pile above the generated ground was carried there, so it is never
+   bedrock. */
 export function digYield(x, y, nextEdit) {
     const tile = tileAt(x, y);
     if (tile === SAND || tile === WATER) return "sand";
-    if (tile === ROCK || nextEdit <= -3) return "stone";
+    if (nextEdit < 0 && (tile === ROCK || nextEdit <= -3)) return "stone";
     return "dirt";
 }
 
@@ -109,11 +111,12 @@ export const TERRAFORM_MODES = ["dig", "raise", "level"];
  *   mode      "dig", "raise", or "level" (toward the height you stand at)
  *   from      where you stand, and fromEdit its overlay entry
  *   edit      the target tile's overlay entry, undefined if untouched
+ *   fill      what was put into the tile, bottom step first ([] if nothing)
  *   cleared   a stump or rubble is on the target: its tree or rock is down
  *   shovel    your shovel tier, 0 for none
  *   bag       your supplies, as inventoryOf() gives them
  */
-export function planTerraform({ mode, x, y, from, fromEdit, edit, cleared = false, shovel = 0, bag = {} }) {
+export function planTerraform({ mode, x, y, from, fromEdit, edit, fill, cleared = false, shovel = 0, bag = {} }) {
     if (!TERRAFORM_MODES.includes(mode)) return { error: "dig, raise, or level" };
     if (!(shovel > 0)) return { error: "craft a shovel first" };
     if (!withinReach(from, x, y)) return { error: "too far" };
@@ -138,24 +141,36 @@ export function planTerraform({ mode, x, y, from, fromEdit, edit, cleared = fals
         if (next < -MAX_DIG) return { error: "too deep to dig any further" };
     } else if (next > MAX_RAISE) return { error: "it will not pile any higher" };
 
-    const amount = SHOVEL_YIELD[Math.min(shovel, SHOVEL_YIELD.length - 1)] || 1;
+    /*
+     * Earth is moved, never made. Each step dug hands back one unit and each
+     * step filled takes one, and the tile remembers what was filled into it,
+     * so digging that step out again returns the same thing. Only earth
+     * taken out of the ground for the first time is new, and only that
+     * earns experience: filling and re-digging the same hole earns nothing.
+     */
+    const filled = fill || [];
     const after = surfaceAt(x, y, next);
     if (dir < 0) {
-        const item = digYield(x, y, next);
+        const refill = filled.length > 0;
+        const item = refill ? filled[filled.length - 1] : digYield(x, y, next);
         return {
             edit: next,
+            fill: filled.slice(0, -1),
             item,
-            change: amount,
+            change: 1,
+            xp: refill || current > 0 ? 0 : 1,
             flooded: after.tile === WATER,
-            message: after.tile === WATER ? `the pit floods · +${amount} ${item}` : `dug · +${amount} ${item}`,
+            message: after.tile === WATER ? `the pit floods · +1 ${item}` : `dug · +1 ${item}`,
         };
     }
     const item = fillFrom(bag);
     if (!item) return { error: "need dirt or sand to fill" };
     return {
         edit: next,
+        fill: [...filled, item],
         item,
         change: -1,
+        xp: 0,
         landed: here.tile === WATER && after.tile !== WATER,
         message: here.tile === WATER && after.tile !== WATER ? `filled · dry land · -1 ${item}` : `filled · -1 ${item}`,
     };

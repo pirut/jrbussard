@@ -161,6 +161,8 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
     const ground = new Map();
     const groundChunks = new Set();
     const editAt = (x, y) => ground.get(`${x},${y}`);
+    /* What was shovelled into each tile, so digging it out returns the same. */
+    const fills = new Map();
     const solidAt = (x, y) => {
         const c = cells.find((cell) => cell.x === x && cell.y === y);
         if (!c) return groundSolid(x, y, editAt(x, y));
@@ -441,12 +443,14 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
                 from: you,
                 fromEdit: editAt(you.x, you.y),
                 edit: editAt(x, y),
+                fill: fills.get(`${x},${y}`),
                 cleared: Boolean(cleared),
                 shovel: you.tools.shovel || 0,
                 bag: { ...me.inventory, wood: me.wood, stone: me.stone },
             });
             if (plan.error !== undefined) return plan.error;
             ground.set(`${x},${y}`, plan.edit);
+            fills.set(`${x},${y}`, plan.fill);
             groundChunks.add(`${Math.floor(x / 16)}:${Math.floor(y / 16)}`);
             if (cleared) cells.splice(cells.indexOf(existing), 1);
             if (plan.item === "stone") me.stone += plan.change;

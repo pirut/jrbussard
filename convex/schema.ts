@@ -102,13 +102,16 @@ export default defineSchema({
    * Ground players have dug or piled up: how many terrace steps each worked
    * tile sits above or below the generated landscape (see src/lib/ground.js).
    * One row per tile, looked up by chunk like `cells`, so a viewport reads
-   * only the handful of chunks it touches.
+   * only the handful of chunks it touches. `fill` is what was shovelled into
+   * the tile, bottom step first, so digging it out hands the same back; it
+   * never holds more than MAX_DIG + MAX_RAISE entries.
    */
   ground: defineTable({
     x: v.number(),
     y: v.number(),
     chunk: v.string(),
     edit: v.number(),
+    fill: v.optional(v.array(v.union(v.literal("dirt"), v.literal("sand")))),
     by: v.string(),
     at: v.number(),
   })

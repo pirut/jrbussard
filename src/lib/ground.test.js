@@ -129,7 +129,47 @@ describe("a swing of the shovel", () => {
 
     it("digs down a step and hands back what came up", () => {
         expect(swing({})).toEqual(expect.objectContaining({ edit: -1, item: "dirt", change: 1, flooded: false }));
-        expect(swing({ shovel: 2 }).change).toBe(2);
+        /* A better shovel swings faster, not deeper: one step is one unit. */
+        expect(swing({ shovel: 2 }).change).toBe(1);
+    });
+
+    /* Play swings against one tile the way the server stores them. */
+    function work(tile, start, modes, shovel = 2) {
+        const bag = { ...start };
+        let row = {};
+        let xp = 0;
+        modes.forEach((mode) => {
+            const plan = planTerraform({ mode, x: tile.x, y: tile.y, from: { x: tile.x - 1, y: tile.y }, edit: row.edit, fill: row.fill, shovel, bag });
+            if (plan.error !== undefined) throw new Error(plan.error);
+            row = { edit: plan.edit, fill: plan.fill };
+            bag[plan.item] = (bag[plan.item] || 0) + plan.change;
+            xp += plan.xp;
+        });
+        return { bag, row, xp };
+    }
+
+    it("gives nothing for digging up and filling in the same earth", () => {
+        const cycles = Array.from({ length: 6 }, () => ["dig", "raise"]).flat();
+        for (const shovel of [1, 2]) {
+            const { bag, row, xp } = work(at, { dirt: 0 }, cycles, shovel);
+            expect(row.edit).toBe(0);
+            expect(bag.dirt).toBe(0);
+            /* Only the first swing took earth out of the ground. */
+            expect(xp).toBe(1);
+        }
+    });
+
+    it("hands back what was filled, not what lay there before", () => {
+        /* Down to the stone, then filled with dirt: digging it again
+           brings the dirt back up, and the stone below stays put. */
+        const deep = work(at, {}, ["dig", "dig", "dig"]);
+        expect(deep.bag).toEqual({ dirt: 2, stone: 1 });
+        const filled = work(at, {}, ["dig", "dig", "dig", "raise", "dig"]);
+        expect(filled.row).toEqual({ edit: -3, fill: [] });
+        expect(filled.bag).toEqual({ dirt: 2, stone: 1 });
+        expect(filled.xp).toBe(3);
+        /* A pile of sand on grass comes back as sand. */
+        expect(work(at, { sand: 2 }, ["raise", "raise", "dig", "dig"]).bag).toEqual({ sand: 2 });
     });
 
     it("stops at the deepest and highest it allows", () => {
