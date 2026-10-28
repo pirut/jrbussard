@@ -320,41 +320,50 @@ The index lists the newest 100 notes; the shelves light as many as they hold.
 
 ### Text to post
 
-Like Twitter's old text-to-tweet: a text from JR's phone to the site's
-Twilio number becomes a published note, and Twilio texts back
-`Posted: <title>`. [`api/sms.js`](api/sms.js) is the webhook, a Vercel
-function next to the static site; texts from any other number are ignored,
-and requests Twilio did not sign are refused.
+Like Twitter's old text-to-tweet, over WhatsApp: a message from JR's phone
+to the site's WhatsApp number becomes a published note, and WhatsApp
+answers `Posted: <title>`. [`api/whatsapp.js`](api/whatsapp.js) is the
+webhook, a Vercel function next to the static site, on Meta's free Cloud
+API (messages sent in are free, and so are replies within a day of one).
+Messages from any other number are ignored, and deliveries Meta did not
+sign are refused.
 
-- A text with several lines uses the first as the title and the rest as the
-  body. A one-line text is the body, titled with its opening words.
+- A message with several lines uses the first as the title and the rest as
+  the body. A one-line message is the body, titled with its opening words.
 - A hashtag naming a category (`#web`, `#building`, `#operations`) files it
-  there; otherwise it is General.
-- Texted notes carry `source: "sms"` and are listed together under **Texted
-  ideas** in the Studio, to edit, retitle or unpublish.
+  there; otherwise it is General. Photos and voice notes are skipped.
+- Texted notes carry `source: "whatsapp"` and are listed together under
+  **Texted ideas** in the Studio, to edit, retitle or unpublish.
 
 Setup, once:
 
-1. **Twilio.** Buy a number with SMS. Under *Phone Numbers → Active numbers →
-   the number → Messaging configuration*, set *A message comes in* to
-   Webhook, `https://jrbussard.com/api/sms`, HTTP POST (use whichever of
-   `jrbussard.com` or `www.jrbussard.com` the site stays on, since Twilio
-   does not follow a redirect with the text). Replies back to a US
-   phone need A2P 10DLC registration for a local number (or toll-free
-   verification); until that is approved, set `SMS_QUIET=true` and posting
-   still works.
+1. **Meta app.** At developers.facebook.com → My Apps → Create app, pick
+   *Other* → *Business*, then add the **WhatsApp** product. Meta gives the
+   app a free test number. Under *WhatsApp → API Setup*, add JR's phone to
+   the "To" list and confirm the code WhatsApp sends.
 2. **Sanity.** At sanity.io/manage → project `8qiu273i` → API → Tokens, add an
    **Editor** token.
 3. **Vercel** (`jrbussard` project → Settings → Environment Variables,
-   Production): `TWILIO_AUTH_TOKEN` (Twilio console → Account info),
-   `SMS_ALLOWED_FROM` (JR's phone, e.g. `+15551234567`; commas for more), and
-   `SANITY_WRITE_TOKEN`. Redeploy.
-4. `npm run cms:deploy` so the Studio shows **Texted ideas**.
+   Production), then redeploy:
+   - `WHATSAPP_VERIFY_TOKEN`: any long random string you make up.
+   - `WHATSAPP_APP_SECRET`: Meta app → App settings → Basic → App secret.
+   - `POST_ALLOWED_FROM`: JR's phone, e.g. `+15551234567` (commas for more).
+   - `SANITY_WRITE_TOKEN`: the token from step 2.
+   - `WHATSAPP_TOKEN` (optional, for the "Posted" reply): a permanent token
+     from business.facebook.com → Settings → Users → System users → add an
+     admin system user, assign it the app, and generate a token with
+     `whatsapp_business_messaging`. The 24-hour token on the API Setup page
+     works for a quick test.
+4. **Webhook.** Meta app → WhatsApp → Configuration → Webhook → Edit: callback
+   `https://jrbussard.com/api/whatsapp` (whichever of `jrbussard.com` or
+   `www.jrbussard.com` the site stays on), verify token from step 3. Then
+   under *Webhook fields*, subscribe to **messages**.
+5. Save the test number as a contact on JR's phone and message it. If
+   nothing arrives, switch the app to **Live** at the top of the Meta
+   dashboard (it asks for a privacy policy URL first).
+6. `npm run cms:deploy` so the Studio shows **Texted ideas**.
 
-Optional: `SMS_DRAFTS=true` saves drafts instead of publishing,
-`SMS_QUIET=true` sends no reply, and `SMS_WEBHOOK_URL` overrides the URL used
-to check Twilio's signature if the number points at a different domain
-(it must match the Twilio setting exactly, `www` included).
+`POST_DRAFTS=true` saves drafts instead of publishing.
 
 ## How the world is built
 

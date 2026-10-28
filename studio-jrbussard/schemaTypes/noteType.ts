@@ -62,7 +62,7 @@ export const noteType = defineType({
             name: "source",
             title: "Source",
             type: "string",
-            description: "Set to \"sms\" on notes that started as a text message.",
+            description: "Set on notes that started as a message from JR's phone (\"whatsapp\").",
             readOnly: true,
             hidden: ({ value }) => !value,
         }),

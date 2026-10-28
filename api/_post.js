@@ -1,5 +1,5 @@
 /*
- * Text-to-post: the pieces of api/sms.js that do not touch the network,
+ * Text-to-post: the pieces of api/whatsapp.js that do not touch the network,
  * kept apart so tests can run them. Vercel skips files starting with an
  * underscore, so this is never served as a function of its own.
  */
@@ -9,20 +9,38 @@ const CATEGORIES = ["General", "Operations", "Building", "Web"];
 const MAX_TITLE = 80;
 const MAX_SUMMARY = 220;
 
-/* Twilio signs the full webhook URL followed by every POST parameter,
-   sorted by name, each written as name then value. */
-function twilioSignature(authToken, url, params) {
-    const data = Object.keys(params)
-        .sort()
-        .reduce((acc, key) => acc + key + params[key], url);
-    return crypto.createHmac("sha1", authToken).update(data, "utf8").digest("base64");
+/* Meta signs each webhook body with the app secret: X-Hub-Signature-256
+   is "sha256=" and the hex HMAC-SHA256 of the raw bytes it sent. */
+function metaSignature(appSecret, rawBody) {
+    return `sha256=${crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex")}`;
 }
 
-function validTwilioSignature(authToken, url, params, signature) {
-    if (!authToken || !signature) return false;
-    const expected = Buffer.from(twilioSignature(authToken, url, params));
+function validMetaSignature(appSecret, rawBody, signature) {
+    if (!appSecret || !signature) return false;
+    const expected = Buffer.from(metaSignature(appSecret, rawBody));
     const given = Buffer.from(String(signature));
     return expected.length === given.length && crypto.timingSafeEqual(expected, given);
+}
+
+/* The text messages in one WhatsApp webhook delivery. Meta batches, and
+   also sends delivery receipts here, which carry no messages. */
+function whatsappTexts(payload) {
+    const found = [];
+    for (const entry of payload?.entry || []) {
+        for (const change of entry?.changes || []) {
+            const value = change?.value || {};
+            for (const message of value.messages || []) {
+                if (message?.type !== "text" || !message.text?.body) continue;
+                found.push({
+                    id: message.id,
+                    from: message.from,
+                    body: message.text.body,
+                    phoneNumberId: value.metadata?.phone_number_id,
+                });
+            }
+        }
+    }
+    return found;
 }
 
 /* Digits only, with a US number's leading 1 assumed, so "+1 (555) 010-0000"
@@ -65,7 +83,7 @@ function slugify(text) {
  * more than one; otherwise the title is the opening of the text. A hashtag
  * naming a category (#web, #building) files it there and is taken out.
  */
-function noteFromText(raw, { sid, now = new Date() } = {}) {
+function noteFromText(raw, { messageId, now = new Date() } = {}) {
     let text = String(raw || "").replace(/\r\n?/g, "\n").trim();
     let category = "General";
     text = text.replace(/(^|\s)#([a-z]+)\b/gi, (match, lead, tag) => {
@@ -81,11 +99,16 @@ function noteFromText(raw, { sid, now = new Date() } = {}) {
     const multiline = lines.length > 1 && lines.slice(1).join("").trim();
     const title = clip((multiline ? lines[0] : text).trim(), MAX_TITLE);
     const body = multiline ? lines.slice(1).join("\n").trim() : text;
-    const key = String(sid || crypto.randomUUID()).replace(/[^A-Za-z0-9_-]/g, "");
-    const slug = `${slugify(title) || "texted-idea"}-${key.slice(-6).toLowerCase()}`;
+    /* Keyed by the message, so a delivery Meta retries saves only once. */
+    const key = crypto
+        .createHash("sha256")
+        .update(String(messageId || crypto.randomUUID()))
+        .digest("hex")
+        .slice(0, 24);
+    const slug = `${slugify(title) || "texted-idea"}-${key.slice(0, 6)}`;
 
     return {
-        _id: `sms-${key}`,
+        _id: `text-${key}`,
         _type: "note",
         title,
         slug: { _type: "slug", current: slug },
@@ -93,24 +116,8 @@ function noteFromText(raw, { sid, now = new Date() } = {}) {
         category,
         summary: clip(body.replace(/\s+/g, " "), MAX_SUMMARY),
         body,
-        source: "sms",
+        source: "whatsapp",
     };
-}
-
-function escapeXml(text) {
-    return String(text).replace(/[<>&'"]/g, (c) => ({
-        "<": "&lt;",
-        ">": "&gt;",
-        "&": "&amp;",
-        "'": "&apos;",
-        '"': "&quot;",
-    })[c]);
-}
-
-/* What Twilio sends back to the phone. An empty reply sends nothing. */
-function twiml(message) {
-    const inner = message ? `<Message>${escapeXml(message)}</Message>` : "";
-    return `<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`;
 }
 
 module.exports = {
@@ -118,7 +125,7 @@ module.exports = {
     allowedSender,
     noteFromText,
     normalizePhone,
-    twilioSignature,
-    twiml,
-    validTwilioSignature,
+    metaSignature,
+    validMetaSignature,
+    whatsappTexts,
 };
