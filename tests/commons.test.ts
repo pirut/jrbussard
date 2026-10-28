@@ -9,6 +9,7 @@ import {
 } from "../src/lib/appearance";
 import { resourceAt, survivalStep } from "../src/lib/survival";
 import { chunkKey, inSafeZone, isSolid } from "../src/lib/terrain";
+import { solidAt } from "../src/lib/ground";
 
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../convex/**/*.ts")).map(([key, value]) => [
@@ -523,6 +524,36 @@ describe("walking", () => {
     expect(await step(t, 1, 0)).toEqual(at);
   });
 
+  it("stops at someone standing in the way however many have left from there", async () => {
+    const t = make();
+    const at = openPatch();
+    await seed(t, "alice", at);
+    /* Characters stay where their owners left them, so a busy tile collects
+       them; the one who is actually there still counts. */
+    for (let i = 0; i < 8; i++)
+      await seed(t, `gone${i}`, {
+        x: at.x + 1,
+        y: at.y,
+        lastSeen: Date.now() - 86_400_000,
+      });
+    await seed(t, "bob", { x: at.x + 1, y: at.y });
+    expect(await step(t, 1, 0)).toEqual(at);
+  });
+
+  it("walks onto a tile where only absent characters were left", async () => {
+    const t = make();
+    const at = openPatch();
+    await seed(t, "alice", at);
+    for (let i = 0; i < 3; i++)
+      await seed(t, `gone${i}`, {
+        x: at.x + 1,
+        y: at.y,
+        lastSeen: Date.now() - 86_400_000,
+      });
+    await seed(t, "fallen", { x: at.x + 1, y: at.y, hp: 0 });
+    expect(await step(t, 1, 0)).toEqual({ x: at.x + 1, y: at.y });
+  });
+
   it("strikes a creature instead of stepping onto it", async () => {
     const t = make();
     const at = openPatch();
@@ -539,5 +570,199 @@ describe("walking", () => {
     expect(await step(t, 1, 1)).toEqual(at);
     const hurt = await t.run((ctx) => ctx.db.get(wolf));
     expect(hurt?.hp).toBeLessThan(999);
+  });
+});
+
+describe("the world's heartbeat", () => {
+  const SIM_RADIUS = 46;
+  const scheduledTicks = (t: T) =>
+    t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.state.kind === "pending",
+      ),
+    );
+
+  /* Every tile of every chunk within reach of the tick, dug or built on. */
+  async function workEverything(
+    t: T,
+    at: { x: number; y: number },
+    table: "ground" | "cells",
+  ) {
+    const lo = Math.floor((at.x - SIM_RADIUS) / 16);
+    const hi = Math.floor((at.x + SIM_RADIUS) / 16);
+    const loY = Math.floor((at.y - SIM_RADIUS) / 16);
+    const hiY = Math.floor((at.y + SIM_RADIUS) / 16);
+    await t.run(async (ctx) => {
+      for (let cy = loY; cy <= hiY; cy++)
+        for (let cx = lo; cx <= hi; cx++)
+          for (let j = 0; j < 16; j++)
+            for (let i = 0; i < 16; i++) {
+              const x = cx * 16 + i;
+              const y = cy * 16 + j;
+              if (table === "ground")
+                await ctx.db.insert("ground", {
+                  x,
+                  y,
+                  chunk: chunkKey(x, y),
+                  edit: -1,
+                  by: "digger",
+                  at: Date.now(),
+                });
+              else
+                await ctx.db.insert("cells", {
+                  x,
+                  y,
+                  chunk: chunkKey(x, y),
+                  kind: "stump",
+                  owner: "",
+                  ownerName: "",
+                  text: "",
+                  regrowAt: Date.now() + 3_600_000,
+                });
+            }
+    });
+  }
+
+  it.each(["ground", "cells"] as const)(
+    "keeps running beside three players in heavily worked country (%s)",
+    async (table) => {
+      const t = make();
+      const spots = [
+        { x: 1000, y: 1000 },
+        { x: 2000, y: 1000 },
+        { x: 3000, y: 1000 },
+      ];
+      for (const [i, at] of spots.entries()) {
+        await seed(t, `p${i}`, at);
+        await workEverything(t, at, table);
+        /* A full house of creatures, every one of them looking for a step. */
+        await t.run(async (ctx) => {
+          for (let m = 0; m < 30; m++)
+            await ctx.db.insert("monsters", {
+              kind: "rat",
+              x: at.x - 15 + m,
+              y: at.y + 8 + (m % 3) * 4,
+              hp: 8,
+              maxHp: 8,
+            });
+        });
+      }
+      await t.mutation(internal.tick.run, {});
+      expect(await scheduledTicks(t)).toHaveLength(1);
+    },
+    60_000,
+  );
+
+  it("shows a view where every tile has been dug and built on", async () => {
+    const t = make();
+    const at = { x: 1000, y: 1000 };
+    await seed(t, "alice", at);
+    await workEverything(t, at, "ground");
+    await workEverything(t, at, "cells");
+    const seen = await t.query(api.world.state, { session: "alice" });
+    expect(seen.me?.x).toBe(at.x);
+  }, 60_000);
+
+  /* A row of four open tiles away from the crossroads, the third of which is
+     solid until somebody digs it out. */
+  function lane() {
+    for (let y = 40; y <= 300; y++)
+      for (let x = 40; x <= 300; x++) {
+        if (inSafeZone(x, y)) continue;
+        if (isSolid(x, y) || isSolid(x - 1, y) || isSolid(x - 3, y)) continue;
+        if (!isSolid(x - 2, y) || solidAt(x - 2, y, -1)) continue;
+        return { x, y };
+      }
+    throw new Error("No lane");
+  }
+  async function wolfAt(t: T, x: number, y: number) {
+    return t.run((ctx) =>
+      ctx.db.insert("monsters", { kind: "wolf", x, y, hp: 99, maxHp: 99 }),
+    );
+  }
+  async function chase(t: T) {
+    /* Always step along x toward the nearest player. */
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.9);
+    try {
+      await t.mutation(internal.tick.run, {});
+    } finally {
+      random.mockRestore();
+    }
+  }
+
+  it("lets creatures through ground that was dug open, and only there", async () => {
+    const t = make();
+    const at = lane();
+    await seed(t, "alice", at);
+    const wolf = await wolfAt(t, at.x - 3, at.y);
+    await chase(t);
+    expect((await t.run((ctx) => ctx.db.get(wolf)))?.x).toBe(at.x - 3);
+    await t.run((ctx) =>
+      ctx.db.insert("ground", {
+        x: at.x - 2,
+        y: at.y,
+        chunk: chunkKey(at.x - 2, at.y),
+        edit: -1,
+        by: "alice",
+        at: Date.now(),
+      }),
+    );
+    await chase(t);
+    expect((await t.run((ctx) => ctx.db.get(wolf)))?.x).toBe(at.x - 2);
+  });
+
+  it("holds creatures back from walls and torchlight", async () => {
+    const t = make();
+    const at = lane();
+    await seed(t, "alice", at);
+    await t.run((ctx) =>
+      ctx.db.insert("ground", {
+        x: at.x - 2,
+        y: at.y,
+        chunk: chunkKey(at.x - 2, at.y),
+        edit: -1,
+        by: "alice",
+        at: Date.now(),
+      }),
+    );
+    const wall = await block(t, "wall", at.x - 2, at.y);
+    const wolf = await wolfAt(t, at.x - 3, at.y);
+    await chase(t);
+    expect((await t.run((ctx) => ctx.db.get(wolf)))?.x).toBe(at.x - 3);
+    await t.run((ctx) => ctx.db.delete(wall));
+    await block(t, "torch", at.x - 2, at.y + 3);
+    await chase(t);
+    expect((await t.run((ctx) => ctx.db.get(wolf)))?.x).toBe(at.x - 3);
+  });
+
+  it("starts again when the loop has gone quiet", async () => {
+    const t = make();
+    await seed(t);
+    /* A tick that failed part way leaves the flag up and never reschedules. */
+    await t.run(async (ctx) => {
+      const world = await ctx.db.query("world").first();
+      await ctx.db.patch(world!._id, { lastTick: Date.now() - 60_000 });
+    });
+    await t.mutation(api.world.heartbeat, { session: "alice" });
+    expect(await scheduledTicks(t)).toHaveLength(1);
+    /* Running, so a second heartbeat leaves it alone. */
+    await t.mutation(api.world.heartbeat, { session: "alice" });
+    expect(await scheduledTicks(t)).toHaveLength(1);
+  });
+
+  it("does not leave two loops running after a restart", async () => {
+    const t = make();
+    await seed(t);
+    await t.run(async (ctx) => {
+      const world = await ctx.db.query("world").first();
+      await ctx.db.patch(world!._id, { lastTick: Date.now() - 60_000 });
+    });
+    await t.mutation(api.world.heartbeat, { session: "alice" });
+    const [fresh] = await scheduledTicks(t);
+    /* The old loop wakes up late: it stands down instead of carrying on. */
+    await t.mutation(internal.tick.run, {});
+    expect(await scheduledTicks(t)).toHaveLength(1);
+    await t.mutation(internal.tick.run, fresh.args[0] as any);
+    expect(await scheduledTicks(t)).toHaveLength(2);
   });
 });

@@ -103,3 +103,9 @@ export function xpForLevel(level: number): number {
 export const VIEW_W = 61;
 export const VIEW_H = 29;
 export const SIM_RADIUS = 46;
+
+/* The world ticks this often. A loop that has not ticked for TICK_STALL_MS
+   is taken to have died (a failed tick never reschedules) and is restarted
+   by the next player to act. */
+export const TICK_MS = 500;
+export const TICK_STALL_MS = 10 * TICK_MS;

@@ -24,6 +24,7 @@ import {
 } from "../src/lib/building.js";
 import { inventoryPatch, experience, stationsNear } from "./survival";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import {
   MONSTERS,
   BLOCKS,
@@ -40,6 +41,7 @@ import {
   phaseAt,
   regionName,
   xpForLevel,
+  TICK_STALL_MS,
 } from "./field";
 
 /*
@@ -98,14 +100,23 @@ async function getWorld(ctx: MutationCtx) {
   return (await ctx.db.get("world", id))!;
 }
 
+/*
+ * Start the tick loop if it is parked, or if it has gone quiet: a tick that
+ * fails never schedules the next one, and would otherwise leave `ticking`
+ * set for good. Restarting moves `loop` on, so if the old loop was only
+ * running late it stands down rather than running alongside the new one.
+ */
 async function ensureTicking(ctx: MutationCtx) {
   const world = await getWorld(ctx);
-  if (world.ticking) return;
+  const now = Date.now();
+  if (world.ticking && now - world.lastTick < TICK_STALL_MS) return;
+  const loop = (world.loop ?? 0) + 1;
   await ctx.db.patch("world", world._id, {
     ticking: true,
-    lastTick: Date.now(),
+    lastTick: now,
+    loop,
   });
-  await ctx.scheduler.runAfter(0, internal.tick.run, {});
+  await ctx.scheduler.runAfter(0, internal.tick.run, { loop });
 }
 
 async function getPlayer(ctx: MutationCtx | QueryCtx, session: string) {
@@ -129,6 +140,28 @@ async function groundAt(ctx: MutationCtx | QueryCtx, x: number, y: number) {
     .unique();
 }
 
+/*
+ * Somebody alive and still around standing on the tile, other than `except`.
+ * Characters stay where their owners left them, so only those seen recently
+ * are read; however many have been left on a tile, they cost nothing here.
+ */
+async function standingAt(
+  ctx: MutationCtx,
+  x: number,
+  y: number,
+  now: number,
+  except?: Id<"players">,
+): Promise<boolean> {
+  const present = ctx.db
+    .query("players")
+    .withIndex("by_x_and_y_and_lastSeen", (q) =>
+      q.eq("x", x).eq("y", y).gt("lastSeen", now - IDLE_MS),
+    );
+  for await (const other of present)
+    if (other._id !== except && other.hp > 0) return true;
+  return false;
+}
+
 /* Somebody alive, or a creature, standing on the tile. */
 async function occupiedAt(
   ctx: MutationCtx,
@@ -141,11 +174,7 @@ async function occupiedAt(
     .withIndex("by_pos", (q) => q.eq("x", x).eq("y", y))
     .first();
   if (monster) return true;
-  const standing = await ctx.db
-    .query("players")
-    .withIndex("by_lastSeen", (q) => q.gt("lastSeen", now - IDLE_MS))
-    .take(200);
-  return standing.some((p) => p.hp > 0 && p.x === x && p.y === y);
+  return await standingAt(ctx, x, y, now);
 }
 
 async function post(
@@ -358,20 +387,7 @@ export const move = mutation({
 
     /* Only the tile you are stepping onto, so walking never reads (and
        never contends with) everyone else's every step. */
-    const standing = await ctx.db
-      .query("players")
-      .withIndex("by_pos", (q) => q.eq("x", nx).eq("y", ny))
-      .take(8);
-    if (
-      standing.some(
-        (other) =>
-          other._id !== player._id &&
-          other.hp > 0 &&
-          other.lastSeen > now - IDLE_MS,
-      )
-    ) {
-      return here;
-    }
+    if (await standingAt(ctx, nx, ny, now, player._id)) return here;
 
     const distance = Math.round(Math.hypot(nx, ny));
     await ctx.db.patch("players", player._id, {
@@ -547,11 +563,7 @@ export const terraform = mutation({
     const monsters = await ctx.db.query("monsters").take(100);
     if (monsters.some((m) => m.x === args.x && m.y === args.y))
       return "occupied";
-    const standing = await ctx.db
-      .query("players")
-      .withIndex("by_lastSeen", (q) => q.gt("lastSeen", now - IDLE_MS))
-      .take(200);
-    if (standing.some((p) => p.hp > 0 && p.x === args.x && p.y === args.y))
+    if (await standingAt(ctx, args.x, args.y, now))
       return "someone is standing there";
 
     const ground = await groundAt(ctx, args.x, args.y);
@@ -654,17 +666,8 @@ export const use = mutation({
       const shut = cell.open === false;
       /* Do not shut a door on somebody standing in the doorway. */
       if (!shut) {
-        const standing = await ctx.db
-          .query("players")
-          .withIndex("by_lastSeen", (q) =>
-            q.gt("lastSeen", Date.now() - IDLE_MS),
-          )
-          .take(200);
-        if (
-          standing.some((p) => p.hp > 0 && p.x === args.x && p.y === args.y)
-        ) {
+        if (await standingAt(ctx, args.x, args.y, Date.now()))
           return "someone is in the doorway";
-        }
         const monsters = await ctx.db.query("monsters").take(100);
         if (monsters.some((m) => m.x === args.x && m.y === args.y)) {
           return "something is in the doorway";

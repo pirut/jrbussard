@@ -2,7 +2,8 @@ import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { survivalStep } from "../src/lib/survival.js";
-import { nearbyCells, nearbyGround } from "./survival";
+import type { Doc } from "./_generated/dataModel";
+import { nearbyCells } from "./survival";
 import { solidAt } from "../src/lib/ground.js";
 import {
   MONSTERS,
@@ -10,6 +11,7 @@ import {
   BLOCKS,
   WEATHERS,
   SIM_RADIUS,
+  TICK_MS,
   inSafeZone,
   openSpotNear,
   phaseAt,
@@ -23,9 +25,14 @@ import {
  * forgotten once everyone has walked away. The loop reschedules itself while
  * anybody is on the field and parks when the last player goes idle, so an
  * empty world costs nothing to keep open.
+ *
+ * Built and dug tiles pile up for good, so the tick never reads the country
+ * around a player wholesale: it looks up only the tiles a creature is about
+ * to step onto, and the few around them a torch could light. What one tick
+ * reads is then bounded by the creatures and players in it, not by how much
+ * anyone has built.
  */
 
-const TICK_MS = 500;
 const IDLE_MS = 45_000;
 const CHASE_RANGE = 5;
 /* How often a single monster can swing, and the hard floor on how often any
@@ -39,16 +46,33 @@ const REGEN_SAFE_RANGE = 3;
 /* Monsters kept alive near each player. */
 const PER_PLAYER = 12;
 const MAX_MONSTERS = 90;
+/* Survival checks run every 15 seconds per player; when a crowd is due at
+   once, the rest wait a tick or two. */
+const SURVIVAL_PER_TICK = 25;
+/* The furthest any block's light holds creatures off. */
+const LIGHT_REACH = Math.max(
+  ...Object.values(BLOCKS).map((block) => block.light * 0.5),
+);
+
+const solidCell = (cell: Doc<"cells">) =>
+  /* A shut door keeps things out, which is the point of building one. */
+  cell.kind === "door"
+    ? cell.open === false
+    : Boolean(BLOCKS[cell.kind] && BLOCKS[cell.kind].solid);
 
 export const run = internalMutation({
-  args: {},
+  /* Absent on loops started before restarts were tracked. */
+  args: { loop: v.optional(v.number()) },
   returns: v.null(),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     const world = await ctx.db
       .query("world")
       .withIndex("by_key", (q) => q.eq("key", "singleton"))
       .unique();
     if (!world) return null;
+    /* A newer loop has taken over (see ensureTicking): this one stops. */
+    const loop = world.loop ?? 0;
+    if ((args.loop ?? 0) !== loop) return null;
 
     const now = Date.now();
     const cutoff = now - IDLE_MS;
@@ -102,8 +126,13 @@ export const run = internalMutation({
     const alive = active.filter((p) => p.hp > 0);
     const monsters = await ctx.db.query("monsters").take(100);
 
+    let survivals = 0;
     for (const player of alive) {
-      if (now - (player.lastSurvival || 0) >= 15_000) {
+      if (
+        now - (player.lastSurvival || 0) >= 15_000 &&
+        survivals < SURVIVAL_PER_TICK
+      ) {
+        survivals += 1;
         const camp = await nearbyCells(ctx, player.x, player.y, 4);
         const fire = camp.some(
           (c) => c.kind === "campfire" && (c.fuelUntil || 0) > now,
@@ -154,38 +183,52 @@ export const run = internalMutation({
     /* At most one monster lands a blow on a given player per tick. */
     const struck = new Set<string>();
 
-    /* Torches keep monsters at arm's length — a lit camp actually works. */
-    const chunks = await Promise.all(
-      active.map((p) => nearbyCells(ctx, p.x, p.y, SIM_RADIUS)),
-    );
-    const built = [...new Map(chunks.flat().map((c) => [c._id, c])).values()];
-    const lit = built.filter(
-      (c) =>
-        BLOCKS[c.kind] &&
-        BLOCKS[c.kind].light > 0 &&
-        (c.kind !== "campfire" || (c.fuelUntil || 0) > now),
-    );
-    const nearLight = (x: number, y: number) =>
-      lit.some(
-        (t) => Math.hypot(t.x - x, t.y - y) <= BLOCKS[t.kind].light * 0.5,
-      );
+    /* What stands on a tile, looked up once per tile per tick. */
+    const cellCache = new Map<string, Doc<"cells"> | null>();
+    const cellAt = async (x: number, y: number) => {
+      const key = `${x},${y}`;
+      if (!cellCache.has(key))
+        cellCache.set(
+          key,
+          await ctx.db
+            .query("cells")
+            .withIndex("by_pos", (q) => q.eq("x", x).eq("y", y))
+            .first(),
+        );
+      return cellCache.get(key)!;
+    };
     /* Dug and piled ground; a flooded pit is water like any other. */
-    const grounds = await Promise.all(
-      active.map((p) => nearbyGround(ctx, p.x, p.y, SIM_RADIUS)),
-    );
-    const worked = new Map(grounds.flatMap((g) => [...g]));
-    const solidGround = (x: number, y: number) =>
-      solidAt(x, y, worked.get(`${x},${y}`));
-    /* A shut door keeps things out, which is the point of building one. */
-    const solidBuilt = new Set(
-      built
-        .filter((c) =>
-          c.kind === "door"
-            ? c.open === false
-            : BLOCKS[c.kind] && BLOCKS[c.kind].solid,
-        )
-        .map((c) => `${c.x},${c.y}`),
-    );
+    const groundCache = new Map<string, boolean>();
+    const solidGround = async (x: number, y: number) => {
+      const key = `${x},${y}`;
+      if (!groundCache.has(key)) {
+        const ground = await ctx.db
+          .query("ground")
+          .withIndex("by_x_and_y", (q) => q.eq("x", x).eq("y", y))
+          .first();
+        groundCache.set(key, solidAt(x, y, ground?.edit));
+      }
+      return groundCache.get(key)!;
+    };
+    /* Torches keep monsters at arm's length — a lit camp actually works. */
+    const lightCache = new Map<string, boolean>();
+    const nearLight = async (x: number, y: number) => {
+      const key = `${x},${y}`;
+      if (!lightCache.has(key)) {
+        const around = await nearbyCells(ctx, x, y, LIGHT_REACH);
+        lightCache.set(
+          key,
+          around.some(
+            (c) =>
+              BLOCKS[c.kind] &&
+              BLOCKS[c.kind].light > 0 &&
+              (c.kind !== "campfire" || (c.fuelUntil || 0) > now) &&
+              Math.hypot(c.x - x, c.y - y) <= BLOCKS[c.kind].light * 0.5,
+          ),
+        );
+      }
+      return lightCache.get(key)!;
+    };
 
     let population = 0;
 
@@ -268,13 +311,13 @@ export const run = internalMutation({
       if (dx === 0 && dy === 0) continue;
       const nx = monster.x + dx;
       const ny = monster.y + dy;
-      const overlay = built.find((c) => c.x === nx && c.y === ny);
-      if (!overlay && solidGround(nx, ny)) continue;
-      if (solidBuilt.has(`${nx},${ny}`)) continue;
       if (occupied.has(`${nx},${ny}`)) continue;
       /* The crossroads is a truce, and torchlight holds them off. */
       if (inSafeZone(nx, ny)) continue;
-      if (nearLight(nx, ny)) continue;
+      /* Something built there decides; otherwise the ground does. */
+      const overlay = await cellAt(nx, ny);
+      if (overlay ? solidCell(overlay) : await solidGround(nx, ny)) continue;
+      if (await nearLight(nx, ny)) continue;
 
       occupied.delete(`${monster.x},${monster.y}`);
       occupied.add(`${nx},${ny}`);
@@ -299,12 +342,12 @@ export const run = internalMutation({
         const kind = MONSTER_ORDER[Math.floor(Math.random() * ceiling)];
         const spec = MONSTERS[kind];
         const spot = openSpotNear(anchor.x, anchor.y, 14, 30, Math.random);
+        if (!spot || occupied.has(`${spot.x},${spot.y}`)) continue;
+        const overlay = await cellAt(spot.x, spot.y);
         if (
-          !spot ||
-          solidGround(spot.x, spot.y) ||
-          occupied.has(`${spot.x},${spot.y}`) ||
-          solidBuilt.has(`${spot.x},${spot.y}`) ||
-          nearLight(spot.x, spot.y)
+          (await solidGround(spot.x, spot.y)) ||
+          (overlay && solidCell(overlay)) ||
+          (await nearLight(spot.x, spot.y))
         )
           continue;
         occupied.add(`${spot.x},${spot.y}`);
@@ -323,7 +366,7 @@ export const run = internalMutation({
     for (const row of oldChat.slice(50)) await ctx.db.delete("chat", row._id);
 
     await ctx.db.patch("world", world._id, { lastTick: now });
-    await ctx.scheduler.runAfter(TICK_MS, internal.tick.run, {});
+    await ctx.scheduler.runAfter(TICK_MS, internal.tick.run, { loop });
     return null;
   },
 });
