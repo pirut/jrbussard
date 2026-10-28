@@ -28,6 +28,7 @@ import HelpOverlay from "./commons/HelpOverlay";
 import DeathScreen from "./commons/DeathScreen";
 import TitleScreen from "./commons/TitleScreen";
 import Inspect from "./commons/Inspect";
+import HudWindow from "./commons/HudWindow";
 import AsciiField from "./ascii3d/AsciiField";
 import { gridStep } from "./ascii3d/controls";
 import { ISO_YAW, screenToMap } from "./ascii3d/iso";
@@ -233,6 +234,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
   const [inspected, setInspected] = useState(null);
   const [raw, setRaw] = useState(false);
   const [help, setHelp] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [dragging, setDragging] = useState(false);
   /* Offline, the camera circles the camp until you step in. */
@@ -242,6 +244,19 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
   );
 
   const me = state.me;
+
+  /* The controls open by themselves the first time you step in. */
+  useEffect(() => {
+    if (!playing) return;
+    try {
+      if (window.localStorage.getItem("commons:controls-seen")) return;
+      window.localStorage.setItem("commons:controls-seen", "1");
+    } catch {
+      return;
+    }
+    setHelp(true);
+  }, [playing]);
+
   const stateRef = useRef(state);
   stateRef.current = state;
   const buildingRef = useRef(building);
@@ -579,6 +594,30 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         }
         return;
       }
+      /* Inside a window the keyboard belongs to the window: Tab moves
+         between its buttons and Enter or Space presses them. Only Esc and
+         the keys that switch panels still reach the game. */
+      const active = document.activeElement;
+      const inWindow = active?.closest?.('[role="dialog"], [role="alertdialog"]');
+      if (inWindow) {
+        const key = event.key.toLowerCase();
+        if (event.key === "Escape") {
+          if (help) setHelp(false);
+          else if (panel) setPanel(null);
+          else if (inspected) setInspected(null);
+        } else if (key === "c" || key === "i" || key === "j") {
+          const tab = { c: "Craft", i: "Pack", j: "Journal" }[key];
+          if (panel) setPanel((p) => (p === tab ? null : tab));
+        } else if ((key === "h" || key === "?") && help) setHelp(false);
+        else if (key === "r" && me?.hp <= 0) act("respawn");
+        return;
+      }
+      /* A focused HUD button keeps Enter and Space for itself. */
+      if (
+        (event.key === "Enter" || event.key === " ") &&
+        active?.closest?.(".game-hud button, .game-hud a")
+      )
+        return;
       const move = MOVES[event.key]
         ? event.key
         : MOVES[event.key.toLowerCase()]
@@ -605,7 +644,9 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       if (event.key === "Escape") {
         if (help) setHelp(false);
         else if (panel) setPanel(null);
+        else if (inspected) setInspected(null);
         else if (buildingRef.current) setBuilding(false);
+        else if (mapOpen) setMapOpen(false);
         planRef.current = null;
         return;
       }
@@ -631,6 +672,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       else if (key === "j")
         setPanel((p) => (p === "Journal" ? null : "Journal"));
       else if (key === "f") toggleFullscreen();
+      else if (key === "m") setMapOpen((m) => !m);
       else if (key === "v") setRaw((r) => !r);
       else if (key === "h" || key === "?") setHelp((h) => !h);
       else if (key === "[") fieldApi.current?.rotate(-Math.PI / 2);
@@ -662,6 +704,8 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     playing,
     help,
     panel,
+    inspected,
+    mapOpen,
     primary,
     goThen,
     act,
@@ -743,6 +787,11 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
 
   /* ── Talking ──────────────────────────────────────────────────────── */
 
+  const openChat = useCallback(() => {
+    setChatting(true);
+    window.setTimeout(() => chatRef.current?.focus(), 0);
+  }, []);
+
   const submitChat = useCallback(
     async (event) => {
       event.preventDefault();
@@ -777,7 +826,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
     : aim
       ? describeTarget(aim.x, aim.y, state.cells)
       : null;
-  const objective = journeyOf(me).find((q) => !q.done);
+  const journey = journeyOf(me);
   const inspection =
     state.players.find((p) => p.id === inspected?.id) || inspected;
 
@@ -819,23 +868,42 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
       </div>
 
       {playing && (
-        <div className="game-hud">
+        <div
+          className="game-hud"
+          onClick={(event) => {
+            /* A HUD button pressed with the mouse gives the keyboard back
+               to the game, so Space acts in the world rather than pressing
+               it again. Buttons in windows keep focus for Tab. */
+            const button = event.target.closest?.("button");
+            if (
+              event.detail > 0 &&
+              button &&
+              !button.closest('[role="dialog"], [role="alertdialog"]')
+            )
+              button.blur();
+          }}
+        >
           <Vitals me={me} onCustomize={() => setCustomizing(true)} />
-          <WorldPanel
-            state={state}
-            me={me}
-            live={live}
-            fullscreen={fullscreen}
-            onHelp={() => setHelp((h) => !h)}
-            onFullscreen={toggleFullscreen}
-          />
-          <Objective objective={objective} />
+          <div className="hud-side">
+            <WorldPanel
+              state={state}
+              me={me}
+              live={live}
+              fullscreen={fullscreen}
+              mapOpen={mapOpen}
+              onHelp={() => setHelp((h) => !h)}
+              onMap={() => setMapOpen((m) => !m)}
+              onFullscreen={toggleFullscreen}
+            />
+            <Objective journey={journey} onOpen={() => setPanel("Journal")} />
+          </div>
           <Chat
             chat={state.chat}
             chatting={chatting}
             draft={draft}
             setDraft={setDraft}
             inputRef={chatRef}
+            onOpen={openChat}
             onSubmit={submitChat}
             onBlur={() => !draft && setChatting(false)}
           />
@@ -843,14 +911,13 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
             aimInfo={aimInfo}
             building={building}
             selected={selected}
-            potions={me?.potions || 0}
+            me={me}
+            panel={panel}
             onPick={(kind) => {
-              if (building && selected === kind) setBuilding(false);
-              else {
-                setSelected(kind);
-                setBuilding(true);
-              }
+              setSelected(kind);
+              setBuilding(true);
             }}
+            onBuild={() => setBuilding((b) => !b)}
             onEat={() =>
               act("eat", {
                 item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries",
@@ -860,22 +927,21 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
             onPanel={() => setPanel((p) => (p ? null : "Craft"))}
           />
 
+          {status && (
+            <p className="hud-status" role="alert">
+              {status}
+            </p>
+          )}
           <p
-            className={`hud-notice ${notice || status ? "is-on" : ""}`}
+            className={`hud-notice ${notice ? "is-on" : ""}`}
             role="status"
+            aria-live="polite"
           >
-            {status || notice}
+            {notice}
           </p>
 
           {panel && (
-            <div className="hud-window" role="dialog" aria-label="Fieldcraft">
-              <button
-                className="hud-close"
-                onClick={() => setPanel(null)}
-                aria-label="Close"
-              >
-                ×
-              </button>
+            <HudWindow label="Fieldcraft" onClose={() => setPanel(null)}>
               <Fieldcraft
                 me={me}
                 state={state}
@@ -893,7 +959,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
                 tab={panel}
                 setTab={setPanel}
               />
-            </div>
+            </HudWindow>
           )}
 
           {help && <HelpOverlay onClose={() => setHelp(false)} />}

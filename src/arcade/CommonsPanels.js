@@ -3,86 +3,12 @@ import {
   ITEMS,
   RECIPES,
   STRUCTURES,
-  TOOL_NAMES,
   inventoryOf,
   recipeBlocker,
   costLabel,
   journeyOf,
-  resourceAt,
 } from "../lib/survival";
-import {
-  tileAt,
-  WATER,
-  TREE,
-  ROCK,
-  inSafeZone,
-  withinReach,
-} from "../lib/terrain";
-
-export function Vitals({ me }) {
-  if (!me) return null;
-  return (
-    <aside className="survival-vitals" aria-label="Survival status">
-      <div className="survival-avatar">
-        <span aria-hidden="true">@</span>
-        <div>
-          <b>{me.name}</b>
-          <small>LEVEL {me.level} · SURVIVOR</small>
-        </div>
-      </div>
-      {[
-        ["Health", me.hp, me.maxHp, "health"],
-        ["Hunger", me.hunger ?? 100, 100, "hunger"],
-        ["Warmth", me.warmth ?? 100, 100, "warmth"],
-      ].map(([label, value, max, kind]) => (
-        <div className={`survival-meter survival-meter--${kind}`} key={kind}>
-          <div>
-            <label htmlFor={`meter-${kind}`}>{label}</label>
-            <span>
-              {Math.round(value)}
-              <small>/{max}</small>
-            </span>
-          </div>
-          <meter id={`meter-${kind}`} min="0" max={max} value={value}>
-            {value}/{max}
-          </meter>
-        </div>
-      ))}
-      <div className="survival-condition">
-        {me.hp <= 0
-          ? "Fallen in the wild"
-          : me.hp < me.maxHp * 0.35
-            ? "Wounded · rest or use a potion"
-            : (me.hunger ?? 100) < 25
-              ? "Hungry · find food"
-              : (me.warmth ?? 100) < 30
-                ? "Cold · find a fire"
-                : "Ready for the wilderness"}
-      </div>
-      <section className="survival-equipment">
-        <h2>Equipment</h2>
-        {["axe", "pick", "weapon", "armor", "rod"].map((key, i) => (
-          <div key={key}>
-            <span aria-hidden="true">{["P", "T", "/", "H", "j"][i]}</span>
-            <span>{TOOL_NAMES[key][me.tools?.[key] || 0]}</span>
-          </div>
-        ))}
-      </section>
-      <div className="survival-xp">
-        <span>Next level</span>
-        <span>
-          {me.xp} / {me.xpNeeded} XP
-        </span>
-        <progress max={me.xpNeeded} value={me.xp} />
-      </div>
-      <p className="survival-memento">
-        Your camp stays.
-        <br />
-        Your story continues.
-      </p>
-    </aside>
-  );
-}
+import { withinReach } from "../lib/terrain";
 
 export function Fieldcraft({
   me,
@@ -219,7 +145,8 @@ export function Fieldcraft({
         {tab === "Build" && (
           <>
             <p className="station-status">
-              Select a blueprint. Aim, then press B or Place.
+              Pick one, then click the ground to place it. Number keys pick
+              too; Esc or a right click stops building.
             </p>
             {Object.entries(STRUCTURES).map(([kind, spec], index) => (
               <button
@@ -337,7 +264,7 @@ export function Fieldcraft({
             <div className="survival-guide">
               <h3>Know the wilderness</h3>
               <p>
-                Harvest with G or a click. Walk into creatures to fight. Trees
+                Click to gather; hold to keep at it. Walk into creatures to fight. Trees
                 give wood; ^ rocks give stone, O gives iron, : gives coal. %
                 berries and &quot; fiber grow in the fields.
               </p>
@@ -356,76 +283,5 @@ export function Fieldcraft({
         )}
       </div>
     </aside>
-  );
-}
-
-export function Compass({ me, state }) {
-  if (!me) return null;
-  let rows = [];
-  for (let dy = -5; dy <= 5; dy++) {
-    let row = [];
-    for (let dx = -12; dx <= 12; dx++) {
-      const x = me.x + dx * 3,
-        y = me.y + dy * 3,
-        t = tileAt(x, y);
-      const center = dx === 0 && dy === 0;
-      const resource = resourceAt(x, y);
-      const mark = center
-        ? "@"
-        : inSafeZone(x, y)
-          ? "+"
-          : t === WATER
-            ? "~"
-            : t === TREE
-              ? "T"
-              : t === ROCK
-                ? "^"
-                : resource === "berries"
-                  ? "%"
-                  : ".";
-      row.push(
-        <span
-          key={dx}
-          style={{
-            color: center
-              ? "#f7db9b"
-              : t === WATER
-                ? "#7faabc"
-                : t === TREE
-                  ? "#759274"
-                  : "#646f60",
-          }}
-        >
-          {mark}
-        </span>,
-      );
-    }
-    rows.push(<div key={dy}>{row}</div>);
-  }
-  return (
-    <details className="survival-map">
-      <summary>
-        Field map{" "}
-        <span>
-          {me.x}, {me.y} ↗
-        </span>
-      </summary>
-      <div className="survival-map-body">
-        <div className="survival-map-grid" aria-label="Nearby terrain map">
-          {rows}
-        </div>
-        <p>
-          N ↑ · 1 character = 3 tiles
-          <br />
-          {state.region}
-          {me.home && (
-            <>
-              <br />
-              Your camp: {me.home.x}, {me.home.y}
-            </>
-          )}
-        </p>
-      </div>
-    </details>
   );
 }
