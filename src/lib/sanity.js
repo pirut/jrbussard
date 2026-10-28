@@ -14,7 +14,7 @@ const client = projectId
     })
     : null;
 
-const notesQuery = `*[_type == "note" && defined(slug.current)] | order(publishedAt desc) [0...12] {
+const notesQuery = `*[_type == "note" && defined(slug.current)] | order(publishedAt desc) [0...100] {
     "id": _id,
     title,
     "slug": slug.current,

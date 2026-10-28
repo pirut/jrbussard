@@ -58,6 +58,14 @@ export const noteType = defineType({
             description: "Supports Markdown: headings, links, lists, quotes, code, and tables.",
             validation: (rule) => rule.required(),
         }),
+        defineField({
+            name: "source",
+            title: "Source",
+            type: "string",
+            description: "Set to \"sms\" on notes that started as a text message.",
+            readOnly: true,
+            hidden: ({ value }) => !value,
+        }),
     ],
     preview: {
         select: {
