@@ -71,9 +71,17 @@ export default function HelpOverlay({ onClose }) {
           <h3>On a touch screen</h3>
           <dl>
             <dt>tap</dt>
-            <dd>walk there, or gather, open, attack</dd>
+            <dd>walk there, or chop, mine, gather, open, attack</dd>
+            <dt>press and hold</dt>
+            <dd>keep swinging</dd>
+            <dt>drag</dt>
+            <dd>walk that way, like a thumbstick</dd>
+            <dt>pinch · twist</dt>
+            <dd>zoom · turn the camera (or ⟲ ⟳ top right)</dd>
+            <dt>build</dt>
+            <dd>tap to place, drag to lay a row; turn, undo, remove (what you last tapped) and done sit above the pieces</dd>
             <dt>buttons</dt>
-            <dd>build, eat, potion and pack sit along the bottom</dd>
+            <dd>build, eat, potion and pack along the bottom; the shovel above them once you have one</dd>
           </dl>
         </section>
       </div>
