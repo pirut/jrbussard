@@ -61,6 +61,7 @@ export default function DigControl({ mode, setMode, me, disabled = false }) {
             if (disabled || event.metaKey || event.ctrlKey || event.altKey) return;
             const active = document.activeElement;
             if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
+            if (active?.closest?.('[role="dialog"], [role="alertdialog"]')) return;
             if (event.key === "Escape") setMode(null);
             else if (event.key.toLowerCase() === "g") setMode((m) => nextMode(m));
         };

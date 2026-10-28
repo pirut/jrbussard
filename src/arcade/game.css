@@ -893,6 +893,23 @@
   color: #111;
 }
 
+/* The shovel matches the rest of the HUD and sits level with the hotbar,
+   in the bottom-right corner nothing else uses. */
+.game-hud .hud-dig {
+  right: var(--hud-pad);
+  bottom: var(--hud-pad);
+  padding: 6px 8px;
+  background: var(--hud-bg);
+  border-color: var(--hud-line);
+  font-size: 12px;
+}
+.game-hud .hud-dig button {
+  min-height: 32px;
+}
+.game-hud .hud-dig.is-on {
+  border-color: var(--gold);
+}
+
 /* Another survivor's card sits clear of the hotbar and the side column. */
 .commons-game .survivor-inspect {
   position: absolute;
@@ -1091,6 +1108,15 @@
   }
   .hud-window .recipe-action {
     width: 100%;
+  }
+  .game-hud .hud-dig {
+    bottom: 96px;
+  }
+  .game-hud .hud-dig kbd {
+    display: none;
+  }
+  .is-building .hud-dig {
+    display: none;
   }
   .commons-game .survivor-inspect {
     left: var(--hud-pad);
