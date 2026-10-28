@@ -1,7 +1,8 @@
 import * as THREE from "three";
-import { CHUNK, WATER, tileAt } from "../../lib/terrain";
+import { CHUNK, WATER } from "../../lib/terrain";
 import { AsciiPass, glyphCode } from "./asciiPass";
-import { buildChunk, createWater, rippleWater, groundHeight, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
+import { buildChunk, createWater, rippleWater, standHeight, WATER_LEVEL, wind } from "./terrainMesh";
+import { GroundMap } from "../../lib/ground";
 import {
     buildSurvivor,
     buildCreature,
@@ -87,6 +88,8 @@ export default class AsciiWorld {
         this.leaving = [];
         this.structures = new Map();
         this.chunks = new Map();
+        /* Dug and piled ground, as last heard from the server. */
+        this.ground = new GroundMap();
         this.flames = [];
         this.focus = new THREE.Vector3();
         this.focusReady = false;
@@ -205,6 +208,7 @@ export default class AsciiWorld {
 
     setState(state) {
         this.state = state;
+        this.ground.absorb(state);
         if (!state) return;
         this.syncStructures(state);
         this.syncPlayers(state);
@@ -320,7 +324,7 @@ export default class AsciiWorld {
             const hit = ray.ray.intersectPlane(plane, tmp);
             if (!hit) return tile;
             tile = { x: Math.round(hit.x), y: Math.round(hit.z) };
-            const next = Math.max(WATER_LEVEL, groundHeight(tile.x, tile.y));
+            const next = Math.max(WATER_LEVEL, this.ground.height(tile.x, tile.y));
             if (Math.abs(next - height) < 0.01) break;
             height = next;
         }
@@ -335,7 +339,7 @@ export default class AsciiWorld {
     }
 
     entityHeight(x, y) {
-        return standHeight(x, y, this.bridged(x, y));
+        return standHeight(x, y, this.bridged(x, y), this.ground.editAt(x, y));
     }
 
     syncStructures(state) {
@@ -343,7 +347,7 @@ export default class AsciiWorld {
         state.cells.forEach((cell) => {
             const key = `${cell.x},${cell.y}`;
             seen.add(key);
-            const overWater = tileAt(cell.x, cell.y) === WATER;
+            const overWater = this.ground.tile(cell.x, cell.y) === WATER;
             const ctx = {
                 lit: cell.kind === "campfire" ? cell.fuelUntil > state.now : true,
                 overWater,
@@ -358,7 +362,7 @@ export default class AsciiWorld {
             if (existing) this.removeStructure(key);
             const group = buildStructure(cell, ctx);
             if (!group) return;
-            group.position.set(cell.x, overWater ? 0 : groundHeight(cell.x, cell.y), cell.y);
+            group.position.set(cell.x, overWater ? 0 : this.ground.height(cell.x, cell.y), cell.y);
             /* Doors and signs face whichever way has open ground. */
             if (cell.kind === "door") {
                 const walls = state.cells.filter((c) => c.kind === "wall");
@@ -714,7 +718,7 @@ export default class AsciiWorld {
                 life[i] = 0.4 + Math.random() * 0.6;
                 const x = Math.round(this.focus.x + (Math.random() - 0.5) * 22);
                 const z = Math.round(this.focus.z + (Math.random() - 0.5) * 22);
-                mesh.userData[i] = [x + Math.random() - 0.5, Math.max(WATER_LEVEL, groundHeight(x, z)) + 0.04, z + Math.random() - 0.5];
+                mesh.userData[i] = [x + Math.random() - 0.5, Math.max(WATER_LEVEL, this.ground.height(x, z)) + 0.04, z + Math.random() - 0.5];
             }
             const [x, y, z] = mesh.userData[i];
             const grow = 1.2 - life[i] * 0.6;
@@ -863,7 +867,7 @@ export default class AsciiWorld {
                 if (d > radius + CHUNK * 0.7) continue;
                 const key = `${x}:${y}`;
                 const list = cleared.get(key) || [];
-                const signature = list.sort().join(";");
+                const signature = `${list.sort().join(";")}#${this.ground.chunkSignature(x, y)}`;
                 const have = this.chunks.get(key);
                 if (!have || have.signature !== signature) wanted.push({ key, x, y, d, list, signature });
             }
@@ -872,7 +876,7 @@ export default class AsciiWorld {
         /* A couple of chunks a frame keeps walking smooth at the edge. */
         wanted.slice(0, this.chunks.size === 0 ? wanted.length : 2).forEach((w) => {
             const old = this.chunks.get(w.key);
-            const group = buildChunk(w.x, w.y, new Set(w.list));
+            const group = buildChunk(w.x, w.y, new Set(w.list), this.ground);
             this.scene.add(group);
             if (old) this.dropChunk(old);
             this.chunks.set(w.key, { group, signature: w.signature, x: w.x, y: w.y });
@@ -978,7 +982,7 @@ export default class AsciiWorld {
         if (self) goal = self.pos;
         else if (this.state?.view) {
             goal = tmp.set(this.state.view.x + this.state.view.w / 2, 0, this.state.view.y + this.state.view.h / 2);
-            goal.y = groundHeight(Math.round(goal.x), Math.round(goal.z));
+            goal.y = this.ground.height(Math.round(goal.x), Math.round(goal.z));
         }
         if (goal) {
             if (!this.focusReady) {

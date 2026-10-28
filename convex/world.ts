@@ -11,6 +11,12 @@ import {
   resourceAt,
   recipeBlocker,
 } from "../src/lib/survival.js";
+import {
+  planTerraform,
+  solidAt,
+  effectiveTile,
+  SHOVEL_COOLDOWN_MS,
+} from "../src/lib/ground.js";
 import { inventoryPatch, experience, stationsNear } from "./survival";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
@@ -21,9 +27,9 @@ import {
   REGROW_ROCK_MS,
   TREE,
   ROCK,
+  CHUNK,
   VIEW_W,
   VIEW_H,
-  tileAt,
   isSolid,
   inSafeZone,
   withinReach,
@@ -92,6 +98,13 @@ async function cellAt(ctx: MutationCtx | QueryCtx, x: number, y: number) {
     .unique();
 }
 
+async function groundAt(ctx: MutationCtx | QueryCtx, x: number, y: number) {
+  return await ctx.db
+    .query("ground")
+    .withIndex("by_x_and_y", (q) => q.eq("x", x).eq("y", y))
+    .unique();
+}
+
 async function post(
   ctx: MutationCtx,
   name: string,
@@ -120,7 +133,9 @@ async function blocked(
     if (cell.kind === "door") return cell.open === false;
     return BLOCKS[cell.kind] ? BLOCKS[cell.kind].solid : false;
   }
-  return isSolid(x, y);
+  /* Dug or piled ground is walkable unless it has flooded. */
+  const ground = await groundAt(ctx, x, y);
+  return ground ? solidAt(x, y, ground.edit) : isSolid(x, y);
 }
 
 export const join = mutation({
@@ -326,6 +341,8 @@ export const harvest = mutation({
 
     const existing = await cellAt(ctx, args.x, args.y);
     if (existing) return "nothing to gather";
+    /* Worked ground is bare earth: whatever grew there was dug out. */
+    if (await groundAt(ctx, args.x, args.y)) return "nothing to gather";
 
     const resource = resourceAt(args.x, args.y);
     if (!resource) return "nothing to gather";
@@ -403,7 +420,8 @@ export const build = mutation({
      */
     const cleared =
       existing && (existing.kind === "stump" || existing.kind === "rubble");
-    const tile = tileAt(args.x, args.y);
+    const ground = await groundAt(ctx, args.x, args.y);
+    const tile = effectiveTile(args.x, args.y, ground?.edit);
     if ((tile === ROCK || tile === TREE) && !cleared) return "clear it first";
 
     const monsters = await ctx.db.query("monsters").take(100);
@@ -448,6 +466,87 @@ export const build = mutation({
 
     await ensureTicking(ctx);
     return `built a ${spec.label}`;
+  },
+});
+
+/*
+ * One swing of a shovel: dig the tile down a step, pile it up a step, or
+ * bring it a step toward the height you are standing at. The rules live in
+ * src/lib/ground.js so the offline stand-in plays by the same ones; this
+ * only gathers what they need and writes down the outcome.
+ */
+export const terraform = mutation({
+  args: {
+    session: v.string(),
+    x: v.number(),
+    y: v.number(),
+    mode: v.union(v.literal("dig"), v.literal("raise"), v.literal("level")),
+  },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const player = await getPlayer(ctx, args.session);
+    if (!player || player.hp <= 0) return "no";
+
+    const now = Date.now();
+    const shovel = Math.min(player.tools?.shovel || 0, SHOVEL_COOLDOWN_MS.length - 1);
+    if (shovel > 0 && now - player.lastBuild < SHOVEL_COOLDOWN_MS[shovel])
+      return "wait";
+    if (!withinReach(player, args.x, args.y)) return "too far";
+
+    const cell = await cellAt(ctx, args.x, args.y);
+    if (cell && cell.regrowAt === 0) return "something is built there";
+    const monsters = await ctx.db.query("monsters").take(100);
+    if (monsters.some((m) => m.x === args.x && m.y === args.y))
+      return "occupied";
+    const standing = await ctx.db
+      .query("players")
+      .withIndex("by_lastSeen", (q) => q.gt("lastSeen", now - IDLE_MS))
+      .take(200);
+    if (standing.some((p) => p.hp > 0 && p.x === args.x && p.y === args.y))
+      return "someone is standing there";
+
+    const ground = await groundAt(ctx, args.x, args.y);
+    const underfoot = await groundAt(ctx, player.x, player.y);
+    const plan = planTerraform({
+      mode: args.mode,
+      x: args.x,
+      y: args.y,
+      from: player,
+      fromEdit: underfoot?.edit,
+      edit: ground?.edit,
+      cleared: Boolean(cell),
+      shovel,
+      bag: inventoryOf(player),
+    });
+    if (plan.error !== undefined) return plan.error;
+
+    if (ground)
+      await ctx.db.patch("ground", ground._id, {
+        edit: plan.edit,
+        by: player.name,
+        at: now,
+      });
+    else
+      await ctx.db.insert("ground", {
+        x: args.x,
+        y: args.y,
+        chunk: chunkKey(args.x, args.y),
+        edit: plan.edit,
+        by: player.name,
+        at: now,
+      });
+    /* A stump or rubble is dug out with the ground, so nothing grows back. */
+    if (cell) await ctx.db.delete("cells", cell._id);
+
+    await ctx.db.patch("players", player._id, {
+      ...inventoryPatch(player, { [plan.item]: plan.change }),
+      ...experience(player, 1),
+      milestones: [...new Set([...(player.milestones || []), "dig"])],
+      lastBuild: now,
+      lastSeen: now,
+    });
+    await ensureTicking(ctx);
+    return plan.message;
   },
 });
 
@@ -626,7 +725,7 @@ export const say = mutation({
         await post(
           ctx,
           "world",
-          "/me · /who · /where · /home · /help — wasd moves, g gathers, b builds, x removes",
+          "/me · /who · /where · /home · /help — wasd moves, click gathers, b builds, x removes, g digs",
           "system",
         );
         return "";
@@ -802,6 +901,10 @@ export const state = query({
         stock: v.record(v.string(), v.number()),
       }),
     ),
+    /* Worked ground in every chunk the view touches, whole chunks at a
+       time, listed in groundChunks so the browser knows what it now has. */
+    ground: v.array(v.object({ x: v.number(), y: v.number(), edit: v.number() })),
+    groundChunks: v.array(v.string()),
     chat: v.array(
       v.object({ name: v.string(), text: v.string(), kind: v.string() }),
     ),
@@ -842,6 +945,21 @@ export const state = query({
       for (const cell of chunk) {
         if (visible(cell.x, cell.y)) cells.push(cell);
       }
+    }
+
+    const groundChunks = chunksInBox(
+      minX - CHUNK / 2,
+      minY - CHUNK / 2,
+      maxX + CHUNK / 2,
+      maxY + CHUNK / 2,
+    );
+    const ground = [];
+    for (const key of groundChunks) {
+      const rows = await ctx.db
+        .query("ground")
+        .withIndex("by_chunk", (q) => q.eq("chunk", key))
+        .take(CHUNK * CHUNK);
+      for (const g of rows) ground.push({ x: g.x, y: g.y, edit: g.edit });
     }
 
     const monsters = (await ctx.db.query("monsters").take(100)).filter((m) =>
@@ -918,6 +1036,8 @@ export const state = query({
         stock:
           me && Math.hypot(c.x - me.x, c.y - me.y) <= 4 ? c.stock || {} : {},
       })),
+      ground,
+      groundChunks,
       chat: chat.map((c) => ({ name: c.name, text: c.text, kind: c.kind })),
     };
   },

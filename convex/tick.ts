@@ -2,14 +2,14 @@ import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { survivalStep } from "../src/lib/survival.js";
-import { nearbyCells } from "./survival";
+import { nearbyCells, nearbyGround } from "./survival";
+import { solidAt } from "../src/lib/ground.js";
 import {
   MONSTERS,
   MONSTER_ORDER,
   BLOCKS,
   WEATHERS,
   SIM_RADIUS,
-  isSolid,
   inSafeZone,
   openSpotNear,
   phaseAt,
@@ -169,6 +169,13 @@ export const run = internalMutation({
       lit.some(
         (t) => Math.hypot(t.x - x, t.y - y) <= BLOCKS[t.kind].light * 0.5,
       );
+    /* Dug and piled ground; a flooded pit is water like any other. */
+    const grounds = await Promise.all(
+      active.map((p) => nearbyGround(ctx, p.x, p.y, SIM_RADIUS)),
+    );
+    const worked = new Map(grounds.flatMap((g) => [...g]));
+    const solidGround = (x: number, y: number) =>
+      solidAt(x, y, worked.get(`${x},${y}`));
     /* A shut door keeps things out, which is the point of building one. */
     const solidBuilt = new Set(
       built
@@ -262,7 +269,7 @@ export const run = internalMutation({
       const nx = monster.x + dx;
       const ny = monster.y + dy;
       const overlay = built.find((c) => c.x === nx && c.y === ny);
-      if (!overlay && isSolid(nx, ny)) continue;
+      if (!overlay && solidGround(nx, ny)) continue;
       if (solidBuilt.has(`${nx},${ny}`)) continue;
       if (occupied.has(`${nx},${ny}`)) continue;
       /* The crossroads is a truce, and torchlight holds them off. */
@@ -294,6 +301,7 @@ export const run = internalMutation({
         const spot = openSpotNear(anchor.x, anchor.y, 14, 30, Math.random);
         if (
           !spot ||
+          solidGround(spot.x, spot.y) ||
           occupied.has(`${spot.x},${spot.y}`) ||
           solidBuilt.has(`${spot.x},${spot.y}`) ||
           nearLight(spot.x, spot.y)

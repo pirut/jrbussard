@@ -1,7 +1,7 @@
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { inventoryOf } from "../src/lib/survival.js";
-import { chunksInBox, xpForLevel } from "./field";
+import { CHUNK, chunksInBox, xpForLevel } from "./field";
 
 export async function nearbyCells(
   ctx: MutationCtx | QueryCtx,
@@ -19,6 +19,26 @@ export async function nearbyCells(
     ),
   );
   return chunks.flat().filter((c) => Math.hypot(c.x - x, c.y - y) <= radius);
+}
+/* Worked ground near a point, as an "x,y" → edit lookup. */
+export async function nearbyGround(
+  ctx: MutationCtx | QueryCtx,
+  x: number,
+  y: number,
+  radius = 4,
+) {
+  const chunks = await Promise.all(
+    chunksInBox(x - radius, y - radius, x + radius, y + radius).map(
+      (key: string) =>
+        ctx.db
+          .query("ground")
+          .withIndex("by_chunk", (q) => q.eq("chunk", key))
+          .take(CHUNK * CHUNK),
+    ),
+  );
+  const edits = new Map<string, number>();
+  for (const g of chunks.flat()) edits.set(`${g.x},${g.y}`, g.edit);
+  return edits;
 }
 export function inventoryPatch(
   player: Doc<"players">,

@@ -33,6 +33,7 @@ import { gridStep } from "./ascii3d/controls";
 import { ISO_YAW, screenToMap } from "./ascii3d/iso";
 import { passability, findPath } from "./ascii3d/navigation";
 import { createDemo } from "./ascii3d/demo";
+import DigControl, { digTargetInfo } from "./commons/DigControl";
 import "./arcade.css";
 import "./commons.css";
 import "./game.css";
@@ -78,6 +79,7 @@ function Online() {
     harvest: useMutation(api.harvest),
     build: useMutation(api.build),
     demolish: useMutation(api.demolish),
+    terraform: useMutation(api.terraform),
     use: useMutation(api.use),
     say: useMutation(api.say),
     drink: useMutation(api.drink),
@@ -246,6 +248,16 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
   stateRef.current = state;
   const buildingRef = useRef(building);
   buildingRef.current = building;
+  /* The shovel's mode (see commons/DigControl.js); null while it is put away. */
+  const [digMode, setDigMode] = useState(null);
+  const digRef = useRef(digMode);
+  digRef.current = digMode;
+  useEffect(() => {
+    if (digMode) setBuilding(false);
+  }, [digMode]);
+  useEffect(() => {
+    if (building) setDigMode(null);
+  }, [building]);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const hoverRef = useRef(hover);
@@ -429,6 +441,19 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         goThen(inReach(spot), () => placeAt(spot), "can't reach that spot");
         return;
       }
+      if (digRef.current) {
+        const mode = digRef.current;
+        goThen(
+          inReach(spot),
+          () => {
+            face(spot);
+            fieldApi.current?.swingSelf();
+            act("terraform", { ...spot, mode });
+          },
+          "can't reach that spot",
+        );
+        return;
+      }
       const nav = passability(st);
       if (nav.creatureAt(spot.x, spot.y)) {
         attack(spot);
@@ -442,7 +467,7 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
         });
         return;
       }
-      const resource = resourceAt(spot.x, spot.y);
+      const resource = !nav.worked(spot.x, spot.y) && resourceAt(spot.x, spot.y);
       if (!built && resource && resource !== "fish") {
         goThen(inReach(spot), () => {
           face(spot);
@@ -769,13 +794,15 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
   const aim = playing ? hover || null : null;
   const aimedCreature =
     aim && state.monsters.find((m) => m.x === aim.x && m.y === aim.y);
-  const aimInfo = aimedCreature
+  const aimInfo = digMode && aim && !aimedCreature
+    ? digTargetInfo(state, aim, digMode)
+    : aimedCreature
     ? {
         label: `${aimedCreature.kind}${aimedCreature.maxHp ? ` · ${aimedCreature.hp}/${aimedCreature.maxHp}` : ""}`,
         verb: "click to attack · hold to keep swinging",
       }
     : aim
-      ? describeTarget(aim.x, aim.y, state.cells)
+      ? describeTarget(aim.x, aim.y, state.cells, state.ground)
       : null;
   const objective = journeyOf(me).find((q) => !q.done);
   const inspection =
@@ -858,6 +885,13 @@ function Game({ state, call, live, status = "", onSaveCharacter }) {
             }
             onDrink={() => act("drink")}
             onPanel={() => setPanel((p) => (p ? null : "Craft"))}
+          />
+
+          <DigControl
+            mode={digMode}
+            setMode={setDigMode}
+            me={me}
+            disabled={customizing || chatting}
           />
 
           <p
