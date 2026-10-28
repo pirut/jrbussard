@@ -519,6 +519,10 @@ export default class AsciiWorld {
         const dx = x - entity.to.x;
         const dy = y - entity.to.y;
         entity.from = far ? { x, y } : { x: entity.pos.x, y: entity.pos.z };
+        /* A step taken mid-stride starts between tiles, where the ground
+           overlay has nothing to say; start it from the height the body is
+           at instead of looking one up. */
+        entity.fromH = far ? null : entity.pos.y;
         entity.to = { x, y };
         entity.start = this.time;
         /* Steps that come in a steady rhythm glide into one another instead of
@@ -936,7 +940,7 @@ export default class AsciiWorld {
         const x = entity.from.x + (entity.to.x - entity.from.x) * t;
         const z = entity.from.y + (entity.to.y - entity.from.y) * t;
         const moved = Math.hypot(x - entity.pos.x, z - entity.pos.z);
-        const fromH = this.entityHeight(entity.from.x, entity.from.y);
+        const fromH = entity.fromH ?? this.entityHeight(entity.from.x, entity.from.y);
         const toH = this.entityHeight(entity.to.x, entity.to.y);
         const climb = Math.abs(toH - fromH) > 0.05;
         /* Up or down a terrace, the feet follow how far along the step the

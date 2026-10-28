@@ -175,7 +175,7 @@ export const RECIPES = [
     tool: "shovel",
     tier: 2,
     station: "workbench",
-    detail: "Dig faster and move twice the earth with every swing.",
+    detail: "Dig, fill and level at nearly twice the pace.",
   },
   {
     id: "crystal_pick",

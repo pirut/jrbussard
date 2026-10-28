@@ -255,6 +255,30 @@ describe("digging", () => {
     expect(await dig()).toBe("something is built there");
   });
 
+  it("gives nothing for digging up and filling in the same earth", async () => {
+    const t = make();
+    const { target, stand } = highGrass();
+    const id = await seed(t, "alice", stand, { tools: { shovel: 2 } });
+    const swing = async (mode: "dig" | "raise") => {
+      await ready(t, id);
+      return t.mutation(api.world.terraform, { session: "alice", ...target, mode });
+    };
+    const before = await t.run((ctx) => ctx.db.get(id));
+    expect(await swing("dig")).toBe("dug · +1 dirt");
+    expect(await swing("raise")).toBe("filled · -1 dirt");
+    for (let i = 0; i < 3; i++) {
+      expect(await swing("dig")).toBe("dug · +1 dirt");
+      expect(await swing("raise")).toBe("filled · -1 dirt");
+    }
+    const after = await t.run((ctx) => ctx.db.get(id));
+    expect((await groundRows(t))[0]).toEqual(
+      expect.objectContaining({ edit: 0, fill: ["dirt"] }),
+    );
+    expect(after?.inventory?.dirt || 0).toBe(before?.inventory?.dirt || 0);
+    /* The first swing took earth out of the ground; the rest moved it. */
+    expect(after!.xp - before!.xp).toBe(1);
+  });
+
   it("will not dig where someone is standing", async () => {
     const t = make();
     const { target, stand } = highGrass();

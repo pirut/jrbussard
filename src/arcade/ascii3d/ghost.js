@@ -21,11 +21,12 @@ function tint(ghost) {
 }
 
 /*
- * One ghost. `place(x, y)` gives the height and whether the tile is water,
- * the same way placed structures are seated (AsciiWorld.syncStructures).
+ * One ghost, on `seat`: the height and whether the tile is water, from
+ * `place(x, y)`, the same way placed structures are seated
+ * (AsciiWorld.syncStructures).
  */
-function makeGhost(ghost, place, materials) {
-    const { height, overWater, deck } = place(ghost.x, ghost.y);
+function makeGhost(ghost, seat, materials) {
+    const { height, overWater, deck } = seat;
     const color = tint(ghost);
     if (!materials.has(color)) materials.set(color, ownMaterial(color, "solid", { unlit: true }));
     const mat = materials.get(color);
@@ -58,11 +59,16 @@ export class Ghosts {
     }
 
     set(list, place) {
-        const signature = (list || []).map((g) => `${g.x},${g.y},${g.kind},${g.facing},${tint(g)}`).join(";");
+        /* The seat is part of what is drawn: somebody else digging or
+           piling the tile moves the ghost with the ground. */
+        const seats = (list || []).map((g) => place(g.x, g.y));
+        const signature = (list || [])
+            .map((g, i) => `${g.x},${g.y},${g.kind},${g.facing},${tint(g)},${seats[i].height},${seats[i].overWater},${seats[i].deck}`)
+            .join(";");
         if (signature === this.signature) return;
         this.signature = signature;
         this.group.clear();
-        (list || []).forEach((g) => this.group.add(makeGhost(g, place, this.materials)));
+        (list || []).forEach((g, i) => this.group.add(makeGhost(g, seats[i], this.materials)));
     }
 
     /* A slow breath, so a ghost never passes for the real thing. */

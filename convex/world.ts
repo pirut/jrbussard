@@ -563,6 +563,7 @@ export const terraform = mutation({
       from: player,
       fromEdit: underfoot?.edit,
       edit: ground?.edit,
+      fill: ground?.fill,
       cleared: Boolean(cell),
       shovel,
       bag: inventoryOf(player),
@@ -572,6 +573,7 @@ export const terraform = mutation({
     if (ground)
       await ctx.db.patch("ground", ground._id, {
         edit: plan.edit,
+        fill: plan.fill,
         by: player.name,
         at: now,
       });
@@ -581,6 +583,7 @@ export const terraform = mutation({
         y: args.y,
         chunk: chunkKey(args.x, args.y),
         edit: plan.edit,
+        fill: plan.fill,
         by: player.name,
         at: now,
       });
@@ -589,7 +592,7 @@ export const terraform = mutation({
 
     await ctx.db.patch("players", player._id, {
       ...inventoryPatch(player, { [plan.item]: plan.change }),
-      ...experience(player, 1),
+      ...experience(player, plan.xp),
       milestones: [...new Set([...(player.milestones || []), "dig"])],
       lastBuild: now,
       lastSeen: now,

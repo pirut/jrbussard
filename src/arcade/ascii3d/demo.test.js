@@ -70,4 +70,23 @@ describe("offline stand-in", () => {
         expect(demo.call("terraform", { x: 0, y: 0, mode: "dig" })).toBeTruthy();
         expect(demo.snapshot().ground).toHaveLength(1);
     });
+
+    it("gives nothing for digging up and filling in the same earth", () => {
+        const demo = createDemo();
+        const me = demo.snapshot().me;
+        const spots = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: me.x + dx, y: me.y + dy }));
+        /* Three steps down, into the stone, without flooding. */
+        const spot = spots.find((s) => [0, 1, 2].every(() => /^dug/.test(demo.call("terraform", { ...s, mode: "dig" }) || "")));
+        expect(spot).toBeDefined();
+        const pack = () => {
+            const s = demo.snapshot().me;
+            return { dirt: s.inventory.dirt || 0, sand: s.inventory.sand || 0, stone: s.stone };
+        };
+        const dug = pack();
+        for (let i = 0; i < 4; i += 1) {
+            expect(demo.call("terraform", { ...spot, mode: "raise" })).toMatch(/^filled/);
+            expect(demo.call("terraform", { ...spot, mode: "dig" })).toMatch(/^dug/);
+        }
+        expect(pack()).toEqual(dug);
+    });
 });
