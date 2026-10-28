@@ -93,6 +93,23 @@ export default defineSchema({
     .index("by_chunk", ["chunk"])
     .index("by_regrow", ["regrowAt"]),
 
+  /*
+   * Ground players have dug or piled up: how many terrace steps each worked
+   * tile sits above or below the generated landscape (see src/lib/ground.js).
+   * One row per tile, looked up by chunk like `cells`, so a viewport reads
+   * only the handful of chunks it touches.
+   */
+  ground: defineTable({
+    x: v.number(),
+    y: v.number(),
+    chunk: v.string(),
+    edit: v.number(),
+    by: v.string(),
+    at: v.number(),
+  })
+    .index("by_x_and_y", ["x", "y"])
+    .index("by_chunk", ["chunk"]),
+
   chat: defineTable({
     name: v.string(),
     text: v.string(),

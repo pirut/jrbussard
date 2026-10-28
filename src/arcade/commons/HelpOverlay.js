@@ -20,6 +20,7 @@ const GROUPS = [
       [<>hold left</>, "keep swinging"],
       [<K>Space</K>, "act on what you aim at"],
       [<K>X</K>, "remove something you built"],
+      [<K>G</K>, "shovel: dig · raise · level · off"],
       [<><K>E</K> · <K>Q</K></>, "eat · drink a potion"],
     ],
   },

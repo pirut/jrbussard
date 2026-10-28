@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { tileAt, elevationAt, GRASS, TREE, WATER, ROCK, ROAD, SAND, CHUNK } from "../../lib/terrain";
+import { surfaceAt, DIRT, WATER_LEVEL as SHARED_WATER_LEVEL } from "../../lib/ground";
 import { resourceAt } from "../../lib/survival";
 import { shadeAt } from "../../lib/shade";
 import { material } from "./materials";
@@ -61,29 +62,26 @@ function grassMaterial() {
  * Chunks match the server's 16-tile chunks. Each is merged into one mesh per
  * glyph set, so a chunk with grass, trees and a pond is a handful of draw
  * calls however much is in it. A chunk is rebuilt only when something in it is
- * cleared or regrows.
+ * cleared, regrows, or is dug.
+ *
+ * The heights themselves come from src/lib/ground.js, shared with the server,
+ * so what you see dug is exactly what the server will let you walk.
  */
 
-export const WATER_LEVEL = -0.22;
-const SEABED = -0.7;
-const TERRACE = 0.3;
+export const WATER_LEVEL = SHARED_WATER_LEVEL;
 
 /* Land rises gently off the shore, then steeply toward the peaks, so the
-   lowlands stay walkable and the high ground stands up as mountains. */
-export function groundHeight(x, y) {
-    const tile = tileAt(x, y);
-    if (tile === WATER) return SEABED;
-    if (tile === SAND) return -0.06;
-    const e = elevationAt(x, y);
-    const steep = Math.max(0, e - 0.6);
-    const lift = Math.max(0, e - 0.33) * 6 + steep * steep * 30;
-    return Math.round(lift / TERRACE) * TERRACE;
+   lowlands stay walkable and the high ground stands up as mountains. `edit`
+   is the tile's overlay entry, if anybody has dug or piled it. */
+export function groundHeight(x, y, edit) {
+    return surfaceAt(x, y, edit).height;
 }
 
 /* The height something stands at: the ground, or a bridge over water. */
-export function standHeight(x, y, bridged) {
-    if (tileAt(x, y) === WATER) return bridged ? WATER_LEVEL + 0.16 : WATER_LEVEL;
-    return groundHeight(x, y);
+export function standHeight(x, y, bridged, edit) {
+    const surface = surfaceAt(x, y, edit);
+    if (surface.tile === WATER) return bridged ? WATER_LEVEL + 0.16 : WATER_LEVEL;
+    return surface.height;
 }
 
 const GROUND_COLOR = {
@@ -92,6 +90,7 @@ const GROUND_COLOR = {
     [ROCK]: "#6f7684",
     [ROAD]: "#7d7560",
     [SAND]: "#9c8c66",
+    [DIRT]: "#6b5640",
 };
 const GROUND_SET = {
     [GRASS]: "grass",
@@ -99,6 +98,7 @@ const GROUND_SET = {
     [ROCK]: "rock",
     [ROAD]: "path",
     [SAND]: "path",
+    [DIRT]: "path",
 };
 
 /* Collects triangles per material, then hands back one mesh for each. */
@@ -266,7 +266,7 @@ export function addBlades(batch, x, y, h, count, tall) {
  * stepped spire. Only where a full 3x3 of unmined rock stands, so nobody
  * can walk into it, and it comes down as soon as any of that rock is mined.
  */
-function findPeak(cx, cy, cleared, heightOf) {
+function findPeak(cx, cy, cleared, heightOf, worked) {
     if (hash(cx, cy, 78) > 0.6) return null;
     let best = null;
     for (let y = cy * CHUNK + 1; y < (cy + 1) * CHUNK - 1; y += 1) {
@@ -278,7 +278,7 @@ function findPeak(cx, cy, cleared, heightOf) {
             let high = -Infinity;
             for (let dy = -1; dy <= 1 && ok; dy += 1) {
                 for (let dx = -1; dx <= 1; dx += 1) {
-                    if (tileAt(x + dx, y + dy) !== ROCK || cleared.has(`${x + dx},${y + dy}`)) {
+                    if (tileAt(x + dx, y + dy) !== ROCK || cleared.has(`${x + dx},${y + dy}`) || worked(x + dx, y + dy)) {
                         ok = false;
                         break;
                     }
@@ -295,25 +295,30 @@ function findPeak(cx, cy, cleared, heightOf) {
 
 /*
  * One chunk. `cleared` is the set of "x,y" tiles where a tree or rock has been
- * harvested, so it is left out until it regrows.
+ * harvested, so it is left out until it regrows. `ground` (a GroundMap from
+ * src/lib/ground.js) says which tiles have been dug or piled, and how far.
  */
-export function buildChunk(cx, cy, cleared) {
+export function buildChunk(cx, cy, cleared, ground = null) {
     const batch = new Batch();
     const x0 = cx * CHUNK;
     const y0 = cy * CHUNK;
-    const heights = new Map();
-    const heightOf = (x, y) => {
+    const editAt = (x, y) => (ground ? ground.editAt(x, y) : undefined);
+    const worked = (x, y) => editAt(x, y) !== undefined;
+    const surfaces = new Map();
+    const surfaceOf = (x, y) => {
         const k = `${x},${y}`;
-        if (!heights.has(k)) heights.set(k, groundHeight(x, y));
-        return heights.get(k);
+        if (!surfaces.has(k)) surfaces.set(k, surfaceAt(x, y, editAt(x, y)));
+        return surfaces.get(k);
     };
-    const peak = findPeak(cx, cy, cleared, heightOf);
+    const heightOf = (x, y) => surfaceOf(x, y).height;
+    const peak = findPeak(cx, cy, cleared, heightOf, worked);
 
     for (let y = y0; y < y0 + CHUNK; y += 1) {
         for (let x = x0; x < x0 + CHUNK; x += 1) {
-            const tile = tileAt(x, y);
+            const surface = surfaceOf(x, y);
+            const tile = surface.tile;
             if (tile === WATER) continue;
-            const h = heightOf(x, y);
+            const h = surface.height;
             const shade = 0.9 + shadeAt(x, y) * 0.05;
             const set = GROUND_SET[tile];
             const top = tint(GROUND_COLOR[tile] || GROUND_COLOR[GRASS], shade).clone();
@@ -333,7 +338,8 @@ export function buildChunk(cx, cy, cleared) {
                 batch.quad(h - nh > 0.3 ? "rock" : set, [a[0], h, a[1]], [a[0], nh, a[1]], [b[0], nh, b[1]], [b[0], h, b[1]], cliff);
             });
 
-            if (cleared.has(`${x},${y}`)) continue;
+            /* Worked ground is bare: whatever grew there was dug out. */
+            if (cleared.has(`${x},${y}`) || surface.worked) continue;
             const resource = resourceAt(x, y);
             if (tile === GRASS) addBlades(batch, x, y, h, 14, 1);
             else if (tile === TREE) addBlades(batch, x, y, h, 6, 0.8);

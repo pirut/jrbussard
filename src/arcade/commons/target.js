@@ -13,7 +13,7 @@ const BLOCK_LOOK = {
  * Terrain comes from the shared generator, so this needs nothing from the
  * server beyond the blocks other people have placed.
  */
-export function describeTarget(x, y, cells) {
+export function describeTarget(x, y, cells, ground) {
   const built = cells.find((c) => c.x === x && c.y === y);
   if (built) {
     const cleared = built.kind === "stump" || built.kind === "rubble";
@@ -61,6 +61,9 @@ export function describeTarget(x, y, cells) {
     };
   }
 
+  /* Dug or piled by somebody's shovel: whatever grew there is gone. */
+  if (ground?.some((g) => g.x === x && g.y === y))
+    return { label: "worked earth", verb: "G for the shovel · B to build" };
   const resource = resourceAt(x, y);
   if (resource && resource !== "fish")
     return {
