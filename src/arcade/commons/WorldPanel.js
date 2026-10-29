@@ -20,6 +20,7 @@ export default function WorldPanel({
   firstPerson = false,
   onFirstPerson,
   onTurn,
+  children,
 }) {
   return (
     <section className="hud-world hud-card" aria-label="The world">
@@ -64,6 +65,7 @@ export default function WorldPanel({
           >
             <span aria-hidden="true">▦</span>
           </button>
+          {children}
           <button onClick={onHelp} title="Controls (H)" aria-label="Controls">
             ?
           </button>

@@ -27,15 +27,17 @@ export function clearedSet(cells) {
 
 /*
  * Tiles whose dig edit differs between two GroundMap.byChunk maps, looking
- * only at the chunks that `changed` names and that were known before. Each
+ * only at the chunks that `changed` names (see below for new ones). Each
  * comes back with the edit it has now (undefined once levelled back).
  */
 export function changedEdits(before, after, changed) {
     const out = [];
     changed.forEach((key) => {
-        /* A chunk heard of for the first time came into view; nothing
-           happened in it. */
-        if (!before.has(key)) return;
+        /* A chunk heard of for the first time has mostly just come into
+           view, and nothing happened in it. The server lists every chunk in
+           view, edited or not; the offline stand-in only those it has dug,
+           so a fresh chunk with a single edit is the first swing in it. */
+        if (!before.has(key) && (after.get(key) || []).length !== 1) return;
         const was = new Map((before.get(key) || []).map((g) => [`${g.x},${g.y}`, g.edit]));
         const now = after.get(key) || [];
         now.forEach((g) => {
