@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { material, ownMaterial, asFigure, hitFlash, figureMaterial as figureVertexMaterial } from "./materials";
-import { humanoidSpec, quadrupedSpec, koboldSpec, trollSpec, QUADRUPEDS, seedOf } from "./figureKit";
+import { humanoidSpec, quadrupedSpec, koboldSpec, trollSpec, shadeSpec, QUADRUPEDS, seedOf } from "./figureKit";
 import { buildFigure, releaseFigure } from "./figureGeometry";
 import { PALETTES, appearanceOf } from "../../lib/appearance";
 
@@ -37,8 +37,8 @@ function box(w, h, d, color, set, x, y, z, options) {
     return part(boxGeo(w, h, d), material(color, set, options), x, y, z);
 }
 
-/* Rounded parts for things added to a figure after it is built (a club, a
-   shade's eyes). Geometry is cached: a crowd shares one of each. */
+/* Rounded parts for things added to a figure after it is built (a troll's
+   club). Geometry is cached: a crowd shares one of each. */
 const sphereGeo = (r, sx = 1, sy = 1, sz = 1) =>
     geo(`sph${r},${sx},${sy},${sz}`, () => new THREE.SphereGeometry(r, 10, 7).scale(sx, sy, sz));
 const taperGeo = (rt, rb, h, seg = 10, sz = 1) =>
@@ -182,6 +182,12 @@ const CREATURES = {
             add(club, coneGeo(0.03, 0.1, 4), "#efe2c0", Math.cos(a) * 0.13, y, Math.sin(a) * 0.13).rotation.set(Math.sin(a) * 1.4, 0, -Math.cos(a) * 1.4);
         }
         armR.joint.add(club);
+        return model;
+    },
+    shade: () => {
+        const model = humanoidModel(shadeSpec());
+        model.scale.setScalar(1.08);
+        model.userData.hunch = 0.2;
         return model;
     },
 };

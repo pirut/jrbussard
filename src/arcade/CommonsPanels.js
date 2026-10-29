@@ -6,9 +6,10 @@ import {
   inventoryOf,
   recipeBlocker,
   costLabel,
-  journeyOf,
 } from "../lib/survival";
 import { withinReach } from "../lib/terrain";
+import QuestLog from "./commons/QuestLog";
+import ProjectsPanel from "./commons/ProjectsPanel";
 
 export function Fieldcraft({
   me,
@@ -18,6 +19,9 @@ export function Fieldcraft({
   craft,
   eat,
   transfer,
+  projects,
+  claimQuest,
+  contribute,
   tab,
   setTab,
 }) {
@@ -246,21 +250,12 @@ export function Fieldcraft({
         )}
         {tab === "Journal" && (
           <>
-            <h3 className="journal-heading">A foothold in the wild.</h3>
-            <p className="station-status">
-              Small beginnings. A settlement, in time.
-            </p>
-            <ol className="survival-journey">
-              {journeyOf(me).map((entry, i) => (
-                <li className={entry.done ? "is-done" : ""} key={entry.id}>
-                  <span>{entry.done ? "✓" : `0${i + 1}`}</span>
-                  <div>
-                    <b>{entry.title}</b>
-                    <p>{entry.detail}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <QuestLog me={me} onClaim={claimQuest} />
+            <ProjectsPanel
+              projects={projects}
+              me={me}
+              onContribute={contribute}
+            />
             <div className="survival-guide">
               <h3>Know the wilderness</h3>
               <p>
@@ -272,6 +267,11 @@ export function Fieldcraft({
                 Night and bad weather bring cold. Stay near a fueled campfire,
                 eat regularly, and wear a coat. A closed door and walls keep
                 creatures out.
+              </p>
+              <p>
+                From dusk to dawn, shades hunt from far off. Torchlight holds
+                them back and the sunrise burns them away. Be out in the wild
+                when it does, and you have survived the night.
               </p>
               <p>
                 Use your bedroll to set camp. Death costs 10% of your gold;

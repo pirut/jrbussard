@@ -14,14 +14,14 @@ import {
   setName,
 } from "../lib/convex";
 import { withinReach } from "../lib/terrain";
-import { ITEMS, resourceAt, journeyOf, inventoryOf } from "../lib/survival";
+import { ITEMS, resourceAt, inventoryOf } from "../lib/survival";
 import { Fieldcraft } from "./CommonsPanels";
 import CharacterSheet from "./commons/CharacterSheet";
 import { describeTarget } from "./commons/target";
 import Nametags from "./commons/Nametags";
 import Vitals from "./commons/Vitals";
 import WorldPanel from "./commons/WorldPanel";
-import Objective from "./commons/Objective";
+import QuestTracker from "./commons/QuestTracker";
 import Chat from "./commons/Chat";
 import ActionBar, { BUILD_MENU } from "./commons/ActionBar";
 import HelpOverlay from "./commons/HelpOverlay";
@@ -30,6 +30,7 @@ import TitleScreen from "./commons/TitleScreen";
 import Inspect from "./commons/Inspect";
 import { heldSwing } from "./commons/held";
 import HudWindow from "./commons/HudWindow";
+import useCommonsSound from "./commons/useCommonsSound";
 import AsciiField from "./ascii3d/AsciiField";
 import { octStep, stepTime } from "./ascii3d/controls";
 import { createBody, stepBody, tileOf } from "../world/motion";
@@ -79,6 +80,7 @@ function Online() {
   const session = useMemo(() => getSession(), []);
   const [name, setLocalName] = useState(() => getName());
   const state = useQuery(api.state, { session });
+  const projects = useQuery(api.projects, {});
   const join = useMutation(api.join);
   const heartbeat = useMutation(api.heartbeat);
   const mutations = {
@@ -95,6 +97,8 @@ function Online() {
     eat: useMutation(api.eat),
     transfer: useMutation(api.transfer),
     customize: useMutation(api.customize),
+    claimQuest: useMutation(api.claimQuest),
+    contribute: useMutation(api.contribute),
   };
   const mutationsRef = useRef(mutations);
   mutationsRef.current = mutations;
@@ -143,6 +147,7 @@ function Online() {
   return (
     <Game
       state={state}
+      projects={projects}
       call={call}
       live
       status={lost}
@@ -278,11 +283,19 @@ const isCleared = (cell) =>
  *                    in build mode, lay a run
  *   pinch · twist    zoom · turn the camera a quarter
  */
-function Game({ state: served, call, live, status = "", onSaveCharacter }) {
+function Game({
+  state: served,
+  projects = null,
+  call,
+  live,
+  status = "",
+  onSaveCharacter,
+}) {
   const rootRef = useRef(null);
   const stageRef = useRef(null);
   const fieldApi = useRef(null);
   const chatRef = useRef(null);
+  const [muted, toggleSound] = useCommonsSound(fieldApi);
 
   const [notice, setNotice] = useState("");
   const [panel, setPanel] = useState(null);
@@ -1442,7 +1455,6 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
         : [];
     return ghostsFor(state, { x: standX, y: standY }, spots, selected, facing);
   }, [building, playing, paint, aim, state, standX, standY, selected, facing]);
-  const journey = journeyOf(me);
   const inspection =
     state.players.find((p) => p.id === inspected?.id) || inspected;
 
@@ -1526,8 +1538,26 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
               firstPerson={firstPerson}
               onFirstPerson={() => setFirstPerson((on) => !on)}
               onTurn={(way) => fieldApi.current?.rotate(way * (Math.PI / 2))}
+            >
+              <button
+                onClick={toggleSound}
+                aria-pressed={!muted}
+                title={muted ? "Sound off (N)" : "Sound on (N)"}
+                aria-label={muted ? "Turn sound on" : "Turn sound off"}
+              >
+                <span
+                  aria-hidden="true"
+                  style={muted ? { textDecoration: "line-through", opacity: 0.6 } : undefined}
+                >
+                  ♪
+                </span>
+              </button>
+            </WorldPanel>
+            <QuestTracker
+              me={me}
+              onOpen={() => setPanel("Journal")}
+              onClaim={() => act("claimQuest")}
             />
-            <Objective journey={journey} onOpen={() => setPanel("Journal")} />
           </div>
           <Chat
             chat={state.chat}
@@ -1601,6 +1631,9 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
                 transfer={(chest, item, direction) =>
                   act("transfer", { x: chest.x, y: chest.y, item, direction })
                 }
+                projects={projects}
+                claimQuest={() => act("claimQuest")}
+                contribute={(item) => act("contribute", { item })}
                 tab={panel}
                 setTab={setPanel}
               />
