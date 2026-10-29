@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CODES, FACE_RAMPS, FAMILIES, GAINS, GLYPHS, GLYPH_SETS, LEVELS, RAMPS, SQUARES, VARIANTS, glyphCode } from "./glyphs";
 
 /*
  * Turning a 3D render into characters.
@@ -20,6 +21,9 @@ import * as THREE from "three";
  * grid, and writes which character and what colour. The second runs per
  * screen pixel and stamps that character from an atlas.
  *
+ * The tables (sets, families, ramps) and the rules for choosing live in
+ * glyphs.js, without WebGL, so they can be tested and reused.
+ *
  * Materials still have a say. Each writes a small code into alpha naming its
  * set, and a set can limit itself to a family of characters, so water only
  * ever draws in "~-=_" and grass in strokes, whatever the shapes suggest.
@@ -27,89 +31,7 @@ import * as THREE from "three";
  * empty cells so they never melt into what stands behind them.
  */
 
-export const GLYPH_SETS = {
-    /* 0 is the default: anything without an opinion. */
-    solid: 0,
-    water: 1,
-    leaves: 2,
-    grass: 3,
-    fire: 4,
-    rock: 5,
-    timber: 6,
-    path: 7,
-    figure: 8,
-    /* Things that give off light: windows, lanterns, signs. */
-    light: 9,
-};
-const CODES = 16;
-
-/* The alpha a material writes to select a glyph set. */
-export function glyphCode(set) {
-    return (set + 0.5) / CODES;
-}
-
-/* Every printable character, space first, then two solid squares for
-   things that shine. */
-const GLYPHS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("") + "\u25aa\u25a0";
-
-/* The squares belong to light alone. */
-const SQUARES = "\u25aa\u25a0";
-
-/* Characters a set may draw with. Sets not listed may use any. */
-const FAMILIES = {
-    /* Built things draw in strokes and marks, never letters, so a wall reads
-       as masonry rather than as a page of type. */
-    solid: " .,:;'`\"-_=+*#%|/\\()<>^~!",
-    rock: " .,:;'`\"-_=+*#%@&$|/\\()<>^~!",
-    light: " .:-=+*#\u25aa\u25a0",
-    water: " ~-=_.,'`^:",
-    leaves: " .,:;'`\"*+o%&@#^~()",
-    grass: " /\\|'\",.`:;vVwWyY!il",
-    fire: " *^'\".,:+xX%#&@`",
-    timber: " =-_|:.'#+",
-    path: " .,:;-_='\"`",
-    /* Figures draw in symbols, not letters, so a person stands out from a
-       world written in type. */
-    figure: " .,:;'`\"-_=+*#%@|/\\()<>^~![]{}oO0",
-};
-
-/*
- * Flat stretches, where a cell holds no edge, draw from a ramp instead: ten
- * density levels per set, four interchangeable characters each, picked per
- * cell by a hash of where it sits. A wall then reads as a page of type
- * ("uqeq&%p") rather than one letter repeated. Index by set number.
- */
-const LEVELS = 10;
-const VARIANTS = 4;
-const RAMPS = [
-    /* solid */ ["    ", " .' ", ".,-'", ":;-:", "=:;=", "+=-=", "+*=+", "*#+*", "#%*#", "%#%#"],
-    /* water */ ["    ", " .  ", ".-.,", "-~-.", "~~-~", "~=~~", "=~=~", "~=~=", "==~=", "===="],
-    /* leaves */ ["    ", " .' ", ".,:'", ":;*,", "*+o;", "o*+%", "%&o*", "&%*&", "@&%&", "@@%#"],
-    /* grass */ [" .  ", " .,'", ",'`.", "',/\\", "/|\\'", "/\\|\"", "\\/|v", "|/\\v", "wvWv", "WwVW"],
-    /* fire */ ["    ", " .' ", ".'*.", "*+'*", "+*^*", "*%+*", "%*&*", "&%@*", "@&%@", "@@#@"],
-    /* rock */ ["    ", " .' ", ".:-'", ":-=;", "=;:=", "+=-=", "*=+*", "#*%+", "%#$%", "#@%&"],
-    /* timber */ ["    ", " .  ", ". -.", "-.-.", "-:-=", "=-:-", "=-=+", "+=-=", "=+=#", "#=+="],
-    /* path */ ["    ", "    ", " .  ", ". . ", ".,. ", ",.:.", ":.,:", ";:.:", "=;:=", "=:=;"],
-    /* figure */ ["    ", " .' ", ".:-'", ":-=;", "=+-=", "+*=+", "*o+*", "#*%o", "%#@%", "@#%@"],
-    /* light */ ["    ", " .. ", ".:.:", ":-:-", "=-=+", "+=+*", "*+#*", "#\u25aa#\u25aa", "\u25aa\u25a0\u25aa\u25a0", "\u25a0\u25a0\u25a0\u25a0"],
-];
-
-/*
- * Built things seen from above, where a flat face holds no edge: one
- * character per brightness, chosen by which way the face looks. Roofs and
- * floors are stippled, walls facing left are boarded upright, walls facing
- * right run in courses. Three faces, three textures, so a block reads as a
- * block. No shuffling between neighbours: a face is one even texture.
- */
-const FACE_RAMPS = [
-    /* top */ " ...::;==#",
-    /* left */ " .::!!|||#",
-    /* right */ " .---===##",
-];
-
-/* Brightness gain per set: ground and walls stay airy, figures carry the
-   picture. Index by set number. */
-const GAINS = [1.25, 1.2, 1.15, 1.0, 1.4, 1.15, 1.05, 1.05, 0.9, 1.3];
+export { GLYPH_SETS, glyphCode };
 
 const REGIONS_X = 2;
 const REGIONS_Y = 3;
