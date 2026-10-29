@@ -504,7 +504,7 @@ export function trollSpec() {
  */
 export function sphereSegments(r, sx = 1, sy = 1, sz = 1) {
     const size = r * Math.max(sx, sy, sz);
-    if (size >= 0.15) return [14, 10];
-    if (size >= 0.07) return [10, 7];
-    return [7, 5];
+    if (size >= 0.15) return [12, 9];
+    if (size >= 0.07) return [9, 6];
+    return [6, 4];
 }

@@ -38,7 +38,7 @@ const MAKERS = {
         const [w] = sphereSegments(r, sx, sy, sz);
         return new THREE.SphereGeometry(r, w, 6, 0, Math.PI * 2, 0, Math.PI * cut).scale(sx, sy, sz);
     },
-    capsule: (r, length) => new THREE.CapsuleGeometry(r, length, 3, 10),
+    capsule: (r, length) => new THREE.CapsuleGeometry(r, length, 2, 8),
     taper: (rt, rb, h, seg = 10, sz = 1) => new THREE.CylinderGeometry(rt, rb, h, seg).scale(1, 1, sz),
     cone: (r, h, seg = 8) => new THREE.ConeGeometry(r, h, seg),
     cape: capeGeometry,
