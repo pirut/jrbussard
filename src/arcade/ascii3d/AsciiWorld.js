@@ -235,15 +235,20 @@ export default class AsciiWorld {
            on machines that cannot keep up (see perf.js). */
         this.perf = perfEnabled() ? new PerfOverlay(container) : null;
         const pinned = pinnedQuality();
+        /* Only steps the governor measured its way to are remembered:
+           saving the step it was started on would walk it down one more
+           every visit (see recallQuality). */
+        let measured = false;
         this.governor = new QualityGovernor({
             enabled: pinned === null,
             onChange: (quality, level) => {
                 this.applyQuality(quality);
-                if (pinned === null) rememberQuality(level);
+                if (pinned === null && measured) rememberQuality(level);
             },
         });
         const start = pinned ?? recallQuality();
         if (start) this.governor.set(start);
+        measured = true;
         /* For poking at from the console while tuning. */
         if (this.perf) window.asciiWorld = this;
 
