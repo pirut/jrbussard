@@ -1,0 +1,14 @@
+diff --git a/node_modules/expo-gl/ExpoGL.podspec b/node_modules/expo-gl/ExpoGL.podspec
+index 58ad4ac..e002766 100644
+--- a/node_modules/expo-gl/ExpoGL.podspec
++++ b/node_modules/expo-gl/ExpoGL.podspec
+@@ -11,7 +11,8 @@ Pod::Spec.new do |s|
+   s.author          = package['author']
+   s.homepage        = package['homepage']
+   s.platforms       = {
+-    :ios => '16.4'
++    :ios => '16.4',
++    :tvos => '16.4'
+   }
+   s.source          = { git: 'https://github.com/expo/expo-gl.git' }
+   s.static_framework = true

@@ -21,6 +21,7 @@
     "@react-native-tvos/config-tv": "^0.1.7",
     "@types/react": "~19.3.0",
     "@types/three": "^0.169.0",
+    "patch-package": "^8.0.1",
     "typescript": "~6.0.3",
     "vitest": "^5.0.5"
   },
@@ -35,7 +36,8 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "tvos": "EXPO_TV=1 expo run:ios --device \"Apple TV\"",
-    "test": "vitest run"
+    "test": "vitest run",
+    "postinstall": "patch-package"
   },
   "private": true
 }

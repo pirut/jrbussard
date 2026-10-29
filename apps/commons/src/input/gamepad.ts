@@ -24,6 +24,8 @@ const DEAD = 0.2;
 
 export function createGamepad(): InputSource {
   let hub: InputSink | null = null;
+  let connected = false;
+  const held = new Set<Action>();
   return {
     id: 'gamepad',
     attach(sink) {
@@ -36,7 +38,16 @@ export function createGamepad(): InputSource {
     poll() {
       if (!hub) return;
       const pad = Array.from(navigator.getGamepads()).find((p) => p && p.connected);
-      if (!pad) return;
+      if (!pad) {
+        /* Unplugged mid-walk: let go of everything it was holding. */
+        if (connected) {
+          connected = false;
+          hub.setAxis('gamepad', 0, 0);
+          held.forEach((action) => hub!.hold('gamepad', action, false));
+        }
+        return;
+      }
+      connected = true;
       const ax = pad.axes[0] ?? 0;
       const ay = pad.axes[1] ?? 0;
       const live = Math.hypot(ax, ay) > DEAD;
@@ -45,10 +56,14 @@ export function createGamepad(): InputSource {
       const dy = (pad.buttons[12]?.pressed ? 1 : 0) - (pad.buttons[13]?.pressed ? 1 : 0);
       if (live) hub.setAxis('gamepad', ax, -ay);
       else hub.setAxis('gamepad', dx, dy);
-      const held = new Map<Action, boolean>();
-      BUTTONS.forEach(([i, action]) => held.set(action, Boolean(held.get(action)) || Boolean(pad.buttons[i]?.pressed)));
-      held.set('confirm', Boolean(pad.buttons[0]?.pressed));
-      held.forEach((down, action) => hub!.hold('gamepad', action, down));
+      const now = new Map<Action, boolean>();
+      BUTTONS.forEach(([i, action]) => now.set(action, Boolean(now.get(action)) || Boolean(pad.buttons[i]?.pressed)));
+      now.set('confirm', Boolean(pad.buttons[0]?.pressed));
+      now.forEach((down, action) => {
+        hub!.hold('gamepad', action, down);
+        if (down) held.add(action);
+        else held.delete(action);
+      });
     },
   };
 }
