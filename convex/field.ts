@@ -76,24 +76,10 @@ export function phaseAt(now: number): { phase: string; progress: number } {
 
 export const WEATHERS = ["clear", "clear", "clear", "rain", "fog", "storm"];
 
-export const MONSTERS: Record<
-  string,
-  {
-    name: string;
-    hp: number;
-    damage: number;
-    xp: number;
-    gold: number;
-    ch: string;
-  }
-> = {
-  rat: { name: "field rat", hp: 8, damage: 2, xp: 6, gold: 3, ch: "r" },
-  kobold: { name: "kobold", hp: 18, damage: 5, xp: 18, gold: 9, ch: "k" },
-  wolf: { name: "grey wolf", hp: 30, damage: 9, xp: 40, gold: 18, ch: "w" },
-  troll: { name: "moss troll", hp: 70, damage: 17, xp: 120, gold: 60, ch: "T" },
-};
-
-export const MONSTER_ORDER = ["rat", "kobold", "wolf", "troll"];
+/* Creatures and how they behave live in src/lib/game/creatures.js. */
+import { CREATURES, DAY_ORDER } from "../src/lib/game/creatures.js";
+export const MONSTERS = CREATURES;
+export const MONSTER_ORDER = DAY_ORDER;
 
 export function xpForLevel(level: number): number {
   return Math.floor(40 * level ** 1.5);

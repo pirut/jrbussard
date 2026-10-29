@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSurvivor, buildCreature, disposeModel, pose } from "../src/arcade/ascii3d/models";
+import { buildSurvivor, buildCreature, creatureKinds, disposeModel, pose } from "../src/arcade/ascii3d/models";
 import { mergeModel, disposeMerged } from "../src/arcade/ascii3d/mergeModel";
 import { disposeMaterials } from "../src/arcade/ascii3d/materials";
 
@@ -47,6 +47,17 @@ describe("figure cleanup", () => {
     expect(first.disposed.has(head.geometry), "head geometry disposed").toBe(true);
     expect(first.disposed.has(head.material), "head material disposed").toBe(true);
     first.used.geometries.forEach((g) => expect(first.disposed.has(g)).toBe(true));
+  });
+
+  it("frees all of a shade, which is a figure recipe like the rest", () => {
+    expect(creatureKinds()).toContain("shade");
+    const model = mergeModel(buildCreature("shade"));
+    const used = resourcesOf([model]);
+    const disposed = new Set();
+    used.geometries.forEach((g) => g.addEventListener("dispose", () => disposed.add(g)));
+    disposeMerged(model);
+    disposeMaterials();
+    used.geometries.forEach((g) => expect(disposed.has(g)).toBe(true));
   });
 
   it("does not hand a remounted world the resources of a closed one", () => {
