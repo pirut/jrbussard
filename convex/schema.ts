@@ -22,6 +22,8 @@ export default defineSchema({
     /* Which run of the tick loop is the live one. A restart bumps it, so a
        loop that was given up on stands down instead of running twice. */
     loop: v.optional(v.number()),
+    /* The sky as the tick last saw it, so dusk and dawn happen once. */
+    phase: v.optional(v.string()),
   }).index("by_key", ["key"]),
 
   players: defineTable({
@@ -59,6 +61,10 @@ export default defineSchema({
     gathered: v.optional(v.number()),
     milestones: v.optional(v.array(v.string())),
     home: v.optional(v.object({ x: v.number(), y: v.number() })),
+    /* Counters for the quest chain ("gather:wood", "kill:wolf", "nights"),
+       and the index of the task in hand. See src/lib/game/. */
+    stats: v.optional(v.record(v.string(), v.number())),
+    quest: v.optional(v.number()),
   })
     .index("by_session", ["session"])
     .index("by_lastSeen", ["lastSeen"])
@@ -142,6 +148,19 @@ export default defineSchema({
   })
     .index("by_session", ["session"])
     .index("by_lastSeen", ["lastSeen"]),
+
+  /*
+   * Shared work at the crossroads (src/lib/game/projects.js): one row per
+   * project, holding what has been given so far. There are only ever a
+   * handful.
+   */
+  projects: defineTable({
+    key: v.string(),
+    progress: v.record(v.string(), v.number()),
+    done: v.boolean(),
+    doneAt: v.optional(v.number()),
+    contributors: v.number(),
+  }).index("by_key", ["key"]),
 
   chat: defineTable({
     name: v.string(),
