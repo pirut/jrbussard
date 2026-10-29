@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { AsciiPass, glyphCode } from "../arcade/ascii3d/asciiPass";
-import { disposeMaterials, retainMaterials } from "../arcade/ascii3d/materials";
+import { retainMaterials } from "../arcade/ascii3d/materials";
+import { abandon } from "../arcade/ascii3d/abandon";
 import { buildSurvivor, buildCursor, disposeModel, pose } from "../arcade/ascii3d/models";
 import { releaseFigure } from "../arcade/ascii3d/figureGeometry";
 import { Batch, P, place, tint, hash, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
@@ -67,7 +68,18 @@ function rgbHex(rgb) {
 }
 
 export default class SiteScene {
-    constructor(container, world, { cellWidth = 3, cellHeight = 6, reducedMotion = false, phase = "dusk" } = {}) {
+    constructor(container, world, options) {
+        /* If setting up throws, the caller never gets this to dispose of,
+           so it disposes of itself before passing the error on. */
+        try {
+            this.init(container, world, options);
+        } catch (error) {
+            abandon(this);
+            throw error;
+        }
+    }
+
+    init(container, world, { cellWidth = 3, cellHeight = 6, reducedMotion = false, phase = "dusk" } = {}) {
         this.container = container;
         this.world = world;
         this.reducedMotion = reducedMotion;
@@ -89,7 +101,7 @@ export default class SiteScene {
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
         /* Past the point a missing WebGL throws: from here dispose() runs. */
-        retainMaterials();
+        this.materials = retainMaterials();
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -781,7 +793,7 @@ export default class SiteScene {
         this.ascii.dispose();
         this.labelLayer.remove();
         if (this.perf) this.perf.dispose();
-        disposeMaterials();
+        this.materials?.release();
         this.renderer.dispose();
         this.renderer.domElement.remove();
     }

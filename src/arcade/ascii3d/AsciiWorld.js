@@ -16,7 +16,8 @@ import {
     flashModel,
     disposeModel,
 } from "./models";
-import { disposeMaterials, retainMaterials } from "./materials";
+import { retainMaterials } from "./materials";
+import { abandon } from "./abandon";
 import { disposeMerged, mergeModel } from "./mergeModel";
 import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera, snapIsoCamera } from "./iso";
 import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality } from "./perf";
@@ -100,7 +101,18 @@ function lerpAngle(a, b, t) {
 
 
 export default class AsciiWorld {
-    constructor(container, { cellWidth = 8, cellHeight = 14, reducedMotion = false } = {}) {
+    constructor(container, options) {
+        /* If setting up throws, the caller never gets this to dispose of,
+           so it disposes of itself before passing the error on. */
+        try {
+            this.init(container, options);
+        } catch (error) {
+            abandon(this);
+            throw error;
+        }
+    }
+
+    init(container, { cellWidth = 8, cellHeight = 14, reducedMotion = false } = {}) {
         this.container = container;
         this.reducedMotion = reducedMotion;
         this.cellCss = { w: cellWidth, h: cellHeight };
@@ -154,7 +166,7 @@ export default class AsciiWorld {
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
         /* Past the point a missing WebGL throws: from here dispose() runs. */
-        retainMaterials();
+        this.materials = retainMaterials();
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -1451,7 +1463,7 @@ export default class AsciiWorld {
         this.ascii.dispose();
         if (this.perf) this.perf.dispose();
         this.fxLayer.remove();
-        disposeMaterials();
+        this.materials?.release();
         this.renderer.dispose();
         this.renderer.domElement.remove();
     }

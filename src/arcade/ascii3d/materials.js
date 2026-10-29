@@ -121,19 +121,30 @@ export function hitFlash() {
 
 /*
  * Materials are shared by every scene open at once (the Commons, the main
- * site, a page's diorama). A scene calls retainMaterials() when it opens and
- * disposeMaterials() when it closes; the materials are freed only when the
- * last scene that retained them closes, so closing one does not pull them
- * out from under another. A caller that never retained frees at once.
+ * site, a page's diorama). A scene takes a hold with retainMaterials() once
+ * it is past the point it can fail to start, and gives it back with the
+ * hold's release() when it closes. Each hold counts once however often it
+ * is released, and the materials are freed when the last hold goes, so
+ * closing one scene (even twice) does not pull them out from under another.
+ * disposeMaterials() frees them only while no scene holds them.
  */
-let materialUsers = 0;
+const holds = new Set();
 export function retainMaterials() {
-    materialUsers += 1;
+    const hold = {
+        release() {
+            if (!holds.delete(hold)) return;
+            if (holds.size === 0) freeMaterials();
+        },
+    };
+    holds.add(hold);
+    return hold;
 }
 
 export function disposeMaterials() {
-    if (materialUsers > 0) materialUsers -= 1;
-    if (materialUsers > 0) return;
+    if (holds.size === 0) freeMaterials();
+}
+
+function freeMaterials() {
     cache.forEach((m) => m.dispose());
     cache.clear();
     figures.forEach((m) => m.dispose());

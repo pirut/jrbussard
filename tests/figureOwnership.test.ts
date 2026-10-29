@@ -132,14 +132,14 @@ describe("every figure is given back", () => {
 
 describe("shared materials", () => {
   it("outlive one scene closing while another still uses them", () => {
-    materials.retainMaterials();
-    materials.retainMaterials();
+    const first = materials.retainMaterials();
+    const second = materials.retainMaterials();
     const figure = buildSurvivor(LOOK);
     const seen = watch(headOf(figure).material);
-    materials.disposeMaterials();
+    first.release();
     expect(seen.disposed, "first of two scenes closed").toBe(0);
     disposeModel(figure);
-    materials.disposeMaterials();
+    second.release();
     expect(seen.disposed, "last scene closed").toBe(1);
   });
 });

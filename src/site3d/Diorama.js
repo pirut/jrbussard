@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { AsciiPass, glyphCode } from "../arcade/ascii3d/asciiPass";
-import { disposeMaterials, material, retainMaterials } from "../arcade/ascii3d/materials";
+import { material, retainMaterials } from "../arcade/ascii3d/materials";
+import { abandon } from "../arcade/ascii3d/abandon";
 import { buildSurvivor, disposeModel, pose } from "../arcade/ascii3d/models";
 import { releaseFigure } from "../arcade/ascii3d/figureGeometry";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
@@ -150,7 +151,18 @@ function lost(scene) {
 const SETS = { arcade, lost };
 
 export default class Diorama {
-    constructor(container, name, { cellWidth = 6, cellHeight = 10, reducedMotion = false } = {}) {
+    constructor(container, name, options) {
+        /* If setting up throws, the caller never gets this to dispose of,
+           so it disposes of itself before passing the error on. */
+        try {
+            this.init(container, name, options);
+        } catch (error) {
+            abandon(this);
+            throw error;
+        }
+    }
+
+    init(container, name, { cellWidth = 6, cellHeight = 10, reducedMotion = false } = {}) {
         this.container = container;
         this.reducedMotion = reducedMotion;
         this.cellCss = { w: cellWidth, h: cellHeight };
@@ -159,7 +171,7 @@ export default class Diorama {
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "low-power" });
         /* Past the point a missing WebGL throws: from here dispose() runs. */
-        retainMaterials();
+        this.materials = retainMaterials();
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         const canvas = this.renderer.domElement;
@@ -237,7 +249,7 @@ export default class Diorama {
         /* Any figure the set left holding shared geometry gives it back. */
         releaseFigure(this.scene);
         this.ascii.dispose();
-        disposeMaterials();
+        this.materials?.release();
         this.renderer.dispose();
         this.renderer.domElement.remove();
     }
