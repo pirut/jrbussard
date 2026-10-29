@@ -81,9 +81,11 @@ export function planContribution({ project, progress, item, have, atCrossroads }
       message: `gave ${amount} ${item} to the crossroads stores`,
     };
   }
+  /* Own keys only: "constructor" is not a supply. */
+  if (!Object.hasOwn(project.need, item))
+    return { error: `the ${project.name.toLowerCase()} needs no ${item}` };
   const need = project.need[item];
-  if (!need) return { error: `the ${project.name.toLowerCase()} needs no ${item}` };
-  const given = progress?.[item] || 0;
+  const given = (progress && Object.hasOwn(progress, item) && progress[item]) || 0;
   const amount = Math.min(CONTRIBUTE_MAX, Math.max(0, Math.floor(have)), need - given);
   if (need - given <= 0) return { error: `enough ${item} for now` };
   if (amount <= 0) return { error: `you have no ${item}` };

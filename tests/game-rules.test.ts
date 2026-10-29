@@ -254,6 +254,14 @@ describe("projects", () => {
     expect(planContribution({ ...base, item: "wood", have: 0 }).error).toBe("you have no wood");
   });
 
+  it("only takes supplies by their own names, not inherited ones", () => {
+    const base = { project: well, progress: {}, have: 5, atCrossroads: true };
+    ["constructor", "toString", "__proto__", "hasOwnProperty"].forEach((item) => {
+      expect(planContribution({ ...base, item }).error).toBe(`the crossroads well needs no ${item}`);
+      expect(planContribution({ ...base, project: null, item }).error).toBe("the stores take only wood, stone and fiber");
+    });
+  });
+
   it("keeps taking basic supplies into the stores once every project is finished", () => {
     const done = { project: null, progress: undefined, have: 25, atCrossroads: true };
     expect(planContribution({ ...done, item: "wood" })).toMatchObject({

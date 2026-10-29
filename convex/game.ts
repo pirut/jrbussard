@@ -96,7 +96,7 @@ export const contribute = mutation({
       project,
       progress: row?.progress,
       item: args.item,
-      have: bag[args.item] || 0,
+      have: (Object.hasOwn(bag, args.item) && bag[args.item]) || 0,
       atCrossroads: inSafeZone(player.x, player.y),
     });
     if (plan.error !== undefined) return plan.error;

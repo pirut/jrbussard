@@ -221,6 +221,17 @@ describe("crossroads projects", () => {
     expect(chat.some((c) => c.kind === "project")).toBe(true);
   });
 
+  it("refuses a supply named after an object property", async () => {
+    const t = make();
+    const id = await seed(t, "alice", { x: 1, y: 0 });
+    const before = await get(t, id);
+    expect(await t.mutation(api.game.contribute, { session: "alice", item: "constructor" })).toBe(
+      "the crossroads well needs no constructor",
+    );
+    expect(await get(t, id)).toEqual(before);
+    expect(await t.run((ctx) => ctx.db.query("projects").collect())).toEqual([]);
+  });
+
   it("still lets a newcomer finish the commons task once every project is done", async () => {
     const t = make();
     const id = await seed(t, "alice", { x: 1, y: 0, quest: 7 });
