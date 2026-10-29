@@ -19,6 +19,7 @@ import {
     glyphCode,
     tierFlags,
 } from "./glyphs";
+import { HistoryTracker } from "./history";
 
 /*
  * Turning a 3D render into characters.
@@ -954,17 +955,14 @@ export class AsciiPass {
         this.pick = null;
         this.atlas = null;
         this.tier = tierFlags("full");
-        /* Where the camera stood last frame, to tell whether last frame's
-           cells still line up with this one's. */
-        this.lastShift = new THREE.Vector2();
-        this.lastView = new Float32Array(16);
-        this.fresh = true;
+        /* Whether last frame's cells still line up with this one's. */
+        this.history = new HistoryTracker();
     }
 
     /* A quality tier from glyphs.js ASCII_TIERS: "full", "lite" or "min". */
     setTier(name) {
         this.tier = tierFlags(name);
-        if (!this.tier.stable) this.fresh = true;
+        if (!this.tier.stable) this.history.invalidate();
     }
 
     /* Shared uniforms, by name, across both passes. */
@@ -1008,7 +1006,7 @@ export class AsciiPass {
            compare against. */
         this.pick = cells();
         this.pickPrev = cells();
-        this.fresh = true;
+        this.history.invalidate();
         this.glow = new THREE.WebGLRenderTarget(cols, rows, {
             minFilter: THREE.NearestFilter,
             magFilter: THREE.NearestFilter,
@@ -1053,37 +1051,27 @@ export class AsciiPass {
 
     /*
      * Whether last frame's cells line up with this frame's, and if so how
-     * far they slid. They do while the camera only slides by whole cells
-     * (the isometric follow camera, see snapIsoCamera); a turn, a zoom or a
-     * perspective camera on the move re-deals every cell, and holding on to
-     * last frame's choices then would only smear.
+     * far they slid (see history.js). A turn, a zoom, a change of camera,
+     * a perspective camera on the move or a lost context and last frame's
+     * cells are ignored; holding on to them would smear, or (after a
+     * context comes back with empty targets) hold cells blank.
      */
-    trackHistory() {
+    trackHistory(renderer = null) {
         const p = this.pickMaterial.uniforms;
-        const m = p.uCamToWorld.value.elements;
-        const ortho = p.uOrtho.value > 0.5;
-        let same = !this.fresh && this.tier.stable;
-        /* Rotation and scale: the upper 3×3. Position only matters for a
-           perspective camera; the isometric one moves by whole cells. */
-        for (let i = 0; i < 16 && same; i += 1) {
-            if (i % 4 === 3 || (ortho && i >= 12)) continue;
-            if (Math.abs(m[i] - this.lastView[i]) > 1e-5) same = false;
-        }
-        const shift = p.uCellShift.value;
-        /* uCellShift wraps at 4096. */
-        const wrap = (d) => ((((d + 2048) % 4096) + 4096) % 4096) - 2048;
-        const dx = wrap(shift.x - this.lastShift.x);
-        const dy = wrap(shift.y - this.lastShift.y);
-        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) same = false;
+        if (renderer) this.history.watch(renderer.domElement);
+        const camera = {
+            view: p.uCamToWorld.value.elements,
+            /* The inverse changes whenever the projection does. */
+            projection: p.uInvProj.value.elements,
+            ortho: p.uOrtho.value > 0.5,
+        };
+        const { valid, dx, dy } = this.history.update(camera, p.uCellShift.value, this.tier.stable);
         p.uHistShift.value.set(dx, dy);
-        p.uHistory.value = same ? 1 : 0;
-        this.lastView.set(m);
-        this.lastShift.copy(shift);
-        this.fresh = false;
+        p.uHistory.value = valid ? 1 : 0;
     }
 
     render(renderer) {
-        this.trackHistory();
+        this.trackHistory(renderer);
         /* Last frame's cells become the ones to compare against. */
         [this.pick, this.pickPrev] = [this.pickPrev, this.pick];
         this.pickMaterial.uniforms.tPrev.value = this.pickPrev.texture;
@@ -1122,6 +1110,7 @@ export class AsciiPass {
     }
 
     dispose() {
+        this.history.unwatch();
         this.shapes.dispose();
         if (this.atlas) this.atlas.texture.dispose();
         if (this.target) {
