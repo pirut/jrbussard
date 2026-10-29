@@ -12,8 +12,8 @@
  *              level, quieter the further off they happen (falloff)
  *
  * Browsers refuse to start audio before the page has been touched, so the
- * AudioContext is only made in start(), which useCommonsSound calls from the
- * first click, tap or key. Muting is remembered.
+ * AudioContext is only made in start(), which useCommonsSound calls from a
+ * click, tap or key until it is playing. Muting is remembered.
  */
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -83,20 +83,27 @@ export class CommonsSound {
         return Boolean(this.ctx) && this.ctx.state === "running";
     }
 
-    /* Make the context, or wake it. Only from a user gesture. */
+    /* Make the context, or wake it. Only from a user gesture. Resolves to
+       whether it is playing: the browser can refuse, and Safari leaves a
+       context "interrupted" after a call or Siri, so a start can fail and
+       has to be tried again later. */
     start() {
         if (!this.ctx) {
             const Ctor = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
-            if (!Ctor) return false;
+            if (!Ctor) return Promise.resolve(false);
             try {
                 this.ctx = new Ctor();
             } catch {
-                return false;
+                return Promise.resolve(false);
             }
             this.build();
         }
-        if (this.ctx.state === "suspended") this.ctx.resume().catch(() => {});
-        return true;
+        const { state } = this.ctx;
+        if (state !== "suspended" && state !== "interrupted") return Promise.resolve(this.running);
+        return this.ctx.resume().then(
+            () => this.running,
+            () => false,
+        );
     }
 
     /* Hidden tab: stop the clock, which saves a phone's battery. */

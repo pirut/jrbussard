@@ -12,7 +12,7 @@ const storage = () => {
 /*
  * Sound for the Commons: listens to the world (AsciiWorld.on) for what
  * happens, and keeps the ambience matched to where the view is. Nothing
- * starts until the first click, tap or key, as browsers require. N mutes.
+ * starts until a click, tap or key, as browsers require. N mutes.
  *
  * Returns [muted, toggle].
  */
@@ -21,13 +21,15 @@ export default function useCommonsSound(fieldApi) {
     const soundRef = useRef(null);
     if (!soundRef.current) soundRef.current = new CommonsSound({ muted });
 
-    /* Start on the first gesture; stop the clock while the tab is hidden. */
+    /* Start on a gesture; stop the clock while the tab is hidden. Every
+       gesture tries while the sound is not playing, since a start can be
+       refused, and Safari's interrupted context may want a tap to wake. */
     useEffect(() => {
         const sound = soundRef.current;
         const gestures = ["pointerdown", "keydown", "touchend"];
         const wake = () => {
-            if (document.hidden) return;
-            if (sound.start()) gestures.forEach((g) => window.removeEventListener(g, wake, true));
+            if (document.hidden || sound.running) return;
+            sound.start();
         };
         gestures.forEach((g) => window.addEventListener(g, wake, true));
         const onVisibility = () => {
