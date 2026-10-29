@@ -26,3 +26,22 @@ jobs:
       - run: npm run build:frontend
         env:
           CI: true
+
+  # The multiplatform Commons app (apps/commons) has its own install. Its
+  # typecheck needs convex/_generated, which only `npx convex dev` against a
+  # deployment can write, so CI runs the unit tests and the web export.
+  commons-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/commons
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/commons/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npx expo export --platform web --output-dir /tmp/commons-web

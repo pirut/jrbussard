@@ -1,0 +1,14 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    /* The rules, terrain and prediction are the browser's own plain-JS
+       modules, imported from the repo root rather than copied. Metro reads
+       these same paths (Expo honours tsconfig paths). */
+    "paths": {
+      "@site/*": ["../../src/*"],
+      "@convex/*": ["../../convex/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "../../convex/_generated/api.d.ts"]
+}
