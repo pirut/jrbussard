@@ -19,7 +19,7 @@ import {
     glyphCode,
     tierFlags,
 } from "./glyphs";
-import { HistoryTracker } from "./history";
+import { HistoryTracker, cameraState } from "./history";
 
 /*
  * Turning a 3D render into characters.
@@ -1055,23 +1055,29 @@ export class AsciiPass {
      * a perspective camera on the move or a lost context and last frame's
      * cells are ignored; holding on to them would smear, or (after a
      * context comes back with empty targets) hold cells blank.
+     *
+     * Only a frame drawn with its camera (render(renderer, camera)) can be
+     * compared with the last, so a caller that does not say how its camera
+     * moves never gets history it cannot vouch for.
      */
-    trackHistory(renderer = null) {
+    trackHistory(renderer = null, camera = null) {
         const p = this.pickMaterial.uniforms;
         if (renderer) this.history.watch(renderer.domElement);
-        const camera = {
-            view: p.uCamToWorld.value.elements,
-            /* The inverse changes whenever the projection does. */
-            projection: p.uInvProj.value.elements,
-            ortho: p.uOrtho.value > 0.5,
-        };
-        const { valid, dx, dy } = this.history.update(camera, p.uCellShift.value, this.tier.stable);
+        if (camera) {
+            p.uCamToWorld.value.copy(camera.matrixWorld);
+            p.uInvProj.value.copy(camera.projectionMatrixInverse);
+            p.uOrtho.value = camera.isOrthographicCamera ? 1 : 0;
+        }
+        const { valid, dx, dy } = this.history.update(cameraState(camera), p.uCellShift.value, this.tier.stable);
         p.uHistShift.value.set(dx, dy);
         p.uHistory.value = valid ? 1 : 0;
     }
 
-    render(renderer) {
-        this.trackHistory(renderer);
+    /* `camera` is the one the scene in `target` was drawn with. Pass it:
+       without it the frame cannot be checked against the last, so it gets
+       no hold-steady history. */
+    render(renderer, camera = null) {
+        this.trackHistory(renderer, camera);
         /* Last frame's cells become the ones to compare against. */
         [this.pick, this.pickPrev] = [this.pickPrev, this.pick];
         this.pickMaterial.uniforms.tPrev.value = this.pickPrev.texture;

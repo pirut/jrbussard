@@ -1420,7 +1420,7 @@ export default class AsciiWorld {
         this.ascii.uniforms.uOrtho.value = this.camera.isOrthographicCamera ? 1 : 0;
         this.ascii.uniforms.uInvProj.value.copy(this.camera.projectionMatrixInverse);
         this.ascii.uniforms.uCamToWorld.value.copy(this.camera.matrixWorld);
-        this.ascii.render(this.renderer);
+        this.ascii.render(this.renderer, this.camera);
         this.updateLabels();
         this.updateBars();
         this.updateFloaters();

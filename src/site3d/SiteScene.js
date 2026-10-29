@@ -750,7 +750,7 @@ export default class SiteScene {
         u.uOrtho.value = 1;
         u.uInvProj.value.copy(this.camera.projectionMatrixInverse);
         u.uCamToWorld.value.copy(this.camera.matrixWorld);
-        this.ascii.render(this.renderer);
+        this.ascii.render(this.renderer, this.camera);
         this.updateLabels();
         if (this.perf) this.perf.frame(performance.now() - begin, this.renderer.info, { chunks: this.chunks.size, cells: `${this.grid.cols}x${this.grid.rows}` });
     }
