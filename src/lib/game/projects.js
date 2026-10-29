@@ -40,6 +40,12 @@ export const PROJECTS = [
 /* The most of one supply taken in a single hand-in. */
 export const CONTRIBUTE_MAX = 10;
 
+/* Once every project is finished, basic supplies still go somewhere: the
+   crossroads stores take them without end. They change nothing in the
+   world and pay no experience, but they count as giving, so the quest
+   chain never dead-ends on "For the commons". */
+export const STORES_ITEMS = ["wood", "stone", "fiber"];
+
 /**
  * The first project not yet finished, or null when all are.
  * @param {Record<string, { done: boolean }>} rows by project key
@@ -57,12 +63,24 @@ export function activeProject(rows) {
  *   have: number,
  *   atCrossroads: boolean,
  * }} input
- * @returns {{ error: string } | { error?: undefined, amount: number,
- *   progress: Record<string, number>, done: boolean, message: string }}
+ * @returns {{ error: string }
+ *   | { error?: undefined, stores: true, amount: number, message: string }
+ *   | { error?: undefined, stores?: undefined, amount: number,
+ *       progress: Record<string, number>, done: boolean, message: string }}
  */
 export function planContribution({ project, progress, item, have, atCrossroads }) {
-  if (!project) return { error: "every project is finished" };
   if (!atCrossroads) return { error: "bring it to the crossroads" };
+  if (!project) {
+    if (!STORES_ITEMS.includes(item))
+      return { error: "the stores take only wood, stone and fiber" };
+    const amount = Math.min(CONTRIBUTE_MAX, Math.max(0, Math.floor(have)));
+    if (amount <= 0) return { error: `you have no ${item}` };
+    return {
+      stores: true,
+      amount,
+      message: `gave ${amount} ${item} to the crossroads stores`,
+    };
+  }
   const need = project.need[item];
   if (!need) return { error: `the ${project.name.toLowerCase()} needs no ${item}` };
   const given = progress?.[item] || 0;

@@ -65,6 +65,13 @@ finished, changes the world for everybody:
 Progress is stored in a `projects` table (one row per project, three rows in
 all). Completion is announced in chat.
 
+Once all three are finished, the **crossroads stores** stay open. They take
+wood, stone and fiber (up to ten per hand-in), change nothing in the world
+and pay no experience, but each hand-in counts toward the `contribute`
+stat. That keeps "For the commons" (30 supplies given) finishable for
+anyone who arrives after the last project is done. Nothing is stored for
+them beyond the player's stat.
+
 ## Where the rules live
 
 All rules are pure JavaScript in `src/lib/game/`, with no React, three.js or

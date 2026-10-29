@@ -76,7 +76,8 @@ export const projects = query({
   },
 });
 
-/* Hand in up to ten of one supply to the project being built. */
+/* Hand in up to ten of one supply to the project being built, or to the
+   stores once every project is finished. */
 export const contribute = mutation({
   args: { session: v.string(), item: v.string() },
   returns: v.string(),
@@ -99,6 +100,15 @@ export const contribute = mutation({
       atCrossroads: inSafeZone(player.x, player.y),
     });
     if (plan.error !== undefined) return plan.error;
+
+    if (plan.stores) {
+      await ctx.db.patch("players", player._id, {
+        ...inventoryPatch(player, { [args.item]: -plan.amount }),
+        stats: bumpStats(player.stats, { contribute: plan.amount }),
+        lastSeen: now,
+      });
+      return plan.message;
+    }
 
     const first = !player.stats?.[`contribute:${project!.key}`];
     const fields = {

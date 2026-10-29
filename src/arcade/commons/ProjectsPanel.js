@@ -1,7 +1,12 @@
 import React from "react";
 import { ITEMS, inventoryOf } from "../../lib/survival";
 import { inSafeZone } from "../../lib/terrain";
-import { PROJECTS, activeProject, projectFraction } from "../../lib/game/projects";
+import {
+  PROJECTS,
+  STORES_ITEMS,
+  activeProject,
+  projectFraction,
+} from "../../lib/game/projects";
 import "./gameplay.css";
 
 /*
@@ -72,6 +77,30 @@ export default function ProjectsPanel({ projects, me, onContribute }) {
           </article>
         );
       })}
+      {!active && (
+        <article className="commons-project is-current">
+          <header>
+            <b>Crossroads stores</b>
+            <span>open</span>
+          </header>
+          <p>Every project is finished. The stores still take basic supplies, and they count as giving.</p>
+          <ul>
+            {STORES_ITEMS.map((item) => (
+              <li key={item}>
+                <span>{ITEMS[item]?.name || item}</span>
+                <span>{bag[item] || 0} carried</span>
+                <button
+                  disabled={!here || !bag[item] || me?.hp <= 0}
+                  onClick={() => onContribute(item)}
+                  aria-label={`Give ${ITEMS[item]?.name || item} to the stores`}
+                >
+                  Give
+                </button>
+              </li>
+            ))}
+          </ul>
+        </article>
+      )}
     </section>
   );
 }

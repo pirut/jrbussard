@@ -221,6 +221,30 @@ describe("crossroads projects", () => {
     expect(chat.some((c) => c.kind === "project")).toBe(true);
   });
 
+  it("still lets a newcomer finish the commons task once every project is done", async () => {
+    const t = make();
+    const id = await seed(t, "alice", { x: 1, y: 0, quest: 7 });
+    await t.run(async (ctx) => {
+      for (const p of PROJECTS)
+        await ctx.db.insert("projects", { key: p.key, progress: p.need, done: true, contributors: 1 });
+    });
+    for (let i = 0; i < 3; i++) {
+      expect(await t.mutation(api.game.contribute, { session: "alice", item: "wood" })).toBe(
+        "gave 10 wood to the crossroads stores",
+      );
+      later(1000);
+    }
+    const me = await get(t, id);
+    expect(me.wood).toBe(70);
+    expect(me.xp).toBe(0);
+    expect(me.stats).toEqual({ contribute: 30 });
+    expect(await t.mutation(api.game.claimQuest, { session: "alice" })).toMatch(/^For the commons complete/);
+    expect((await get(t, id)).quest).toBe(8);
+    /* The finished projects are left as they were. */
+    const rows = await t.query(api.game.projects, {});
+    expect(rows.map((r) => r.progress)).toEqual(PROJECTS.map((p) => p.need));
+  });
+
   it("heals everyone faster once the well is finished", async () => {
     const heal = async (well: boolean) => {
       const t = make();

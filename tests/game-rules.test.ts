@@ -252,7 +252,19 @@ describe("projects", () => {
     expect(planContribution({ ...base, item: "wood", atCrossroads: false }).error).toBe("bring it to the crossroads");
     expect(planContribution({ ...base, item: "crystal" }).error).toMatch(/needs no crystal/);
     expect(planContribution({ ...base, item: "wood", have: 0 }).error).toBe("you have no wood");
-    expect(planContribution({ ...base, project: null, item: "wood" }).error).toBe("every project is finished");
+  });
+
+  it("keeps taking basic supplies into the stores once every project is finished", () => {
+    const done = { project: null, progress: undefined, have: 25, atCrossroads: true };
+    expect(planContribution({ ...done, item: "wood" })).toMatchObject({
+      amount: CONTRIBUTE_MAX,
+      stores: true,
+      message: "gave 10 wood to the crossroads stores",
+    });
+    expect(planContribution({ ...done, item: "fiber", have: 4 })).toMatchObject({ amount: 4, stores: true });
+    expect(planContribution({ ...done, item: "ingot" }).error).toBe("the stores take only wood, stone and fiber");
+    expect(planContribution({ ...done, item: "stone", have: 0 }).error).toBe("you have no stone");
+    expect(planContribution({ ...done, item: "wood", atCrossroads: false }).error).toBe("bring it to the crossroads");
   });
 
   it("finishes on the last hand-in", () => {
