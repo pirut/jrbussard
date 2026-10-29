@@ -429,6 +429,30 @@ const CREATURES = {
         armR.joint.add(club);
         return model;
     },
+    /* Night only (src/lib/game/creatures.js): a thin hooded figure with
+       nothing under the hood but two lights. */
+    shade: () => {
+        const model = buildHumanoid({
+            skin: "#2a2540",
+            hair: "#141022",
+            hairstyle: "shaved",
+            headwear: "hood",
+            cloak: "#1d1830",
+            torso: "#241f38",
+            sleeves: "#241f38",
+            legs: "#1d1830",
+            boots: "#141022",
+            belt: "#2a2540",
+            armor: 0,
+            weapon: 0,
+        });
+        model.scale.setScalar(1.08);
+        const { head } = model.userData.rig;
+        model.userData.hunch = 0.2;
+        add(head, sphereGeo(0.03), "#b9a8ff", -0.06, 0.03, 0.18, "fire", { unlit: true });
+        add(head, sphereGeo(0.03), "#b9a8ff", 0.06, 0.03, 0.18, "fire", { unlit: true });
+        return model;
+    },
 };
 
 export function buildCreature(kind) {

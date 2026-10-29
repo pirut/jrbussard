@@ -14,7 +14,7 @@ import { api } from "./convex";
  */
 
 /* The modules the browser talks to, by Convex module name. */
-const MODULES = ["world", "site"];
+const MODULES = ["world", "site", "game"];
 
 function exportedFunctions() {
     const names = new Set();

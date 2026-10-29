@@ -530,6 +530,12 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         transfer() {
             return "chests need the shared world";
         },
+        claimQuest() {
+            return "the road needs the shared world";
+        },
+        contribute() {
+            return "projects need the shared world";
+        },
     };
 
     return {
