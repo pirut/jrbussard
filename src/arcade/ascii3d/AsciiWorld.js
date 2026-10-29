@@ -19,7 +19,9 @@ import {
 import { disposeMaterials } from "./materials";
 import { disposeMerged, mergeModel } from "./mergeModel";
 import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera, snapIsoCamera } from "./iso";
-import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality } from "./perf";
+import { Puffs } from "./puffs";
+import { asNews, changedEdits, clearedSet, newlyCleared } from "./worldEvents";
+import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality, recallQuality, rememberQuality } from "./perf";
 
 /*
  * The Commons, as a 3D scene drawn in characters.
@@ -69,6 +71,8 @@ const lightRight = new THREE.Vector3();
 const lightUp = new THREE.Vector3();
 const lightDir = new THREE.Vector3();
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
+const pickRay = new THREE.Raycaster();
+const pickPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 /*
@@ -218,6 +222,11 @@ export default class AsciiWorld {
         this.sparks = this.createSparks();
         this.scene.add(this.sparks);
         this.scene.add(this.embers);
+        this.puffs = new Puffs(this.scene);
+        /* Who hears about what happens here: blows, felled trees, digging,
+           footsteps (see on() and commons/sound.js). */
+        this.listeners = new Set();
+        this.cleared = null;
 
         /* The ASCII pass reads the offscreen render and draws characters. */
         this.ascii = new AsciiPass();
@@ -226,8 +235,15 @@ export default class AsciiWorld {
            on machines that cannot keep up (see perf.js). */
         this.perf = perfEnabled() ? new PerfOverlay(container) : null;
         const pinned = pinnedQuality();
-        this.governor = new QualityGovernor({ enabled: pinned === null, onChange: (quality) => this.applyQuality(quality) });
-        if (pinned) this.governor.set(pinned);
+        this.governor = new QualityGovernor({
+            enabled: pinned === null,
+            onChange: (quality, level) => {
+                this.applyQuality(quality);
+                if (pinned === null) rememberQuality(level);
+            },
+        });
+        const start = pinned ?? recallQuality();
+        if (start) this.governor.set(start);
         /* For poking at from the console while tuning. */
         if (this.perf) window.asciiWorld = this;
 
@@ -235,6 +251,7 @@ export default class AsciiWorld {
         this.frame = this.frame.bind(this);
         this.observer = new ResizeObserver(this.resize);
         this.observer.observe(container);
+        this.watchPixelRatio();
         this.resize();
         this.raf = requestAnimationFrame(this.frame);
     }
@@ -251,6 +268,7 @@ export default class AsciiWorld {
         const cellH = Math.max(5, Math.round(this.cellCss.h * scale * dpr));
         const cols = Math.max(8, Math.floor(width / cellW));
         const rows = Math.max(6, Math.floor(height / cellH));
+        const before = this.grid;
         this.grid = {
             dpr,
             width,
@@ -264,11 +282,34 @@ export default class AsciiWorld {
         };
         this.renderer.setSize(width, height, false);
 
+        /* A box that changed by less than a cell (a phone's address bar
+           sliding away, say) keeps the same grid: only the margins move, so
+           the pass keeps its targets rather than making them all again. */
+        if (before && before.cols === cols && before.rows === rows && before.cellW === cellW && before.cellH === cellH) {
+            this.ascii.offset = { x: this.grid.offX, y: this.grid.offY };
+            this.ascii.setShift(this.shiftX, this.shiftY);
+            return;
+        }
         this.ascii.setSize(this.grid);
         this.camera.userData.aspect = (cols * cellW) / (rows * cellH);
         this.isoCamera.userData.aspect = this.camera.userData.aspect;
         this.fpCamera.aspect = this.camera.userData.aspect;
         this.fpCamera.updateProjectionMatrix();
+    }
+
+    /* Dragging the window to another screen, or zooming the page, changes
+       the pixel ratio without changing the box, so ResizeObserver never
+       hears of it and the characters come out blurred or the wrong size. */
+    watchPixelRatio() {
+        this.unwatchPixelRatio?.();
+        if (typeof window.matchMedia !== "function") return;
+        const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+        const changed = () => {
+            this.resize();
+            this.watchPixelRatio();
+        };
+        query.addEventListener?.("change", changed, { once: true });
+        this.unwatchPixelRatio = () => query.removeEventListener?.("change", changed);
     }
 
     /* A step of the governor: shadow detail, then cell size. */
@@ -301,14 +342,80 @@ export default class AsciiWorld {
 
     setState(state) {
         this.state = state;
-        this.ground.absorb(state);
+        const groundBefore = new Map(this.ground.byChunk);
+        const groundChanged = this.ground.absorb(state);
         this.chunksDirty = true;
         if (!state) return;
+        this.noticeWork(state, groundBefore, groundChanged);
         this.indexCleared(state);
         this.syncStructures(state);
         this.syncPlayers(state);
         this.syncCreatures(state);
         this.setPhase(state.phase, state.weather);
+    }
+
+    /* Listen for what happens in the world. Returns how to stop. */
+    on(listener) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
+
+    emit(type, detail = {}) {
+        this.listeners.forEach((listener) => {
+            try {
+                listener(type, detail);
+            } catch {
+                /* A listener's trouble is its own. */
+            }
+        });
+    }
+
+    /* What the place sounds like from where the view is: the time of day,
+       the weather, how near the nearest fire is, and how much water is
+       about. Cheap enough to ask a few times a second. */
+    ambience() {
+        const cx = Math.round(this.focus.x);
+        const cz = Math.round(this.focus.z);
+        let water = 0;
+        let seen = 0;
+        for (let dz = -6; dz <= 6; dz += 2) {
+            for (let dx = -6; dx <= 6; dx += 2) {
+                seen += 1;
+                if (this.ground.tile(cx + dx, cz + dz) === WATER) water += 1;
+            }
+        }
+        return {
+            phase: this.phaseName || "day",
+            weather: this.weather || "clear",
+            fire: this.nearestFire ?? Infinity,
+            water: water / seen,
+            orbit: this.orbit,
+        };
+    }
+
+    /* How far a point is from the middle of the view, in tiles. */
+    distanceTo(x, z) {
+        return Math.hypot(x - this.focus.x, z - this.focus.z);
+    }
+
+    /* Trees felled, rocks broken and ground dug since the last snapshot:
+       a puff for each nearby, and word of it to listeners. */
+    noticeWork(state, groundBefore, groundChanged) {
+        const before = this.cleared;
+        this.cleared = clearedSet(state.cells);
+        if (!before) return;
+        const near = (t) => this.distanceTo(t.x, t.y) < 12;
+        asNews(newlyCleared(before, state.cells).filter(near)).forEach((t) => {
+            const at = { x: t.x, y: this.ground.height(t.x, t.y), z: t.y };
+            this.puffs.add(t.kind === "stump" ? "wood" : "stone", at, this.time);
+            if (t.kind === "stump") this.puffs.add("leaf", { ...at, y: at.y + 1.2 }, this.time);
+            this.emit("harvest", { x: t.x, z: t.y, kind: t.kind });
+        });
+        asNews(changedEdits(groundBefore, this.ground.byChunk, groundChanged).filter(near)).forEach((t) => {
+            const at = { x: t.x, y: Math.max(WATER_LEVEL, this.ground.height(t.x, t.y)), z: t.y };
+            this.puffs.add("earth", at, this.time);
+            this.emit("dig", { x: t.x, z: t.y });
+        });
     }
 
     setAim(aim, ok = true) {
@@ -429,7 +536,9 @@ export default class AsciiWorld {
 
     floatSelf(text, kind = "gain") {
         const self = this.selfEntity();
-        if (self) this.floatText(self.pos.x, self.pos.z, text, kind, 2.3);
+        if (!self) return;
+        this.floatText(self.pos.x, self.pos.z, text, kind, 2.3);
+        this.emit(kind === "level" ? "level" : "gain", { text });
     }
 
     setRaw(raw) {
@@ -448,7 +557,9 @@ export default class AsciiWorld {
     /* Swing the arm: chopping, mining, hitting. Purely for show. */
     swingSelf() {
         const self = this.selfEntity();
-        if (self) self.attackStart = this.time;
+        if (!self) return;
+        self.attackStart = this.time;
+        this.emit("swing", { x: self.pos.x, z: self.pos.z });
     }
 
     registerLabel(id, element) {
@@ -466,14 +577,15 @@ export default class AsciiWorld {
         const h = g.rows * g.cellH;
         if (px < 0 || py < 0 || px > w || py > h) return null;
         ndc.set((px / w) * 2 - 1, (py / h) * 2 - 1);
-        const ray = new THREE.Raycaster();
+        /* Called on every pointer move and, in first person, every frame. */
+        const ray = pickRay;
         ray.setFromCamera(ndc, this.camera);
         let height = this.focus.y;
         let tile = null;
         /* The ground is terraced, so settle on the height of the tile hit. */
         for (let i = 0; i < 3; i += 1) {
-            const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -height);
-            const hit = ray.ray.intersectPlane(plane, tmp);
+            pickPlane.constant = -height;
+            const hit = ray.ray.intersectPlane(pickPlane, tmp);
             if (!hit) return tile;
             tile = { x: Math.round(hit.x), y: Math.round(hit.z) };
             const next = Math.max(WATER_LEVEL, this.ground.height(tile.x, tile.y));
@@ -548,6 +660,10 @@ export default class AsciiWorld {
                 group.userData.born = this.time;
                 group.scale.set(1, 0.05, 1);
             }
+            if (grow && !existing && this.distanceTo(cell.x, cell.y) < 14) {
+                this.puffs.add("dust", { x: cell.x, y: group.position.y, z: cell.y }, this.time);
+                this.emit("build", { x: cell.x, z: cell.y, kind: cell.kind, mine: Boolean(cell.mine) });
+            }
             group.traverse((node) => {
                 if (node.userData.flame) this.flames.push(node);
             });
@@ -556,7 +672,16 @@ export default class AsciiWorld {
             this.firesDirty = true;
         });
         [...this.structures.keys()].forEach((key) => {
-            if (!seen.has(key)) this.removeStructure(key);
+            if (seen.has(key)) return;
+            const s = this.structures.get(key);
+            const { x, z } = s.group.position;
+            /* A stump or rubble going is regrowth, not demolition. */
+            if (s.kind !== "stump" && s.kind !== "rubble" && this.distanceTo(x, z) < 14) {
+                this.puffs.add("dust", { x, y: s.group.position.y, z }, this.time);
+                this.puffs.add(s.kind === "wall" || s.kind === "furnace" ? "stone" : "wood", { x, y: s.group.position.y + 0.6, z }, this.time);
+                this.emit("demolish", { x, z, kind: s.kind });
+            }
+            this.removeStructure(key);
         });
     }
 
@@ -712,6 +837,7 @@ export default class AsciiWorld {
     }
 
     hit(entity, amount = 0, kind = "damage") {
+        this.emit("hit", { x: entity.pos.x, z: entity.pos.z, amount, self: entity === this.self || kind === "hurt", creature: entity.kind || null });
         entity.hurt = 1;
         entity.hurtAt = this.time;
         entity.flashUntil = this.time + 0.09;
@@ -779,7 +905,7 @@ export default class AsciiWorld {
         const g = this.grid;
         const w = g.cols * g.cellW;
         const h = g.rows * g.cellH;
-        this.creatures.concat(this.leaving.filter((e) => e.bar)).forEach((e) => {
+        const each = (e) => {
             const data = e.data;
             const show = data && data.maxHp && data.hp < data.maxHp && data.hp > 0 && !e.leftAt;
             if (!show) {
@@ -806,7 +932,9 @@ export default class AsciiWorld {
             }
             e.bar.style.visibility = "visible";
             e.bar.style.transform = `translate(${((g.offX + this.shiftX + ((tmp.x + 1) / 2) * w) / g.dpr).toFixed(1)}px, ${((g.height - g.offY - this.shiftY - ((tmp.y + 1) / 2) * h) / g.dpr).toFixed(1)}px)`;
-        });
+        };
+        this.creatures.forEach(each);
+        this.leaving.forEach((e) => e.bar && each(e));
     }
 
     updateFloaters() {
@@ -854,6 +982,7 @@ export default class AsciiWorld {
             self && this.time - self.attackStart < 0.8 && Math.hypot(self.to.x - entity.to.x, self.to.y - entity.to.y) < 1.6;
         entity.slain = (entity.hurtAt !== undefined && this.time - entity.hurtAt < 1.5) || Boolean(struckBySelf);
         if (entity.slain && entity.data) entity.data = { ...entity.data, hp: 0 };
+        if (entity.slain && entity.kind) this.emit("slain", { x: entity.pos.x, z: entity.pos.z, creature: entity.kind });
         if (entity.bar) entity.bar.remove();
         entity.bar = null;
         this.leaving.push(entity);
@@ -879,6 +1008,9 @@ export default class AsciiWorld {
     }
 
     setPhase(phase, weather) {
+        /* The first word on the time of day is taken at once, so a visit
+           at night does not open on a sunset; after that it is eased in. */
+        if (!this.phaseName) this.phaseSnap = true;
         this.phaseName = PHASES[phase] ? phase : "day";
         this.weather = WEATHER_DIM[weather] ? weather : "clear";
     }
@@ -984,7 +1116,8 @@ export default class AsciiWorld {
         const u = this.ascii.uniforms;
         const stars = { night: 1, dusk: 0.45, dawn: 0.3, day: 0 }[this.phaseName || "day"];
         const clouds = { clear: 0.15, fog: 0.5, rain: 0.75, storm: 1 }[this.weather || "clear"];
-        const k = Math.min(1, dt * 0.8);
+        const k = this.phaseSnap ? 1 : Math.min(1, dt * 0.45);
+        this.phaseSnap = false;
         u.uStars.value += (stars * (1 - clouds * 0.6) - u.uStars.value) * k;
         u.uClouds.value += (clouds - u.uClouds.value) * k;
         const day = this.phaseName === "day" || this.phaseName === "dawn";
@@ -1059,6 +1192,16 @@ export default class AsciiWorld {
     finishEntity(entity, dt, moved, walking) {
         entity.moving += ((walking ? 1 : 0) - entity.moving) * Math.min(1, dt * 12);
         entity.stride += moved * 4.6;
+        /* A foot comes down each half turn of the stride. */
+        if (entity === this.self) {
+            const plant = Math.floor(entity.stride / Math.PI);
+            if (plant !== entity.plant && entity.moving > 0.5 && !(entity.data?.hp <= 0)) {
+                const x = Math.round(entity.pos.x);
+                const z = Math.round(entity.pos.z);
+                this.emit("step", { x: entity.pos.x, z: entity.pos.z, wet: this.ground.tile(x, z) === WATER && !this.bridged(x, z), built: this.bridged(x, z) });
+            }
+            entity.plant = plant;
+        }
         entity.yaw = lerpAngle(entity.yaw, entity.facing, Math.min(1, dt * 14));
         entity.model.rotation.y = entity.yaw;
         entity.hurt = Math.max(0, entity.hurt - dt * 2.8);
@@ -1154,7 +1297,9 @@ export default class AsciiWorld {
     updateLighting(dt) {
         const goal = PHASES[this.phaseName || "day"];
         const dimming = WEATHER_DIM[this.weather || "clear"];
-        const k = Math.min(1, dt * 1.5);
+        /* Dawn and dusk take their time: a few seconds of the light
+           warming or draining, rather than a cut. */
+        const k = this.phaseSnap ? 1 : Math.min(1, dt * 0.45);
         const p = this.phase;
         p.sun += (goal.sun * dimming - p.sun) * k;
         p.hemi += (goal.hemi * dimming - p.hemi) * k;
@@ -1170,6 +1315,7 @@ export default class AsciiWorld {
             if (this.nextFlash <= 0) {
                 this.flash = 1;
                 this.nextFlash = 5 + Math.random() * 9;
+                this.emit("thunder");
             }
             this.flash = Math.max(0, this.flash - dt * 4);
             flash = this.flash > 0.5 || (this.flash > 0.2 && this.flash < 0.3) ? 2.5 : 0;
@@ -1191,8 +1337,9 @@ export default class AsciiWorld {
         this.ascii.uniforms.uBackground.value.copy(p.bg).convertLinearToSRGB();
         /* A wash of each cell's colour behind its character, so shapes read
            as masses at a glance; more at night, when the type is thinner. */
-        this.ascii.uniforms.uFill.value = this.phaseName === "night" ? 0.6 : 0.52;
-        this.ascii.uniforms.uGlow.value = this.phaseName === "night" ? 1.2 : 0.5;
+        const u = this.ascii.uniforms;
+        u.uFill.value += ((this.phaseName === "night" ? 0.6 : 0.52) - u.uFill.value) * k;
+        u.uGlow.value += ((this.phaseName === "night" ? 1.2 : 0.5) - u.uGlow.value) * k;
         /* Flat walls thin out as they darken, so cabins read as timber
            rather than as slabs of # and %. */
         this.ascii.uniforms.uContrast.value = 1.7;
@@ -1233,6 +1380,7 @@ export default class AsciiWorld {
         const lit = this.lit;
         lit.forEach((entry) => (entry.d = entry.s.group.position.distanceToSquared(this.focus)));
         lit.sort((x, y) => x.d - y.d);
+        this.nearestFire = lit.length ? Math.sqrt(lit[0].d) : Infinity;
         const night = this.phaseName === "night" ? 1.6 : this.phaseName === "day" ? 0.6 : 1.1;
         this.lightPool.forEach((light, i) => {
             const entry = lit[i];
@@ -1382,6 +1530,7 @@ export default class AsciiWorld {
         this.creatures.forEach((c) => this.updateEntity(c, dt));
         this.updateLeaving(dt);
         this.updateSparks();
+        this.puffs.update(this.time);
         this.updateCamera(dt);
         this.updateChunks();
         this.updateLighting(dt);
@@ -1436,6 +1585,7 @@ export default class AsciiWorld {
         cancelAnimationFrame(this.raf);
         CUT.uCutOn.value = 0;
         this.observer.disconnect();
+        this.unwatchPixelRatio?.();
         this.chunks.forEach((c) => this.dropChunk(c));
         this.chunks.clear();
         this.players.forEach((e) => disposeMerged(e.model));
@@ -1445,6 +1595,8 @@ export default class AsciiWorld {
             disposeMerged(s.group);
         });
         this.ghosts.dispose();
+        this.puffs.dispose();
+        this.listeners.clear();
         this.ascii.dispose();
         if (this.perf) this.perf.dispose();
         this.fxLayer.remove();

@@ -34,6 +34,45 @@ export function pinnedQuality() {
     }
 }
 
+/*
+ * Where the governor settled last time on this machine, so a phone that
+ * needed step 3 starts near there instead of stuttering through steps 0 to 2
+ * for the first ten seconds of every visit. It starts one step better than
+ * it ended, since the last visit may have ended in a busy moment, and climbs
+ * from there if it can.
+ */
+const QUALITY_KEY = "ascii3d:quality";
+
+export function startLevel(stored) {
+    const n = Number(stored);
+    if (stored === null || stored === undefined || stored === "" || !Number.isInteger(n)) return 0;
+    return Math.max(0, Math.min(QUALITY.length - 1, n) - 1);
+}
+
+export function recallQuality(storage = safeStorage()) {
+    try {
+        return startLevel(storage?.getItem(QUALITY_KEY) ?? null);
+    } catch {
+        return 0;
+    }
+}
+
+export function rememberQuality(level, storage = safeStorage()) {
+    try {
+        storage?.setItem(QUALITY_KEY, String(level));
+    } catch {
+        /* Private mode or full: the governor finds its way again. */
+    }
+}
+
+function safeStorage() {
+    try {
+        return window.localStorage;
+    } catch {
+        return null;
+    }
+}
+
 /* From best to cheapest. `cell` scales the character cell; `shadow` is the
    shadow map's size, 0 for none. */
 export const QUALITY = [
