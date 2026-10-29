@@ -52,6 +52,15 @@ import {
 
 export { GLYPH_SETS, glyphCode };
 
+/* `?crt=1` asks for scanlines, bloom and a vignette. */
+function crtRequested() {
+    try {
+        return new URLSearchParams(window.location.search).get("crt") === "1";
+    } catch {
+        return false;
+    }
+}
+
 const REGIONS_X = 2;
 const REGIONS_Y = 3;
 export const SAMPLE_X = REGIONS_X * 2;
@@ -780,6 +789,7 @@ const drawShader = /* glsl */ `
     uniform float uGlow;
     uniform float uRaw;
     uniform float uRim;
+    uniform float uCrt;
     uniform sampler2D tDepth;
     uniform float uWash;
     uniform sampler2D tGlow;
@@ -814,8 +824,18 @@ const drawShader = /* glsl */ `
         vec3 base = mix(uBackground, scene, max(uFill, body * 0.55)) + glow * 0.55;
         /* The rim round each stroke, darkened, so the type reads crisply
            over a wash of much the same colour. */
-        base *= 1.0 - clamp(ink.g - mask, 0.0, 1.0) * uRim;
-        gl_FragColor = vec4(mix(base, min(pick.rgb + glow * 0.35, 1.0), mask), 1.0);
+        base *= 1.0 - clamp(ink.g - mask, 0.0, 1.0) * uRim * (1.0 - uCrt * 0.6);
+        vec3 color = mix(base, min(pick.rgb + glow * 0.35, 1.0), mask);
+        if (uCrt > 0.0) {
+            /* An old terminal, if asked for: the rim becomes a phosphor
+               bloom round each stroke, every other line of pixels is a
+               touch darker, and the corners fall away. */
+            color += pick.rgb * clamp(ink.g - mask, 0.0, 1.0) * 0.3 * uCrt;
+            color *= 1.0 - 0.14 * uCrt * step(1.0, mod(gl_FragCoord.y, 2.0));
+            vec2 v = suv * 2.0 - 1.0;
+            color *= 1.0 - uCrt * 0.35 * pow(dot(v * vec2(0.8, 0.9), v * vec2(0.8, 0.9)), 1.5);
+        }
+        gl_FragColor = vec4(color, 1.0);
     }
 `;
 
@@ -903,6 +923,8 @@ export class AsciiPass {
                 uRaw: { value: 0 },
                 /* How much the wash darkens round each stroke, 0 to 1. */
                 uRim: { value: 0.55 },
+                /* 1 for the old-terminal look; ?crt=1 turns it on. */
+                uCrt: { value: crtRequested() ? 1 : 0 },
                 tDepth: { value: null },
                 /* How bright the scene is in the wash behind the type. */
                 uWash: { value: 0.9 },
@@ -1071,12 +1093,16 @@ export class AsciiPass {
         const cue = this.pickMaterial.uniforms.uDepthCue;
         const cueWas = cue.value;
         if (!this.tier.depth) cue.value = 0;
+        const crt = this.drawMaterial.uniforms.uCrt;
+        const crtWas = crt.value;
+        if (!this.tier.crt) crt.value = 0;
         const glow = this.drawMaterial.uniforms.uGlow;
         const glowWas = glow.value;
         if (!this.tier.glow) glow.value = 0;
         this.drawCells(renderer);
         dither.value = ditherWas;
         cue.value = cueWas;
+        crt.value = crtWas;
         glow.value = glowWas;
     }
 
