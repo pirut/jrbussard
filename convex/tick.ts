@@ -9,6 +9,7 @@ import { worldEffects } from "../src/lib/game/projects.js";
 import {
   creatureStep,
   biteFor,
+  flees,
   pickSpawn,
 } from "../src/lib/game/creatures.js";
 import { bumpStats } from "../src/lib/game/stats.js";
@@ -298,7 +299,8 @@ export const run = internalMutation({
       if (
         nearest &&
         nearestDistance <= 1 &&
-        !inSafeZone(nearest.x, nearest.y)
+        !inSafeZone(nearest.x, nearest.y) &&
+        !flees(monster)
       ) {
         const ready = now - (monster.lastHit || 0) >= SWING_MS;
         const exposed = now - (nearest.lastHurt || 0) >= HURT_COOLDOWN_MS;

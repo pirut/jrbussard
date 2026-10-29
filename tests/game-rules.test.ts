@@ -10,6 +10,7 @@ import {
   CREATURES,
   DAY_ORDER,
   creatureStep,
+  flees,
   biteFor,
   pickSpawn,
   lootFor,
@@ -152,6 +153,13 @@ describe("creatures", () => {
     expect(
       creatureStep({ ...at, hp: 3, kind: "rat", target: { x: 2, y: 0 }, distance: 2, night: false, rng: rolls(0.9) }),
     ).toEqual({ dx: -1, dy: 0 });
+    /* Straight away from it, whatever the roll. */
+    expect(
+      creatureStep({ ...at, hp: 3, kind: "rat", target: { x: 1, y: 0 }, distance: 1, night: false, rng: rolls(0.1) }),
+    ).toEqual({ dx: -1, dy: 0 });
+    expect(flees({ kind: "rat", hp: 3, maxHp: 8 })).toBe(true);
+    expect(flees({ kind: "rat", hp: 4, maxHp: 8 })).toBe(false);
+    expect(flees({ kind: "kobold", hp: 1, maxHp: 18 })).toBe(false);
   });
 
   it("is slow when it is a troll", () => {

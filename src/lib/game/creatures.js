@@ -29,6 +29,15 @@ export const CHASE_RANGE = { chaser: 5, pack: 8, brute: 5, skittish: 4, stalker:
 export const NIGHT_REACH = 3;
 
 /**
+ * Whether a creature is running for it rather than fighting: a badly hurt
+ * rat. The tick asks this before letting it bite.
+ * @param {{ kind: string, hp: number, maxHp: number }} creature
+ */
+export function flees({ kind, hp, maxHp }) {
+  return CREATURES[kind]?.temper === "skittish" && hp < maxHp * 0.5;
+}
+
+/**
  * Which way a creature steps this tick: toward its quarry, away from it, or
  * a random amble. `target` is the nearest living player, or null.
  * @param {{
@@ -49,13 +58,16 @@ export function creatureStep({ kind, hp, maxHp, x, y, target, distance, night, r
   if (target && distance < range) {
     let dx = Math.sign(target.x - x);
     let dy = Math.sign(target.y - y);
-    /* A hurt rat runs. */
-    if (temper === "skittish" && hp < maxHp * 0.5) {
-      dx = -dx;
-      dy = -dy;
+    /* A hurt rat runs, and does not waste the step on a blocked axis. */
+    const running = flees({ kind, hp, maxHp });
+    if (running) {
+      dx = 0 - dx;
+      dy = 0 - dy;
     }
-    if (rng() < 0.5) dx = 0;
-    else dy = 0;
+    if (!running || (dx !== 0 && dy !== 0)) {
+      if (rng() < 0.5) dx = 0;
+      else dy = 0;
+    }
     return { dx, dy };
   }
   if (rng() < 0.35) {
