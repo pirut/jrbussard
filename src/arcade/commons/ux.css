@@ -436,6 +436,11 @@
   border-color: var(--gold);
   color: var(--gold);
 }
+@keyframes coach-fade {
+  from {
+    opacity: 0;
+  }
+}
 @keyframes coach-in {
   from {
     opacity: 0;
@@ -488,11 +493,16 @@
 /* ── Phones ────────────────────────────────────────────────────────── */
 
 @media (max-width: 760px) {
+  /* Clear of the dig buttons stacked down the right edge. */
   .hud-coach {
     top: auto;
     bottom: 180px;
-    width: calc(100% - 24px);
+    left: 12px;
+    right: 60px;
+    width: auto;
     min-width: 0;
+    transform: none;
+    animation-name: coach-fade;
   }
   .is-building .hud-coach {
     display: none;
