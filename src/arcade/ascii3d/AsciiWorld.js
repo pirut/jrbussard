@@ -1467,9 +1467,13 @@ export default class AsciiWorld {
         this.ascii.uniforms.uCellShift.value.copy(this.cellShift);
         if (this.shake > 0 && !this.reducedMotion) {
             this.shake = Math.max(0, this.shake - dt);
-            const k = this.shake * 0.35;
-            this.camera.position.x += (Math.random() - 0.5) * k;
-            this.camera.position.y += (Math.random() - 0.5) * k;
+            /* A blow knocks the view about and lets it settle: a couple of
+               fast, unrelated wobbles dying away, rather than a fresh random
+               jump every frame, which reads as a glitch more than a hit. */
+            const k = this.shake * this.shake * 0.5;
+            const t = this.time * 38;
+            this.camera.position.x += (Math.sin(t) * 0.6 + Math.sin(t * 1.7 + 1.3) * 0.4) * k;
+            this.camera.position.y += (Math.sin(t * 1.3 + 0.7) * 0.6 + Math.sin(t * 2.1) * 0.4) * k;
             this.camera.updateMatrixWorld();
         }
         /* Cut away whatever stands between the camera and you. */
