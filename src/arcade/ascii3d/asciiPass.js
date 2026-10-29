@@ -223,6 +223,7 @@ const pickShader = /* glsl */ `
     uniform float uHistory;
     uniform vec2 uHistShift;
     uniform float uDither;
+    uniform float uDepthCue;
 
     const int MAX_FAMILY = ${MAX_FAMILY};
     const float FAMILY_SIZE[${SET_NAMES.length}] = float[${SET_NAMES.length}](${SET_NAMES.map((name) => familyIndices(name).length.toFixed(1)).join(", ")});
@@ -435,6 +436,19 @@ const pickShader = /* glsl */ `
                 }
             }
             face = faces[2] >= 0.0 ? faces[2] : faces[3];
+            /* A crease needs each face on at least two of the six samples:
+               one odd sample is a bump in the rock, not an edge, and
+               drawing it turns a cliff into a scribble of strokes. */
+            float nLo = 0.0;
+            float nHi = 0.0;
+            for (int i = 0; i < 6; i++) {
+                nLo += faces[i] == lo ? 1.0 : 0.0;
+                nHi += faces[i] == hi ? 1.0 : 0.0;
+            }
+            if (hi > lo && (nLo < 2.0 || nHi < 2.0)) {
+                face = nLo >= nHi ? lo : hi;
+                hi = lo;
+            }
             if (hi > lo) {
                 /* A crease inside the cell: a stroke along it, shaped by
                    where the lower-numbered face lies. */
@@ -536,6 +550,17 @@ const pickShader = /* glsl */ `
             }
         }
 
+        /* Depth: a cell just behind something nearer (beside it, or above
+           it on screen) sits in that thing's shadow and draws dimmer, so
+           every silhouette stands off what lies behind it, not only
+           figures. */
+        float behind = 1.0;
+        if (uDepthCue > 0.0 && set != FIGURE && texture(tDepth, uv).r < 0.99999) {
+            vec2 step = 1.0 / uCells;
+            float jump = max(max(d - viewDepth(uv + vec2(step.x, 0.0)), d - viewDepth(uv - vec2(step.x, 0.0))), d - viewDepth(uv + vec2(0.0, step.y)));
+            behind = 1.0 - uDepthCue * smoothstep(uOutline * 2.5, uOutline * 6.0, depthJump(jump, d));
+        }
+
         /* The scene's colour, lifted to read as ink on the dark. Figures keep
            their hue at full strength, so a purple coat stays purple rather
            than washing out to cream. */
@@ -544,6 +569,7 @@ const pickShader = /* glsl */ `
             float top = max(max(color.r, color.g), color.b);
             ink = clamp(color / max(top, 0.03) * (0.62 + top * 0.6), 0.0, 1.0);
         }
+        ink *= behind;
         float glyph = float(choice);
         /* A crease is a line drawn on the block, a shade lighter than its
            faces. */
@@ -854,6 +880,8 @@ export class AsciiPass {
                 /* How far ordered dithering may push a flat cell across a
                    level, 0 to 1. */
                 uDither: { value: 0.4 },
+                /* How much a cell behind a nearer silhouette dims, 0 to 1. */
+                uDepthCue: { value: 0.45 },
             },
         });
         this.drawMaterial = new THREE.ShaderMaterial({
@@ -1040,11 +1068,15 @@ export class AsciiPass {
         const dither = this.pickMaterial.uniforms.uDither;
         const ditherWas = dither.value;
         if (!this.tier.dither) dither.value = 0;
+        const cue = this.pickMaterial.uniforms.uDepthCue;
+        const cueWas = cue.value;
+        if (!this.tier.depth) cue.value = 0;
         const glow = this.drawMaterial.uniforms.uGlow;
         const glowWas = glow.value;
         if (!this.tier.glow) glow.value = 0;
         this.drawCells(renderer);
         dither.value = ditherWas;
+        cue.value = cueWas;
         glow.value = glowWas;
     }
 
