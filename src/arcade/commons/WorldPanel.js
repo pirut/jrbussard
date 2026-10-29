@@ -20,6 +20,7 @@ export default function WorldPanel({
   firstPerson = false,
   onFirstPerson,
   onTurn,
+  onMenu,
 }) {
   return (
     <section className="hud-world hud-card" aria-label="The world">
@@ -66,6 +67,9 @@ export default function WorldPanel({
           </button>
           <button onClick={onHelp} title="Controls (H)" aria-label="Controls">
             ?
+          </button>
+          <button onClick={onMenu} title="Menu (Esc)" aria-label="Menu: settings and controls" className="hud-menu-button">
+            <span aria-hidden="true">☰</span>
           </button>
           {canFullscreen() && (
             <button

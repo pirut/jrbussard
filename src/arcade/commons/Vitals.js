@@ -1,6 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { meterLevel, conditionHint } from "./hud";
+import { useInput } from "./input/InputContext";
+import { sayHint } from "./ActionBar";
 
 export function Bar({ value, max, width = 14 }) {
   const filled = Math.max(
@@ -36,6 +38,7 @@ function Meter({ kind, label, value, max, shown, warn = true }) {
 
 /* You, top left: who you are and how you are holding up. */
 export default function Vitals({ me, onCustomize }) {
+  const input = useInput();
   const hint = conditionHint(me);
   return (
     <section className="hud-vitals hud-card" aria-label="You">
@@ -100,7 +103,7 @@ export default function Vitals({ me, onCustomize }) {
           </p>
           {hint && (
             <p className={`hud-condition is-${hint.level}`} role="status">
-              <span aria-hidden="true">!</span> {hint.text}
+              <span aria-hidden="true">!</span> {sayHint(hint.text, input)}
             </p>
           )}
         </>
