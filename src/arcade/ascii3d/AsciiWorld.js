@@ -16,7 +16,8 @@ import {
     flashModel,
     disposeModel,
 } from "./models";
-import { disposeMaterials } from "./materials";
+import { retainMaterials } from "./materials";
+import { abandon } from "./abandon";
 import { disposeMerged, mergeModel } from "./mergeModel";
 import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera, snapIsoCamera } from "./iso";
 import { Puffs } from "./puffs";
@@ -104,7 +105,18 @@ function lerpAngle(a, b, t) {
 
 
 export default class AsciiWorld {
-    constructor(container, { cellWidth = 8, cellHeight = 14, reducedMotion = false } = {}) {
+    constructor(container, options) {
+        /* If setting up throws, the caller never gets this to dispose of,
+           so it disposes of itself before passing the error on. */
+        try {
+            this.init(container, options);
+        } catch (error) {
+            abandon(this);
+            throw error;
+        }
+    }
+
+    init(container, { cellWidth = 8, cellHeight = 14, reducedMotion = false } = {}) {
         this.container = container;
         this.reducedMotion = reducedMotion;
         this.cellCss = { w: cellWidth, h: cellHeight };
@@ -144,7 +156,7 @@ export default class AsciiWorld {
         this.shiftX = 0;
         this.shiftY = 0;
         this.slack = new THREE.Vector2();
-        this.quality = { shadow: 1024, cell: 1 };
+        this.quality = { shadow: 1024, cell: 1, dpr: 3, ascii: "full" };
         /* Dug and piled ground, as last heard from the server. */
         this.ground = new GroundMap();
         this.flames = [];
@@ -157,6 +169,8 @@ export default class AsciiWorld {
         this.nextFlash = 4;
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
+        /* Past the point a missing WebGL throws: from here dispose() runs. */
+        this.materials = retainMaterials();
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -265,7 +279,7 @@ export default class AsciiWorld {
 
     resize() {
         const box = this.container.getBoundingClientRect();
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = Math.min(window.devicePixelRatio || 1, this.quality.dpr ?? 2);
         const width = Math.max(1, Math.floor(box.width * dpr));
         const height = Math.max(1, Math.floor(box.height * dpr));
         const scale = this.quality.cell;
@@ -319,7 +333,8 @@ export default class AsciiWorld {
 
     /* A step of the governor: shadow detail, then cell size. */
     applyQuality(quality) {
-        const resize = quality.cell !== this.quality.cell;
+        const resize = quality.cell !== this.quality.cell || quality.dpr !== this.quality.dpr;
+        this.ascii.setTier(quality.ascii);
         this.quality = quality;
         const shadows = quality.shadow > 0;
         /* three.js sees the change in lights and recompiles what it must. */
@@ -1577,7 +1592,7 @@ export default class AsciiWorld {
         this.ascii.uniforms.uOrtho.value = this.camera.isOrthographicCamera ? 1 : 0;
         this.ascii.uniforms.uInvProj.value.copy(this.camera.projectionMatrixInverse);
         this.ascii.uniforms.uCamToWorld.value.copy(this.camera.matrixWorld);
-        this.ascii.render(this.renderer);
+        this.ascii.render(this.renderer, this.camera);
         this.updateLabels();
         this.updateBars();
         this.updateFloaters();
@@ -1591,6 +1606,10 @@ export default class AsciiWorld {
     }
 
     dispose() {
+        /* Closing twice frees nothing twice, and gives back the material
+           hold only once. */
+        if (this.disposed) return;
+        this.disposed = true;
         cancelAnimationFrame(this.raf);
         CUT.uCutOn.value = 0;
         this.observer.disconnect();
@@ -1609,7 +1628,7 @@ export default class AsciiWorld {
         this.ascii.dispose();
         if (this.perf) this.perf.dispose();
         this.fxLayer.remove();
-        disposeMaterials();
+        this.materials?.release();
         this.renderer.dispose();
         this.renderer.domElement.remove();
     }

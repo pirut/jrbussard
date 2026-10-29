@@ -74,13 +74,15 @@ function safeStorage() {
 }
 
 /* From best to cheapest. `cell` scales the character cell; `shadow` is the
-   shadow map's size, 0 for none. */
+   shadow map's size, 0 for none; `dpr` caps the pixel ratio the characters
+   are drawn at (3 keeps type sharp on a phone's screen rather than scaled
+   up from 2); `ascii` is the renderer's tier (glyphs.js ASCII_TIERS). */
 export const QUALITY = [
-    { shadow: 1024, cell: 1 },
-    { shadow: 512, cell: 1 },
-    { shadow: 512, cell: 1.25 },
-    { shadow: 0, cell: 1.25 },
-    { shadow: 0, cell: 1.5 },
+    { shadow: 1024, cell: 1, dpr: 3, ascii: "full" },
+    { shadow: 512, cell: 1, dpr: 3, ascii: "full" },
+    { shadow: 512, cell: 1.25, dpr: 2, ascii: "lite" },
+    { shadow: 0, cell: 1.25, dpr: 2, ascii: "lite" },
+    { shadow: 0, cell: 1.5, dpr: 2, ascii: "min" },
 ];
 
 /* Mean frame interval, in ms, above which a step down is due (below about
