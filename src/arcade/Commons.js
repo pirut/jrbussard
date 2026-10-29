@@ -30,6 +30,7 @@ import TitleScreen from "./commons/TitleScreen";
 import Inspect from "./commons/Inspect";
 import { heldSwing } from "./commons/held";
 import HudWindow from "./commons/HudWindow";
+import useCommonsSound from "./commons/useCommonsSound";
 import AsciiField from "./ascii3d/AsciiField";
 import { octStep, stepTime } from "./ascii3d/controls";
 import { createBody, stepBody, tileOf } from "../world/motion";
@@ -294,6 +295,7 @@ function Game({
   const stageRef = useRef(null);
   const fieldApi = useRef(null);
   const chatRef = useRef(null);
+  const [muted, toggleSound] = useCommonsSound(fieldApi);
 
   const [notice, setNotice] = useState("");
   const [panel, setPanel] = useState(null);
@@ -1536,7 +1538,21 @@ function Game({
               firstPerson={firstPerson}
               onFirstPerson={() => setFirstPerson((on) => !on)}
               onTurn={(way) => fieldApi.current?.rotate(way * (Math.PI / 2))}
-            />
+            >
+              <button
+                onClick={toggleSound}
+                aria-pressed={!muted}
+                title={muted ? "Sound off (N)" : "Sound on (N)"}
+                aria-label={muted ? "Turn sound on" : "Turn sound off"}
+              >
+                <span
+                  aria-hidden="true"
+                  style={muted ? { textDecoration: "line-through", opacity: 0.6 } : undefined}
+                >
+                  ♪
+                </span>
+              </button>
+            </WorldPanel>
             <QuestTracker
               me={me}
               onOpen={() => setPanel("Journal")}

@@ -12,3 +12,4 @@ convex/_generated
 .env*
 # ...but the template is documentation, not a secret.
 !.env.example
+.playwright-mcp

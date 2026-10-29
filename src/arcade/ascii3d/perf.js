@@ -34,14 +34,55 @@ export function pinnedQuality() {
     }
 }
 
+/*
+ * Where the governor settled last time on this machine, so a phone that
+ * needed step 3 starts near there instead of stuttering through steps 0 to 2
+ * for the first ten seconds of every visit. It starts one step better than
+ * it ended, since the last visit may have ended in a busy moment, and climbs
+ * from there if it can.
+ */
+const QUALITY_KEY = "ascii3d:quality";
+
+export function startLevel(stored) {
+    const n = Number(stored);
+    if (stored === null || stored === undefined || stored === "" || !Number.isInteger(n)) return 0;
+    return Math.max(0, Math.min(QUALITY.length - 1, n) - 1);
+}
+
+export function recallQuality(storage = safeStorage()) {
+    try {
+        return startLevel(storage?.getItem(QUALITY_KEY) ?? null);
+    } catch {
+        return 0;
+    }
+}
+
+export function rememberQuality(level, storage = safeStorage()) {
+    try {
+        storage?.setItem(QUALITY_KEY, String(level));
+    } catch {
+        /* Private mode or full: the governor finds its way again. */
+    }
+}
+
+function safeStorage() {
+    try {
+        return window.localStorage;
+    } catch {
+        return null;
+    }
+}
+
 /* From best to cheapest. `cell` scales the character cell; `shadow` is the
-   shadow map's size, 0 for none. */
+   shadow map's size, 0 for none; `dpr` caps the pixel ratio the characters
+   are drawn at (3 keeps type sharp on a phone's screen rather than scaled
+   up from 2); `ascii` is the renderer's tier (glyphs.js ASCII_TIERS). */
 export const QUALITY = [
-    { shadow: 1024, cell: 1 },
-    { shadow: 512, cell: 1 },
-    { shadow: 512, cell: 1.25 },
-    { shadow: 0, cell: 1.25 },
-    { shadow: 0, cell: 1.5 },
+    { shadow: 1024, cell: 1, dpr: 3, ascii: "full" },
+    { shadow: 512, cell: 1, dpr: 3, ascii: "full" },
+    { shadow: 512, cell: 1.25, dpr: 2, ascii: "lite" },
+    { shadow: 0, cell: 1.25, dpr: 2, ascii: "lite" },
+    { shadow: 0, cell: 1.5, dpr: 2, ascii: "min" },
 ];
 
 /* Mean frame interval, in ms, above which a step down is due (below about
