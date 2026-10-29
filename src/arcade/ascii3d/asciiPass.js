@@ -538,7 +538,8 @@ const pickShader = /* glsl */ `
                most like it, among the set's own. Near the cut, a cell
                that was flat last frame stays flat, and the character drawn
                last frame wins a near-tie, so edges do not shimmer. */
-            bool edge = peak > 0.08 && (spread > uEdge + EDGE_BAND || (spread > uEdge - EDGE_BAND && prev != even));
+            /* glyphs.js isEdge(); with no history, the plain cut. */
+            bool edge = peak > 0.08 && (prev < 0.0 ? spread > uEdge : spread > uEdge + EDGE_BAND || (spread > uEdge - EDGE_BAND && prev != even));
             if (edge) {
                 float best = 1e9;
                 int count = int(FAMILY_SIZE[setIndex]);
