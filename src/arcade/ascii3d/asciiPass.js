@@ -1,5 +1,24 @@
 import * as THREE from "three";
-import { CODES, FACE_RAMPS, FAMILIES, GAINS, GLYPHS, GLYPH_SETS, LEVELS, RAMPS, SQUARES, VARIANTS, glyphCode } from "./glyphs";
+import {
+    BAYER4,
+    BLACK_POINT,
+    CODES,
+    EDGE_BAND,
+    FACE_RAMPS,
+    GAINS,
+    GLYPHS,
+    GLYPH_SETS,
+    HYSTERESIS,
+    LEVELS,
+    MAX_FAMILY,
+    RAMPS,
+    SET_NAMES,
+    STICK,
+    VARIANTS,
+    familyIndices,
+    glyphCode,
+    tierFlags,
+} from "./glyphs";
 
 /*
  * Turning a 3D render into characters.
@@ -105,22 +124,22 @@ function measureGlyphs() {
 }
 
 /* Shapes and families, as a float texture the first pass reads by index:
-   row 0 holds regions 0–3, row 1 regions 4–5, and row 2 + set is 1 where
-   that set may use the character. */
+   row 0 holds regions 0–3, row 1 regions 4–5, and row 2 + set lists the
+   characters that set may use, so the search only visits those (a set has
+   at most MAX_FAMILY of them). */
 function buildShapeTexture() {
     const shapes = measureGlyphs();
     const n = GLYPHS.length;
-    const names = Object.keys(GLYPH_SETS);
+    const names = SET_NAMES;
     const rows = 2 + names.length * 2;
     const data = new Float32Array(n * rows * 4);
     shapes.forEach((s, i) => {
-        const ch = GLYPHS[i];
         data.set([s[0], s[1], s[2], s[3]], i * 4);
         data.set([s[4], s[5], 0, 0], (n + i) * 4);
-        names.forEach((name) => {
-            const family = FAMILIES[name];
-            const allowed = (family ? family.includes(ch) : !SQUARES.includes(ch)) ? 1 : 0;
-            data[((2 + GLYPH_SETS[name]) * n + i) * 4] = allowed;
+    });
+    names.forEach((name) => {
+        familyIndices(name).forEach((g, k) => {
+            data[((2 + GLYPH_SETS[name]) * n + k) * 4] = g;
         });
     });
     /* Then one row per set of ramp entries: level × variant → character. */
@@ -184,8 +203,19 @@ const pickShader = /* glsl */ `
     uniform mat4 uCamToWorld;
     uniform float uOrtho;
     uniform vec2 uCellShift;
+    /* Last frame's cells, for holding a choice steady, and how many cells
+       the world has slid since (so the same patch of ground is compared). */
+    uniform sampler2D tPrev;
+    uniform float uHistory;
+    uniform vec2 uHistShift;
+    uniform float uDither;
 
-    const int COUNT = ${GLYPHS.length};
+    const int MAX_FAMILY = ${MAX_FAMILY};
+    const float FAMILY_SIZE[${SET_NAMES.length}] = float[${SET_NAMES.length}](${SET_NAMES.map((name) => familyIndices(name).length.toFixed(1)).join(", ")});
+    const float BAYER[16] = float[16](${BAYER4.map((v) => v.toFixed(5)).join(", ")});
+    const float BAND = ${HYSTERESIS.toFixed(3)};
+    const float STICK = ${STICK.toFixed(3)};
+    const float EDGE_BAND = ${EDGE_BAND.toFixed(3)};
     const float CODES = ${CODES.toFixed(1)};
     const float FIGURE = ${GLYPH_SETS.figure.toFixed(1)};
     const float WATER = ${GLYPH_SETS.water.toFixed(1)};
@@ -272,6 +302,34 @@ const pickShader = /* glsl */ `
         return floor(texelFetch(tColor, texel, 0).a * CODES);
     }
 
+    /* The character drawn in this patch of world last frame, or -1. */
+    float prevGlyph(vec2 cell) {
+        if (uHistory < 0.5) return -1.0;
+        vec2 c = cell + uHistShift;
+        if (c.x < 0.0 || c.y < 0.0 || c.x >= uCells.x || c.y >= uCells.y) return -1.0;
+        float code = floor(texelFetch(tPrev, ivec2(c), 0).a * 255.0 + 0.5);
+        return code >= 128.0 ? code - 128.0 : code;
+    }
+
+    float rampAt(int setIndex, float level, float variant) {
+        return texelFetch(tShapes, ivec2(int(clamp(level, 0.0, ${LEVELS - 1}.0) * ${VARIANTS}.0 + variant), 2 + ${SET_NAMES.length} + setIndex), 0).r;
+    }
+
+    float faceAt(int f, float level) {
+        int l = int(clamp(level, 0.0, ${LEVELS - 1}.0));
+        return f == 0 ? TOP_RAMP[l] : f == 1 ? LEFT_RAMP[l] : RIGHT_RAMP[l];
+    }
+
+    /* glyphs.js stickyLevel(): keep last frame's level next door unless the
+       reading is clearly past the boundary. Here judged by the character,
+       since that is what last frame kept. */
+    float holdLevel(float x, float level, float prev, float down, float up) {
+        if (prev < 0.0) return level;
+        if (prev == down && x - level < BAND) return level - 1.0;
+        if (prev == up && level + 1.0 - x < BAND) return level + 1.0;
+        return level;
+    }
+
     /* Rain falls in slanted lanes of cells, a short run of / per drop. */
     float rainAt(vec2 cell) {
         float lane = cell.x - floor(cell.y * 0.5);
@@ -305,7 +363,7 @@ const pickShader = /* glsl */ `
             vec3 c = toSrgb(texture(tColor, at).rgb);
             sum += c;
             /* A black point, so the dark stays empty rather than dusted. */
-            lum[i] = max(0.0, dot(c, vec3(0.299, 0.587, 0.114)) - 0.035) * gain;
+            lum[i] = max(0.0, dot(c, vec3(0.2126, 0.7152, 0.0722)) - ${BLACK_POINT}) * gain;
             peak = max(peak, lum[i]);
         }
         vec3 color = sum / 6.0;
@@ -398,54 +456,70 @@ const pickShader = /* glsl */ `
         }
 
         int choice = 0;
+        float prev = prevGlyph(cell);
+        float mean = (lum[0] + lum[1] + lum[2] + lum[3] + lum[4] + lum[5]) / 6.0 * halo;
+        /* Keyed to the world rather than the screen (uCellShift is how many
+           whole cells the camera has moved), so walking slides textures and
+           dither along with the ground instead of re-rolling them. */
+        vec2 key = cell + uCellShift;
+        vec2 k4 = mod(key, 4.0);
+        float threshold = BAYER[int(k4.y) * 4 + int(k4.x)];
         if (built && face >= 0.0) {
             /* Built, from above: the face's own texture, by brightness. */
-            float mean = (lum[0] + lum[1] + lum[2] + lum[3] + lum[4] + lum[5]) / 6.0 * halo;
-            float level = floor(pow(clamp(mean * uRamp, 0.0, 0.999), uContrast) * ${LEVELS}.0);
+            float x = pow(clamp(mean * uRamp, 0.0, 0.999), uContrast) * ${LEVELS}.0 + (threshold - 0.5) * uDither * 0.6;
+            float level = floor(x);
+            int f = int(face);
+            level = holdLevel(x, level, prev, faceAt(f, level - 1.0), faceAt(f, level + 1.0));
             /* Even a wall in shadow keeps its grain, faint, so it stays
                a wall and not a hole. */
             level = clamp(level, mean > 0.015 ? 2.0 : 0.0, ${LEVELS - 3}.0);
-            int f = int(face);
-            choice = int(f == 0 ? TOP_RAMP[int(level)] : f == 1 ? LEFT_RAMP[int(level)] : RIGHT_RAMP[int(level)]);
+            choice = int(faceAt(f, level));
             if (crease) choice = int(creaseGlyph);
-        } else if (spread > uEdge && peak > 0.08) {
-            /* An edge runs through this cell: find the character shaped
-               most like it. */
-            float best = 1e9;
-            for (int g = 0; g < COUNT; g++) {
-                if (texelFetch(tShapes, ivec2(g, setRow), 0).r < 0.5) continue;
-                vec4 a = texelFetch(tShapes, ivec2(g, 0), 0);
-                vec4 b = texelFetch(tShapes, ivec2(g, 1), 0);
-                vec4 da = a - vec4(lum[0], lum[1], lum[2], lum[3]) * halo;
-                vec2 db = b.xy - vec2(lum[4], lum[5]) * halo;
-                float e = dot(da, da) + dot(db, db);
-                if (e < best) {
-                    best = e;
-                    choice = g;
-                }
-            }
         } else {
-            /* Flat: a density from the ramp, a character from the hash. */
-            float mean = (lum[0] + lum[1] + lum[2] + lum[3] + lum[4] + lum[5]) / 6.0 * halo;
-            /* A curve on the way in: dim faces thin out to dots, so the lit
-               ones and the edges stand clear of them. */
+            /* Flat: a density from the ramp, a character from the hash.
+               A curve on the way in: dim faces thin out to dots, so the
+               lit ones and the edges stand clear of them. */
             float curve = set == FIGURE ? 1.0 : uContrast;
-            float level = floor(pow(clamp(mean * uRamp, 0.0, 0.999), curve) * ${LEVELS}.0);
+            float x = pow(clamp(mean * uRamp, 0.0, 0.999), curve) * ${LEVELS}.0 + (threshold - 0.5) * uDither;
+            float level = floor(x);
+            /* Water turns over a cell at a time, each on its own beat,
+               rather than the whole sea at once. */
+            float shuffle = set == WATER ? floor(uTime * 0.6 + hash(key.yx + 5.3)) : 0.0;
+            float variant = floor(hash(key + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
+            level = holdLevel(x, level, prev, rampAt(setIndex, level - 1.0, variant), rampAt(setIndex, level + 1.0, variant));
             /* And a ceiling, where the curve is on: a sunlit wall stays a
                page of letters rather than a slab of @ and W. */
             if (uContrast > 1.0 && set != FIGURE) level = min(level, set == WATER ? ${LEVELS - 2}.0 : ${LEVELS - 3}.0);
             /* Paving with its joints drawn needs only a light grain between
                them; the joints and the light carry the floor. */
             if (uJoints > 0.0 && set == PATH) level = min(level, uOrtho > 0.5 ? 2.0 : 4.0);
-            /* Keyed to the world rather than the screen (uCellShift is how
-               many whole cells the camera has moved), so walking slides the
-               texture along with the ground instead of re-rolling it. Water
-               turns over a cell at a time, each on its own beat, rather than
-               the whole sea at once. */
-            vec2 key = cell + uCellShift;
-            float shuffle = set == WATER ? floor(uTime * 0.6 + hash(key.yx + 5.3)) : 0.0;
-            float variant = floor(hash(key + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
-            choice = int(texelFetch(tShapes, ivec2(int(level * ${VARIANTS}.0 + variant), 2 + ${Object.keys(GLYPH_SETS).length} + setIndex), 0).r);
+            level = clamp(level, 0.0, ${LEVELS - 1}.0);
+            float even = rampAt(setIndex, level, variant);
+            choice = int(even);
+
+            /* An edge runs through this cell: find the character shaped
+               most like it, among the set's own. Near the cut, a cell
+               that was flat last frame stays flat, and the character drawn
+               last frame wins a near-tie, so edges do not shimmer. */
+            bool edge = peak > 0.08 && (spread > uEdge + EDGE_BAND || (spread > uEdge - EDGE_BAND && prev != even));
+            if (edge) {
+                float best = 1e9;
+                int count = int(FAMILY_SIZE[setIndex]);
+                for (int k = 0; k < MAX_FAMILY; k++) {
+                    if (k >= count) break;
+                    int g = int(texelFetch(tShapes, ivec2(k, setRow), 0).r);
+                    vec4 a = texelFetch(tShapes, ivec2(g, 0), 0);
+                    vec4 b = texelFetch(tShapes, ivec2(g, 1), 0);
+                    vec4 da = a - vec4(lum[0], lum[1], lum[2], lum[3]) * halo;
+                    vec2 db = b.xy - vec2(lum[4], lum[5]) * halo;
+                    float e = dot(da, da) + dot(db, db);
+                    if (float(g) == prev) e *= STICK;
+                    if (e < best) {
+                        best = e;
+                        choice = g;
+                    }
+                }
+            }
         }
 
         /* The scene's colour, lifted to read as ink on the dark. Figures keep
@@ -755,6 +829,12 @@ export class AsciiPass {
                 uOrtho: { value: 0 },
                 /* Whole cells the camera has moved, from snapIsoCamera(). */
                 uCellShift: { value: new THREE.Vector2(0, 0) },
+                tPrev: { value: null },
+                uHistory: { value: 0 },
+                uHistShift: { value: new THREE.Vector2(0, 0) },
+                /* How far ordered dithering may push a flat cell across a
+                   level, 0 to 1. */
+                uDither: { value: 0.6 },
             },
         });
         this.drawMaterial = new THREE.ShaderMaterial({
@@ -801,6 +881,18 @@ export class AsciiPass {
         this.target = null;
         this.pick = null;
         this.atlas = null;
+        this.tier = tierFlags("full");
+        /* Where the camera stood last frame, to tell whether last frame's
+           cells still line up with this one's. */
+        this.lastShift = new THREE.Vector2();
+        this.lastView = new Float32Array(16);
+        this.fresh = true;
+    }
+
+    /* A quality tier from glyphs.js ASCII_TIERS: "full", "lite" or "min". */
+    setTier(name) {
+        this.tier = tierFlags(name);
+        if (!this.tier.stable) this.fresh = true;
     }
 
     /* Shared uniforms, by name, across both passes. */
@@ -817,6 +909,7 @@ export class AsciiPass {
             this.target.depthTexture.dispose();
             this.target.dispose();
             this.pick.dispose();
+            this.pickPrev.dispose();
             this.glow.dispose();
         }
         const w = cols * SAMPLE_X;
@@ -833,11 +926,17 @@ export class AsciiPass {
         }
         this.ghost = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true });
         this.ghost.depthTexture = new THREE.DepthTexture(w, h);
-        this.pick = new THREE.WebGLRenderTarget(cols, rows, {
-            minFilter: THREE.NearestFilter,
-            magFilter: THREE.NearestFilter,
-            depthBuffer: false,
-        });
+        const cells = () =>
+            new THREE.WebGLRenderTarget(cols, rows, {
+                minFilter: THREE.NearestFilter,
+                magFilter: THREE.NearestFilter,
+                depthBuffer: false,
+            });
+        /* Two, swapped every frame: one being written, last frame's to
+           compare against. */
+        this.pick = cells();
+        this.pickPrev = cells();
+        this.fresh = true;
         this.glow = new THREE.WebGLRenderTarget(cols, rows, {
             minFilter: THREE.NearestFilter,
             magFilter: THREE.NearestFilter,
@@ -880,7 +979,55 @@ export class AsciiPass {
         camera.layers.mask = mask;
     }
 
+    /*
+     * Whether last frame's cells line up with this frame's, and if so how
+     * far they slid. They do while the camera only slides by whole cells
+     * (the isometric follow camera, see snapIsoCamera); a turn, a zoom or a
+     * perspective camera on the move re-deals every cell, and holding on to
+     * last frame's choices then would only smear.
+     */
+    trackHistory() {
+        const p = this.pickMaterial.uniforms;
+        const m = p.uCamToWorld.value.elements;
+        const ortho = p.uOrtho.value > 0.5;
+        let same = !this.fresh && this.tier.stable;
+        /* Rotation and scale: the upper 3×3. Position only matters for a
+           perspective camera; the isometric one moves by whole cells. */
+        for (let i = 0; i < 16 && same; i += 1) {
+            if (i % 4 === 3 || (ortho && i >= 12)) continue;
+            if (Math.abs(m[i] - this.lastView[i]) > 1e-5) same = false;
+        }
+        const shift = p.uCellShift.value;
+        /* uCellShift wraps at 4096. */
+        const wrap = (d) => ((((d + 2048) % 4096) + 4096) % 4096) - 2048;
+        const dx = wrap(shift.x - this.lastShift.x);
+        const dy = wrap(shift.y - this.lastShift.y);
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) same = false;
+        p.uHistShift.value.set(dx, dy);
+        p.uHistory.value = same ? 1 : 0;
+        this.lastView.set(m);
+        this.lastShift.copy(shift);
+        this.fresh = false;
+    }
+
     render(renderer) {
+        this.trackHistory();
+        /* Last frame's cells become the ones to compare against. */
+        [this.pick, this.pickPrev] = [this.pickPrev, this.pick];
+        this.pickMaterial.uniforms.tPrev.value = this.pickPrev.texture;
+        this.drawMaterial.uniforms.tPick.value = this.pick.texture;
+        const dither = this.pickMaterial.uniforms.uDither;
+        const ditherWas = dither.value;
+        if (!this.tier.dither) dither.value = 0;
+        const glow = this.drawMaterial.uniforms.uGlow;
+        const glowWas = glow.value;
+        if (!this.tier.glow) glow.value = 0;
+        this.drawCells(renderer);
+        dither.value = ditherWas;
+        glow.value = glowWas;
+    }
+
+    drawCells(renderer) {
         if (this.drawMaterial.uniforms.uGlow.value > 0) {
             this.quad.material = this.glowMaterial;
             renderer.setRenderTarget(this.glow);
@@ -901,6 +1048,7 @@ export class AsciiPass {
             this.target.depthTexture.dispose();
             this.target.dispose();
             this.pick.dispose();
+            this.pickPrev.dispose();
             this.glow.dispose();
         }
         if (this.ghost) {
