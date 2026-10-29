@@ -23,11 +23,15 @@ apps/commons/
     shared.ts         every import from the browser game, in one place
     net/convex.ts     Convex client, typed api, per-install session id
     net/world.tsx     "the world": live Convex or the offline stand-in
-    game/GameScreen.tsx  walking, server steps, actions, HUD, pause
+    game/GameScreen.tsx  connects the pieces to the screen; decides what a press means now
+    game/walking.ts   body, walker and server steps (no React: unit tested)
+    game/actions.ts   action -> server request (no React: unit tested)
+    hud/model.ts      what the HUD says, from a snapshot (no React: unit tested)
+    hud/              Vitals, QuestCard, Panels (craft / pack / journal), ChatBox
     world/scene.ts    three.js scene: terrain, trees, rocks, builds, people
     world/World3D.tsx GL surface and render loop
-    input/            InputHub and its sources
-    ui/Menu.tsx       focus-aware menu
+    input/            InputHub and its sources (keyboard, gamepad, TV remote, touch)
+    ui/               Menu, useListNav, theme (sizes scale for TV), controlsText
 ```
 
 The app has its own `package.json` and `node_modules`. The root build ignores it:
@@ -83,28 +87,24 @@ app's `node_modules`, never the root's React 18 install.
 Rule: never copy game logic into the app. If the app needs a rule, it imports it
 from the shared module, or the rule moves into one.
 
-### Integrating the sibling work (`game-rules`, input action map)
+### The shared input map and game rules
 
-Two shared modules are being written in parallel and aren't in this branch:
+Both landed (`commons-polish/gameplay` and `commons-polish/ux`) and the app
+uses them:
 
-- **game-rules** (from `commons-polish/gameplay`). Once it merges into
-  `commons-polish/integration`, re-export what the app needs from
-  `src/shared.ts` (`export * from '@site/<path to game-rules>'`). If it lives
-  outside `src/` (for example a top-level `shared/` folder), add that folder to
-  `watchFolders` in `metro.config.js` and a matching alias in `tsconfig.json`.
-  It has to stay dependency-free plain JS or TS, as the current shared modules
-  are.
-- **input action map** (from `commons-polish/ux`). `apps/commons/src/input/types.ts`
-  defines a placeholder `Action` union (`up/down/left/right/confirm/back`,
-  `gather/dig/build/run/pause`). When the shared map lands:
-  1. replace `Action` with the shared module's action type;
-  2. have each source (`keyboard.ts`, `gamepad.ts`, `tvRemote.ts`, the touch
-     buttons) look up bindings in the shared map instead of its own table;
-  3. leave `InputHub` and its readers (`GameScreen`, `Menu`) unchanged. They
-     only see actions and an axis.
+- **Action names, default keys and the controller layout** come from
+  `src/arcade/commons/input/actions.js` and `gamepad.js` via `shared.ts`. The
+  keyboard source looks keys up in the browser's `DEFAULT_KEYS`; the gamepad
+  source runs the browser's `createPadReader` and `PAD_LAYOUT`. A new default
+  key or a remapped button in the browser reaches the app with no app change.
+- `input/types.ts` spells the action names out so the compiler can check them.
+  `input/actions.test.ts` fails if the browser adds or renames one, so the app
+  is updated on purpose instead of silently ignoring a button.
+- **Quests, recipes, items and the day cycle** (`lib/game`, `lib/survival`) feed
+  the HUD through `hud/model.ts`. The app has no rules of its own.
 
-Merge `commons-polish/integration` into this branch after both land, then do
-the steps above in one follow-up PR.
+What is still the app's own: `run` (hold Shift / long Play-Pause) and the menu
+steps (`navUp`…), which the browser handles with DOM focus instead.
 
 ## Input
 
@@ -114,10 +114,10 @@ hub.
 
 | Device | Source | Notes |
 | --- | --- | --- |
-| Keyboard (web) | `keyboard.ts` | WASD/arrows, Shift run, E gather, F dig, B wall, Esc pause, Enter confirm |
-| Gamepad (web) | `gamepad.ts` | Gamepad API standard mapping. Left stick or d-pad walks; A gather/confirm, B dig, X wall, Start pause, RT/L3 run |
-| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select gathers, play/pause digs, a long select builds a wall, menu pauses. The menu key is claimed only during play, so it still exits from the title screen |
-| Touch (phones, tablets) | `TouchStick.tsx` + buttons in `GameScreen` | Drag-anywhere thumbstick, Gather/Dig/Wall buttons, II pause |
+| Keyboard (web) | `keyboard.ts` | The browser's key table: WASD/arrows walk, Space act, E eat, G dig, B wall, Tab/C craft, I pack, J journal, Enter/T talk, Esc menu. Shift runs. Ignored while the chat box has focus |
+| Gamepad (web) | `gamepad.ts` | The browser's controller layout, by layer: walking, building, dead, menu. Left stick walks (and steps menus). A/RT act, X wall, LT dig, Y craft, d-pad eat/drink/journal/help, Start menu |
+| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select acts, Play/Pause digs, a long select builds a wall, a long Play/Pause runs, Menu pauses. The pause menu opens Craft, Pack and Journal. The menu key is claimed only during play, so it still exits from the title screen |
+| Touch (phones, tablets) | `TouchStick.tsx` + buttons in `GameScreen` | Drag-anywhere thumbstick; Act, Dig, Wall, Eat on the right; Craft, Pack, II along the top; Talk opens chat |
 
 TV events differ by platform, and `tvEvents.ts` handles each case
 (`tvRemote.test.ts` replays the real sequences):
@@ -169,9 +169,13 @@ On a simulator with no remote or keyboard attached, start Metro with
 `commons://play` opens the world too, but iOS and tvOS first ask "Open in
 The Commons?", which needs a press.
 
-CI (`.github/workflows/validate.yml`, job `commons-app`) runs `npm ci`,
-`npm test` and the web export. The typecheck isn't in CI because it needs
-`convex/_generated`, which only a linked deployment can write.
+CI (`.github/workflows/validate.yml`, job `commons-app`) runs `npm ci`, the
+typecheck, `npm test` and the web export. The typecheck needs
+`convex/_generated`, which only a linked deployment can really write, so CI
+(and any unlinked machine) runs `node scripts/stub-convex-generated.cjs`
+first: it writes a stand-in from the files in `convex/` and refuses to
+overwrite real codegen output. A second job, `backend`, uses it to run the
+Convex tests and typecheck.
 
 `ios/` and `android/` are generated (continuous native generation) and
 gitignored. Configure native behaviour in `app.json` and config plugins.
@@ -210,8 +214,8 @@ almost every React Native library. `apps/commons/.npmrc` sets
 
 See the PR for the exact run log. In short:
 
-- `npm test` (17 tests: TV event sequences, gamepad disconnect, render loop
-  resize and context restore), `npm run typecheck`, and `npx expo-doctor`
+- `npm test` (75 tests: input sources, TV event sequences, walking, actions,
+  HUD model, render loop resize and context restore), `npm run typecheck`, and `npx expo-doctor`
   (20/20) pass.
 - **Apple TV:** with the expo-gl patch, `EXPO_TV=1` prebuild, `pod install`
   and an `appletvsimulator` Debug build succeed. On the Apple TV 4K simulator
@@ -242,14 +246,22 @@ See the PR for the exact run log. In short:
   paired controller get nothing yet. Both need a native GameController
   (iOS/tvOS) and InputDevice (Android) module feeding `InputHub` as another
   source.
-- **Renderer.** This is a plain lit 3D view, not the browser's ASCII pass. No
-  nametags, chat, inventory, crafting, building menu, or day/night beyond light
-  intensity. The HUD is minimal.
+- **Renderer.** A plain lit 3D view, not the browser's ASCII pass. The HUD now
+  has vitals, the quest tracker, craft / pack / journal, and chat, but no
+  nametags, minimap, build ghost, character creator or the rest of the
+  browser's sheets. Building is a single wall in front of you.
+- **Chat on TV.** TVs can read chat but not type. Canned phrases or voice would
+  fix that.
 - **Identity.** Sessions are anonymous per install, as in the browser. Moving a
   character between devices needs accounts (Convex Auth, with Sign in with
   Apple required on iOS if any third-party login is offered).
-- **Tests are thin.** Vitest covers the input adapters and the render loop
-  lifecycle. The walker/server-step glue in `GameScreen` has no tests yet.
+- **Tests.** Vitest covers the input adapters, walking, action dispatch and the
+  HUD model (75 tests). The React components and `GameScreen` wiring themselves
+  have no tests, and nothing here has been exercised on a real device.
+- **Not seen running since the HUD work.** The web export builds and the code
+  typechecks, but the HUD and panels were not looked at in a browser or on a
+  simulator when they were written (the dev host lacked the libraries a
+  headless browser needs). Do that first.
 
 ## Release prerequisites
 
@@ -280,10 +292,11 @@ Nothing has been uploaded. Before any store build:
 
 ## What comes next
 
-1. Play-test on a real Apple TV with the Siri Remote and a controller, then
-   run Android and Android TV emulators.
+1. Look at it: web, an iOS simulator, an Android emulator, then a real Apple TV
+   with the Siri Remote and a controller. Fix whatever the new HUD gets wrong.
 2. Native controller module and analog movement.
-3. Fold in the shared game-rules and input action map once they merge.
-4. Port the HUD panels (inventory, crafting, build menu, chat) as native UI,
-   with focus order designed for TV.
-5. Accounts, then EAS profiles and a TestFlight internal build when asked.
+3. The rest of the browser's panels as native UI, with focus order designed for
+   TV: nametags, minimap, character creator, build menu with a ghost, projects.
+4. Accounts, then `eas build --profile preview` (and `preview_tv`) for a
+   TestFlight / internal build when asked. `eas.json` is written; nothing has
+   been built or uploaded.

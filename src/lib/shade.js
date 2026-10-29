@@ -11,6 +11,18 @@
  * the world would shimmer as the camera moves. It is quantised into a handful
  * of steps so the renderer's colour cache stays small and runs of identical
  * colour still group into one span.
+ *
+ * Responsibility: the per-cell grain (shadeAt, GRAIN_SPREAD) plus a few
+ * small colour helpers. Purely cosmetic, so unlike terrain.js nothing here
+ * is stored or has to agree with the server; changing a number only changes
+ * how the world looks. Browser-only: the Convex functions and the native app
+ * do not import it.
+ *
+ * Callers: the site's character-grid renderer (src/world/render.js) uses
+ * shadeAt and GRAIN_SPREAD in light space; the Commons 3D terrain mesh
+ * (src/arcade/ascii3d/terrainMesh.js) uses shadeAt to vary vertex brightness
+ * (0.9 to 1.1) and does not use the colour helpers below. shadeColor,
+ * mixToward and toHex currently have no other callers.
  */
 
 /* Distinct shades per kind. More looks noisy; fewer looks banded. */
@@ -32,7 +44,8 @@ function hash2(x, y) {
     return (h ^ (h >>> 16)) >>> 0;
 }
 
-/* Which shade a cell uses. Stable for a given square, forever. */
+/* Which shade a cell uses, an integer 0 to SHADE_STEPS - 1 (index into
+   GRAIN_SPREAD). Stable for a given square, forever. */
 export function shadeAt(x, y) {
     return hash2(x, y) % SHADE_STEPS;
 }
@@ -101,7 +114,9 @@ export function shadeColor(base, step) {
     return hslToRgb([hue, sat, light]);
 }
 
-/* Blend toward the page background — this is the distance/darkness falloff. */
+/* Blend an [r, g, b] (0 to 255) toward `background` by t: t = 1 leaves the
+   colour as is, t = 0 gives the background. This is the distance/darkness
+   falloff. Returns rounded integers. */
 export function mixToward(rgb, background, t) {
     const mix = (a, b) => Math.round(b + (a - b) * t);
     return [
@@ -111,6 +126,7 @@ export function mixToward(rgb, background, t) {
     ];
 }
 
+/* [r, g, b] (integers 0 to 255) to "#rrggbb". */
 export function toHex(rgb) {
     return `#${((rgb[0] << 16) | (rgb[1] << 8) | rgb[2])
         .toString(16)

@@ -1,3 +1,29 @@
+/*
+ * The character-grid renderer for the site overworld.
+ *
+ * Responsibility: paint a window of the built world (build.js) as rows of
+ * coloured text, with lighting (ambient per room, a pool of light around the
+ * player, baked torch glow), per-cell grain, animated glyphs and the two
+ * parallax planes. It owns the row elements it creates and nothing else; it
+ * does not decide what is solid, where the camera is, or what an interaction
+ * does (pages/World.js does all of that and calls draw each frame).
+ *
+ * This is the fallback view: pages/World.js uses it only when the 3D scene
+ * (site3d/) cannot start, e.g. no WebGL. Every effect here is cosmetic and
+ * client-only; nothing the player sees through it is known to the server, and
+ * no rule is read back from it.
+ *
+ * Performance shape, which the structure exists to protect: a frame builds an
+ * HTML string per row, merging runs of equal colour into one span, and only
+ * touches the DOM for rows whose string changed. Light is quantised into
+ * LEVELS steps and colours are memoised per (kind, zone, level) for the same
+ * reason: more distinct colours means more spans and more DOM writes.
+ *
+ * Invariant: what draw paints depends only on its arguments and the world
+ * (no Math.random, no clock of its own), so the picture only changes when the
+ * camera, the player, `counts` or `time` does. Pass a constant `time` to
+ * freeze all animation (World.js does this for reduced motion).
+ */
 import { cellMarkup } from "../lib/glyph";
 import { shadeAt, GRAIN_SPREAD } from "../lib/shade";
 import { buildPlane, NEAR, FAR } from "./parallax";
@@ -10,10 +36,18 @@ import {
     INTERACTIVE,
 } from "./tiles";
 
+/* Lighting, in the units the formulas below use: light is a brightness
+   fraction, radii are in cells. PLAYER_LIGHT is the extra brightness added
+   at the player's own cell, falling off to nothing at PLAYER_RADIUS; torches
+   add up to 0.5 at their cell, falling to nothing at TORCH_RADIUS. All of
+   these were tuned by eye. */
 const PLAYER_LIGHT = 0.78;
 const PLAYER_RADIUS = 16;
 const TORCH_RADIUS = 8;
+/* Brightness steps. Light is rounded to one of these before it becomes a
+   colour, so neighbouring cells share colours and runs stay merged. */
 const LEVELS = 12;
+/* The cold, dull colour of a prop with nothing behind it (see isUnlit). */
 const UNLIT = [72, 84, 108];
 /*
  * How dark a cell can actually get. Previously the floor was 0.16, which kept
@@ -40,6 +74,8 @@ const GRAINED = new Set([
     KIND.STAR,
 ]);
 
+/* `rgb` blended toward the background by brightness `t` (1 = the colour
+   itself, 0 = the background), as a #rrggbb string. */
 function hex(rgb, t) {
     const bg = PALETTE.bg;
     const mix = (a, b) => Math.round(b + (a - b) * t);
@@ -49,7 +85,13 @@ function hex(rgb, t) {
 }
 
 /* Colour lookups are pure functions of (kind, brightness level), so memoising
-   them keeps the per-frame work down to string building. */
+   them keeps the per-frame work down to string building. The returned
+   function takes the base `rgb`, a brightness `level` (0..LEVELS-1) and a
+   `salt` string naming where `rgb` came from; the cache key is only
+   (salt, level), so a salt must always go with the same rgb (draw uses
+   "kind:zone", "p" for the player and "u" for unlit props). The brightness
+   range is squeezed into [FLOOR_LIGHT, CEIL_LIGHT] so nothing is ever pure
+   background or fully blown out. */
 function makeColorCache() {
     const cache = new Map();
     return (rgb, level, salt) => {
@@ -66,7 +108,10 @@ function makeColorCache() {
     };
 }
 
-/* Torch glow never moves, so bake it into the world once. */
+/* Torch glow never moves, so bake it into the world once. Returns a
+   Float32Array indexed like the world's grids with the brightest torch's
+   contribution per cell (the maximum, not the sum, so a cluster of torches
+   does not blow out). The flicker is applied later, per frame. */
 function bakeTorchLight(world) {
     const light = new Float32Array(world.w * world.h);
     world.torches.forEach((torch) => {
@@ -88,8 +133,12 @@ function bakeTorchLight(world) {
 /* Floors and walls take on their room's colour; props keep their own so they
    stay recognisable from room to room. */
 const TINTABLE = [KIND.FLOOR, KIND.WALL];
+/* How far, from 0 to 1, a tintable kind moves from its own colour toward the
+   room's tint. Walls take more of it than floors so a room's edge reads. */
 const TINT_STRENGTH = { [KIND.FLOOR]: 0.34, [KIND.WALL]: 0.46 };
 
+/* One {kind: rgb} table per zone number (index 0 = outdoors, no tint), so
+   draw does a single lookup per cell. */
 function bakeZoneColors(world) {
     return world.zoneTints.map((tint) => {
         const byKind = {};
@@ -110,10 +159,27 @@ function bakeZoneColors(world) {
     });
 }
 
-/* Silhouettes for the near plane, haze for the far one. */
+/* Silhouettes for the near plane, haze for the far one. Both are very dark
+   greens so the planes read as shadow and mist rather than as more map; the
+   near plane is darker. */
 const NEAR_COLORS = ["#101a13", "#142018", "#0d160f"];
 const FAR_COLORS = ["#1b2820", "#18251e", "#203026"];
 
+/*
+ * Make a renderer for one world.
+ *
+ * `container` is the element whose children become the world's rows (it is
+ * emptied); `world` is a buildWorld() result; `planes` optionally holds
+ * `near` and `far` elements for the parallax layers (either may be missing,
+ * and then that layer is skipped). Returns:
+ * - setSize(cols, rows): size the grid in character cells (see measureCell);
+ *   returns {cols, rows} for the caller to keep.
+ * - draw({cols, camX, camY, player, time, counts}): paint one frame. camX and
+ *   camY are the world tile shown at the top-left cell (may be negative or
+ *   past the edge, which draws void); `player` is the {x, y} tile; `time` is
+ *   milliseconds from a steady clock; `counts` maps a prop kind to how many
+ *   content items exist for it (props past that are drawn unlit).
+ */
 export function createRenderer(container, world, planes = {}) {
     const torchLight = bakeTorchLight(world);
     const zoneColors = bakeZoneColors(world);
@@ -133,6 +199,8 @@ export function createRenderer(container, world, planes = {}) {
             cache: [],
         }));
 
+    /* Rebuild the row elements for a new grid size. Rows are hidden from
+       assistive tech: a screen of glyphs is noise, not content. */
     function setSize(cols, rowCount) {
         /* ResizeObserver fires for sub-pixel changes too; rebuilding the rows
            would blank the screen for a frame, so only do it when it matters. */
@@ -168,7 +236,9 @@ export function createRenderer(container, world, planes = {}) {
     }
 
     /* A prop whose slot has no content behind it — an empty shelf, a cabinet
-       with nothing plugged in — is drawn cold and does not pulse. */
+       with nothing plugged in — is drawn cold and does not pulse. `index` is
+       the cell index; kinds absent from `counts` (consoles, signs) are
+       always lit. */
     function isUnlit(index, counts) {
         const marker = world.markerLookup.get(index);
         if (!marker) return false;
@@ -176,6 +246,8 @@ export function createRenderer(container, world, planes = {}) {
         return limit !== undefined && marker.index >= limit;
     }
 
+    /* Rebuild each parallax plane's rows and write only the ones that
+       changed. */
     function drawPlanes(cols, camX, camY) {
         layers.forEach((layer) => {
             const built = buildPlane({
@@ -196,6 +268,8 @@ export function createRenderer(container, world, planes = {}) {
 
     function draw({ cols, camX, camY, player, time, counts }) {
         drawPlanes(cols, camX, camY);
+        /* Torch flicker swings 0.82..1 (period about 0.7s); the prop pulse
+           swings 0..1 (about 1.6s); glyph animation advances every 190ms. */
         const flicker = 0.82 + 0.18 * Math.sin(time * 0.009);
         const pulse = 0.5 + 0.5 * Math.sin(time * 0.004);
         const frame = Math.floor(time / 190);
@@ -222,6 +296,9 @@ export function createRenderer(container, world, planes = {}) {
                     const i = wy * world.w + wx;
                     kind = world.kinds[i];
                     zone = world.zones[i];
+                    /* Offsetting by position keeps neighbouring water, stars
+                       and torches out of step with each other, so they
+                       shimmer instead of blinking in unison. */
                     ch = ANIMATED.has(kind)
                         ? ANIM_FRAMES[kind][(frame + wx * 3 + wy * 5) & 3]
                         : world.chars[i];
@@ -237,6 +314,9 @@ export function createRenderer(container, world, planes = {}) {
                     rgb = PLAYER_COLOR;
                 }
 
+                /* Light is additive: the room's ambient plus a small constant
+                   lift, then the player's pool, baked torches, the glow of
+                   torch and prop cells themselves. Clamped when quantised. */
                 let light = world.zoneAmbient[zone] + 0.12;
                 const d = Math.hypot(wx - player.x, wy - player.y);
                 if (d < PLAYER_RADIUS) {
@@ -271,6 +351,8 @@ export function createRenderer(container, world, planes = {}) {
                     0,
                     Math.min(LEVELS - 1, Math.round(light * (LEVELS - 1)))
                 );
+                /* Identifies the base colour for the cache: it only depends on
+                   kind and zone (tint), unless it is the player or unlit. */
                 const salt = isPlayer ? "p" : unlit ? "u" : `${kind}:${zone}`;
                 const color = colorOf(rgb, level, salt);
 
@@ -297,7 +379,13 @@ export function createRenderer(container, world, planes = {}) {
     return { setSize, draw };
 }
 
-/* Measures one character cell so the viewport can be sized in whole glyphs. */
+/*
+ * Measures one character cell so the viewport can be sized in whole glyphs.
+ * `probe` is a hidden element holding exactly 40 wide characters in the
+ * stage's font (the .world-probe span in pages/World.js); averaging over 40
+ * avoids the rounding error of measuring a single glyph. Returns {width,
+ * height} in CSS pixels, falling back to 8x16 when layout reports zero.
+ */
 export function measureCell(probe) {
     const rect = probe.getBoundingClientRect();
     return {

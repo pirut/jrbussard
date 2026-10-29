@@ -9,6 +9,22 @@ const canFullscreen = () =>
 /*
  * The menu: Esc with nothing else open, Start on a controller, ☰ on a
  * phone. The world is shared, so it does not stop while this is open.
+ *
+ * A HudWindow, so it is a modal dialog the controller can drive. "Resume" is
+ * data-autofocus so the d-pad has a starting point. Every prop is a callback
+ * into Commons.js, which decides what closing the menu first means:
+ *
+ *   me          your player, or null before the first snapshot (hides
+ *               the Character button)
+ *   fullscreen  current state, for the button's wording
+ *   onResume    also the × button
+ *   onSettings, onControls   open those windows on top of the menu
+ *   onCharacter, onMap       Commons.js closes the menu, then opens these
+ *   onFullscreen
+ *
+ * The fullscreen button is left out where the browser has no Fullscreen API
+ * (iPhone Safari). The "select" and "back" glyphs are decoration for
+ * controller users and are hidden from screen readers.
  */
 export default function PauseMenu({
   me,

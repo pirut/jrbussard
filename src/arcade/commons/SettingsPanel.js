@@ -14,9 +14,25 @@ import {
 import { BUTTON_GLYPHS, PAD_LAYOUT } from "./input/gamepad";
 import { tabListKeys } from "./input/focus";
 
+/*
+ * The settings window: four tabs (controls, display, sound, key bindings)
+ * over the shared settings store (input/settings.js, input/useSettings.js).
+ * Nothing is "saved" with a button: every control calls settingsStore.set,
+ * which clamps the value, writes local storage and notifies readers, so
+ * Commons.js and the sound code react at once. Opened from the pause menu
+ * and the title screen; the only props are `onClose` and `onReplayTutorial`.
+ *
+ * It is a HudWindow, so it is a dialog the controller can drive. Every
+ * control is a real button, switch or range input so a d-pad moves focus
+ * between them; sliders take left and right themselves (Slider below, and
+ * menuStep in input/useGamepad.js).
+ */
+
+/* Tab names double as the keys of the tab state and the DOM ids. */
 const TABS = ["Controls", "Display", "Sound", "Keys"];
 
-/* A slider that the arrow keys, a d-pad, a mouse and a finger all move. */
+/* A slider that the arrow keys, a d-pad, a mouse and a finger all move.
+   `format` turns the value into the text shown and read aloud. */
 function Slider({ label, value, min, max, step, format, onChange }) {
   const id = `setting-${label.replace(/\W+/g, "-").toLowerCase()}`;
   const nudge = (way) =>
@@ -47,6 +63,8 @@ function Slider({ label, value, min, max, step, format, onChange }) {
   );
 }
 
+/* An on/off switch (role="switch"); `detail` is a small gloss under the
+   label. `onChange` gets the new boolean. */
 function Toggle({ label, detail, on, onChange }) {
   return (
     <div className="setting">
@@ -67,6 +85,9 @@ function Toggle({ label, detail, on, onChange }) {
   );
 }
 
+/* A row of exclusive buttons. `options` is [[value, text], ...]; values may
+   be numbers or strings, which is why the key is String(v) and selection is
+   compared with ===. */
 function Choice({ label, options, value, onChange }) {
   return (
     <div className="setting">
@@ -82,6 +103,7 @@ function Choice({ label, options, value, onChange }) {
   );
 }
 
+/* 0-1 as a percent, for volume and HUD-size labels. */
 const percent = (v) => `${Math.round(v * 100)}%`;
 
 function ControlsTab({ settings, set, onReplayTutorial }) {
@@ -167,7 +189,12 @@ function SoundTab({ settings, set }) {
   );
 }
 
-/* Press the next key to bind it; Esc gives up. */
+/*
+ * Press the next key to bind it; Esc gives up. Rebinding rules (reserved
+ * keys, taking a key from another action, keeping at most two keys per
+ * action) live in input/actions.js rebind; this tab only collects the key.
+ * Also lists the controller layout, which is fixed and not remappable.
+ */
 function KeysTab({ settings, set }) {
   const [listening, setListening] = useState(null);
   const [message, setMessage] = useState("");
@@ -177,6 +204,8 @@ function KeysTab({ settings, set }) {
   useEffect(() => {
     if (!listening) return undefined;
     const onKey = (event) => {
+      /* Ignore the made-up key presses the controller code sends to drive
+         menus (input/useGamepad.js); only a real key can be bound. */
       if (!event.isTrusted) return;
       event.preventDefault();
       event.stopPropagation();
@@ -197,7 +226,8 @@ function KeysTab({ settings, set }) {
           : `${actionLabel(listening)}: ${keyLabel(event.key)}`,
       );
     };
-    /* Capture, so the game never sees the key being bound. */
+    /* Capture, so the game never sees the key being bound. Removed on every
+       change of `listening` so no stale listener can bind a second key. */
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [listening, settings.keys, set]);
@@ -271,7 +301,9 @@ function KeysTab({ settings, set }) {
   );
 }
 
-/* Settings, kept in this browser. Every change applies at once. */
+/* Settings, kept in this browser. Every change applies at once.
+   `onReplayTutorial` is Commons.js's reset of the tutorial progress. `set`
+   is the store's method pulled off the object; it does not use `this`. */
 export default function SettingsPanel({ onClose, onReplayTutorial }) {
   const settings = useCommonsSettings();
   const [tab, setTab] = useState("Controls");

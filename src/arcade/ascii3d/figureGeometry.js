@@ -9,12 +9,26 @@ import { sphereSegments } from "./figureKit";
  *
  * This file knows three.js but nothing of the scene: the caller supplies
  * the material for a glyph set, so the React Native app can bring its own.
+ *
+ * Called by models.js (buildFigure for people and creatures; releaseFigure
+ * via disposeModel), mergeModel.js (isFigureGeometry, releaseFigure) and
+ * abandon.js / site3d (releaseFigure on teardown). It does not own
+ * materials: those belong to whoever passed `materialFor`. It owns only the
+ * merged BufferGeometry, which is shared and reference counted below.
+ *
+ * Units follow figureKit.js: one tile is one unit, y up, facing +z. A built
+ * figure has the pivot hierarchy of the spec as THREE.Groups (found by name
+ * in the returned `pivots`) with at most one Mesh per (pivot, glyph set,
+ * unlit) under each; posing only rotates/scales those groups.
  */
 
 /* ── Shapes ─────────────────────────────────────────────────────────────── */
 
 function capeGeometry() {
-    /* A slab that flares toward the hem and falls away behind. */
+    /* A slab that flares toward the hem and falls away behind. The slab is
+       0.8 tall centred on y = 0, so 0.4 - y is the distance down from the
+       collar edge: the width grows 45% per unit of that, and the back bows
+       out quadratically (0.12 per unit squared) so the hem trails behind. */
     const g = new THREE.BoxGeometry(0.46, 0.8, 0.04, 2, 4, 1);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i += 1) {
@@ -27,6 +41,12 @@ function capeGeometry() {
     return g;
 }
 
+/* The shape kinds a spec's `shape: [kind, ...args]` can name; the argument
+   lists are documented in figureKit.js. The scale() calls bake the
+   per-axis stretch into the vertices, so a stretched sphere is still one
+   plain geometry. `dome` is the top of a sphere: it sweeps `cut` of the
+   way from the pole to the opposite pole (thetaLength = PI * cut, so 0.55
+   is a little over half) with a fixed six rings. */
 const MAKERS = {
     box: (w, h, d) => new THREE.BoxGeometry(w, h, d),
     sphere: (r, sx = 1, sy = 1, sz = 1) => {
@@ -43,7 +63,11 @@ const MAKERS = {
     cape: capeGeometry,
 };
 
-/* Shapes are cut once and shared: a crowd uses one of each. */
+/* Shapes are cut once and shared: a crowd uses one of each. The returned
+   geometry is the cached prototype: callers must clone it before changing
+   it (placed() does) and must never dispose it. The cache lives for the
+   life of the page. The uv attribute is dropped because nothing here is
+   textured and mergeIndexed() only carries position, normal and color. */
 const shapes = new Map();
 export function shapeGeometry(shape) {
     const key = shape.join(",");
@@ -67,6 +91,11 @@ const euler = new THREE.Euler();
 const scale = new THREE.Vector3();
 const colorOf = new THREE.Color();
 
+/* One part as a private geometry: its shape cloned, moved into its pivot's
+   space by at/rot/scale (rot is Euler XYZ radians), and with its colour
+   written into every vertex as a three.js colour (so the hex is converted
+   from sRGB to linear by Color.set, as for any material colour). The caller
+   disposes the result once it has been merged. */
 function placed(p) {
     const g = shapeGeometry(p.shape).clone();
     euler.set(...(p.rot || [0, 0, 0]));
@@ -88,7 +117,9 @@ function placed(p) {
 
 /* Concatenate indexed pieces that carry position, normal and colour. Done
    here rather than with three's addons, which ship as modules Jest cannot
-   load. */
+   load. Every piece must have exactly those three attributes (placed()
+   guarantees it); a non-indexed piece gets a sequential index. Indices
+   switch to 32-bit past 65535 vertices, the Uint16 limit. */
 function mergeIndexed(pieces) {
     let vertices = 0;
     let indices = 0;
@@ -123,6 +154,11 @@ function mergeIndexed(pieces) {
  * retainFigure() gives it a share of its own, so releasing a clone cannot
  * free geometry the original is still drawing. releaseFigure() gives each
  * held share back once, and the geometry is freed with its last holder.
+ *
+ * `merged`: key -> entry { key, geometry, users }, only for live geometry.
+ * `entries`: geometry -> entry, so a mesh's geometry can be recognised (and
+ * found again after the entry has left `merged`). `holders`: mesh -> entry
+ * it holds one share of.
  */
 const merged = new Map();
 const entries = new WeakMap();
@@ -133,6 +169,10 @@ function hold(mesh, entry) {
     holders.set(mesh, entry);
 }
 
+/* The entry for this exact list of parts, merging a new geometry if no live
+   one matches. The key covers shape, colour and placement but not `on`,
+   `set` or `unlit`: those pick the pivot and material, not the vertices. It
+   returns with `users` untouched; the caller must hold() it. */
 function acquireGeometry(parts) {
     const key = JSON.stringify(parts.map((p) => [p.shape, p.color, p.at, p.rot, p.scale]));
     let entry = merged.get(key);
@@ -148,7 +188,9 @@ function acquireGeometry(parts) {
     return entry;
 }
 
-/* Whether a geometry is one of the shared figure geometries. */
+/* Whether a geometry is one of the shared figure geometries (including one
+   already freed). mergeModel.js uses it to leave figure parts alone, since
+   they are merged already and must not be cloned or disposed by it. */
 export function isFigureGeometry(geometry) {
     return entries.has(geometry);
 }
@@ -166,7 +208,9 @@ export function retainFigure(object) {
 }
 
 /* Give back every share held under `object`. Meshes that never took one,
-   such as clones, are left alone; calling it twice does nothing more. */
+   such as clones, are left alone; calling it twice does nothing more. The
+   geometry is disposed (GPU buffers freed) when the last share goes, so
+   call it only once the object will never be drawn again. */
 export function releaseFigure(object) {
     object.traverse((node) => {
         const entry = holders.get(node);
@@ -192,6 +236,11 @@ export function liveFigureGeometries() {
  * (solid parts arrive as set "solid"); it must draw vertex colours.
  * Returns the root group and the pivots by name. The figure holds shared
  * geometry until releaseFigure() is called on it.
+ *
+ * `spec` is a figureKit.js spec; pivots must be listed parent before child,
+ * and the first pivot without a parent is the root (a second parentless one
+ * is hung from it). Parts are grouped by pivot, glyph set and unlit flag;
+ * the group key is joined with "|", so those names must not contain one.
  */
 export function buildFigure(spec, materialFor) {
     const pivots = {};
@@ -226,7 +275,9 @@ export function buildFigure(spec, materialFor) {
     return { root, pivots };
 }
 
-/* Counts for a built figure: meshes (draws) and triangles. */
+/* Counts for a built figure: meshes (draws) and triangles. One draw per
+   mesh per pass, so the shadow pass doubles `draws`. tests/models.test.ts
+   holds the draw and triangle budget with this. */
 export function figureStats(object) {
     let draws = 0;
     let triangles = 0;

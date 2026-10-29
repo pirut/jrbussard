@@ -4,6 +4,20 @@ import { meterLevel, conditionHint } from "./hud";
 import { useInput } from "./input/InputContext";
 import { sayHint } from "./ActionBar";
 
+/*
+ * The top-left HUD card: a way back to the arcade, your name (a button into
+ * the character sheet), the four meters, gold and potions, and the single
+ * most useful nag from hud.js conditionHint. Used by Commons.js; `Bar` is
+ * also reused by CharacterSheet.js.
+ *
+ * Meters carry role="meter" with a text value that adds the warning level
+ * ("low", "critical"), because the colour change alone is not enough for
+ * everyone. The ASCII bars themselves are aria-hidden for the same reason:
+ * the numbers say it.
+ */
+
+/* An ASCII bar `width` characters wide: filled blocks then shaded blocks,
+   clamped so a value over max or under zero stays inside the bar. */
 export function Bar({ value, max, width = 14 }) {
   const filled = Math.max(
     0,
@@ -17,6 +31,9 @@ export function Bar({ value, max, width = 14 }) {
   );
 }
 
+/* One labelled meter. `kind` is a CSS hook, `shown` the text beside the bar,
+   and `warn` false turns off the low/critical colouring (used for XP, where
+   a nearly empty bar is normal, not a warning). */
 function Meter({ kind, label, value, max, shown, warn = true }) {
   const level = warn ? meterLevel(value, max) : "ok";
   return (
@@ -36,7 +53,10 @@ function Meter({ kind, label, value, max, shown, warn = true }) {
   );
 }
 
-/* You, top left: who you are and how you are holding up. */
+/* You, top left: who you are and how you are holding up.
+   `me` may be null before the first snapshot (only the back link shows);
+   `onCustomize` opens the character sheet. The nag text is passed through
+   sayHint so its key letters follow the player's bindings and device. */
 export default function Vitals({ me, onCustomize }) {
   const input = useInput();
   const hint = conditionHint(me);

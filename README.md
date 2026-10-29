@@ -26,9 +26,8 @@ The world is still a tile grid ([`src/world/`](src/world/)): rooms, roads,
 lakes, the props worth touching, and between them a warren of tenement blocks
 cut by two-tile alleys, packed the way the Kowloon Walled City was. Walking,
 collisions and what each prop opens are all decided there. [`src/site3d/SiteScene.js`](src/site3d/SiteScene.js)
-only draws it, through the Commons' ASCII pass, with the camera riding
-behind and above JR (drag or `[` `]` to turn; it swings round to follow you
-into a side lane). The look is a Moscow that kept its churches: each room is a Kremlin-walled
+only draws it, through the Commons' ASCII pass, with an isometric
+camera hanging off the south-east corner (`[` `]` turn it). The look is a Moscow that kept its churches: each room is a Kremlin-walled
 compound ([`compound.js`](src/site3d/compound.js)) with a landmark across the
 street behind it — a five-domed church behind the library, a stepped Seven
 Sisters tower behind the atrium, chimneys behind the foundry, a St Basil's
@@ -165,7 +164,7 @@ plumbing — a mutation lands and everyone re-renders.
   server decides. Movement and building are rate-limited server-side.
 - **Survival and crafting.** Forage berries and fiber, chop trees, mine stone,
   coal, iron and crystal, and fish with a crafted rod. Stone tools lead to iron
-  equipment and a crystal pickaxe. The 14 recipes share one rules catalog between
+  equipment and a crystal pickaxe. The 17 recipes share one rules catalog between
   client and server; stations, ingredients and equipment upgrades are checked in
   a single mutation.
 - **Building.** Where a piece may go is one pure function,
@@ -258,9 +257,10 @@ git push origin main       # frontend only
 npm run commons:deploy     # backend only — after changing convex/
 ```
 
-So after editing anything under `convex/` or `src/lib/terrain.js`, run
-`npm run commons:deploy` or the live world keeps running the old rules. Terrain is
-especially important: it is shared by both sides, so changing it without
+So after editing anything under `convex/` or the shared rules in `src/lib/`
+(`terrain.js`, `ground.js`, `survival.js`, `building.js`, `appearance.js`,
+`game/`), run `npm run commons:deploy` or the live world keeps running the old
+rules. Terrain is especially important: it is shared by both sides, so changing it without
 deploying makes the browser and server disagree about what is solid.
 
 To make one push do both, set `CONVEX_DEPLOY_KEY` in Vercel (generate it from

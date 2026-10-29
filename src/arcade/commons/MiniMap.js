@@ -2,6 +2,16 @@ import React, { useMemo } from "react";
 import { tileAt, WATER, TREE, ROCK, inSafeZone } from "../../lib/terrain";
 import { resourceAt } from "../../lib/survival";
 
+/*
+ * The corner map: a small ASCII picture of the land around you, built from
+ * the same terrain generator the world uses (src/lib), so it needs no data
+ * from the server. It shows terrain only; players, creatures and your built
+ * pieces are not on it. The "camp" figure is text in the caption, not a mark.
+ * Opened from WorldPanel (the map action).
+ */
+
+/* Tiles per character: each character samples one tile out of a 3x3 block, so
+   a lone feature smaller than that can be missed. */
 const SCALE = 3;
 
 function markAt(x, y) {
@@ -14,10 +24,18 @@ function markAt(x, y) {
   return ["·", "#4f5a4c"];
 }
 
-/* The land around you, one character to three tiles, north up. */
+/*
+ * The land around you, one character to three tiles, north up.
+ * The grid is 25 wide by 11 tall with you drawn at its centre (column 12,
+ * row 5, which the y === 5 && x === 12 test below picks out). The centre is
+ * rounded to the SCALE grid, so the @ can be up to a tile off your true
+ * position; the caption gives the exact coordinates. `me` needs x, y and
+ * optionally home.
+ */
 export default function MiniMap({ me }) {
   const cx = Math.round(me.x / SCALE);
   const cy = Math.round(me.y / SCALE);
+  /* Recomputed only when the rounded centre moves, not on every step. */
   const rows = useMemo(() => {
     const out = [];
     for (let dy = -5; dy <= 5; dy += 1) {

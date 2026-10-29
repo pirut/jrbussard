@@ -65,14 +65,49 @@ import "./commons/ux.css";
  * server sends and asks it for things; it never decides anything itself.
  * The drawing happens in ./ascii3d: real models, lit and animated, run through
  * a pass that turns every patch of the picture into a character.
+ *
+ * The one thing done ahead of the server is showing your own steps and
+ * placements at once; the server still judges both and its answer wins (see
+ * "Walking" and "Building" in <Game>). Nothing else is guessed.
+ *
+ * Layout of this file, top to bottom:
+ *
+ *   Commons   picks a tree: <Online> when Convex is configured, else <Offline>.
+ *   Online    joins the world, keeps presence alive, turns `useQuery` and
+ *             `useMutation` into one `call(kind, args)` and a snapshot.
+ *   Offline   the same <Game> answered by ./ascii3d/demo.js, no server.
+ *   Game      everything the player touches, in this order: input state,
+ *             interface state, walking, building, the frame loop,
+ *             controllers, feedback, keyboard, mouse, touch, talking, the
+ *             action table (`run` / `back`), then the JSX.
+ *
+ * Conventions that explain most of what looks odd below:
+ *
+ *   - Refs mirror state. The frame loop, window listeners and timers outlive
+ *     any one render, so whatever they read is copied into a ref during
+ *     render (`fooRef.current = foo`). Reading the state variable there would
+ *     see a stale value. State is kept only for what must redraw the HUD;
+ *     things that change every frame or between frames (held keys, the
+ *     walking plan, the body's position) are refs and never render.
+ *   - Every control, from keyboard, controller, touch buttons or mouse, ends
+ *     up as an action name (input/actions.js) handed to `run`; Esc and the
+ *     controller's B go to `back`. Both are re-made every render and published
+ *     through `runRef`, so listeners installed once still call the latest.
+ *   - Units: map positions are in tiles (tile centres are whole numbers),
+ *     durations in milliseconds unless a name says seconds (`dt`), angles in
+ *     radians, pointer distances in CSS pixels.
  */
 
 /* Arrow keys step through an open menu instead of walking. */
 const ARROWS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
-/* Controls that use the arrow keys themselves. */
+/* Controls that use the arrow keys themselves (a slider, a tab list), so the
+   menu must not steal them. input/useGamepad.js has a similar list for the
+   controller; the two differ slightly (radio there, tab here). */
 const ownsArrows = (el) =>
   el && (el.type === "range" || ["tab", "slider"].includes(el.getAttribute?.("role")));
 
+/* How a controller maker (input/gamepad.js controllerFamily) is named in the
+   "connected" notice. */
 const FAMILY_NAME = {
   xbox: "Xbox",
   playstation: "PlayStation",
@@ -80,6 +115,8 @@ const FAMILY_NAME = {
   generic: "controller",
 };
 
+/* Local storage, or null where it throws (some private modes); the loaders
+   and savers in input/ accept null and just don't persist. */
 const localStore = () => {
   try {
     return window.localStorage;
@@ -121,8 +158,12 @@ function Online() {
     claimQuest: useMutation(api.claimQuest),
     contribute: useMutation(api.contribute),
   };
+  /* `mutations` is a new object every render; `call` below reads it through
+     this ref so that it can stay stable and not restart <Game>'s effects. */
   const mutationsRef = useRef(mutations);
   mutationsRef.current = mutations;
+  /* A connection problem to show, or "". Set by a failed join or heartbeat;
+     a later good heartbeat clears it. */
   const [lost, setLost] = useState("");
   const online = useOnline();
   /* Bumped by "try again" to ask to join once more. */
@@ -132,6 +173,11 @@ function Online() {
     document.title = "The Commons · a shared survival world";
   }, []);
 
+  /* Join, then a heartbeat every 15s. The server counts a player as present
+     off these (convex/world.ts treats 45s of silence as gone, which tolerates
+     two missed beats), so stopping them drops you from the world. Re-runs, and so
+     re-joins, when the name changes or "try again" bumps `attempt`; cleanup
+     stops the timer. */
   useEffect(() => {
     join({ session, name }).catch(() =>
       setLost("Could not join the world. Check your connection and try again."),
@@ -144,11 +190,15 @@ function Online() {
     return () => window.clearInterval(timer);
   }, [join, heartbeat, session, name, attempt]);
 
+  /* The one door to the server: `call("build", {...})` runs the mutation of
+     that name for this session. Offline's `call` has the same shape. */
   const call = useCallback(
     (kind, args = {}) => mutationsRef.current[kind]({ session, ...args }),
     [session],
   );
 
+  /* The server is told first; only then is the name kept locally. Setting
+     `name` also re-runs the join effect above with the new name. */
   const saveCharacter = useCallback(
     async ({ name: newName, appearance }) => {
       await call("customize", { name: newName, appearance });
@@ -158,6 +208,7 @@ function Online() {
     [call],
   );
 
+  /* `useQuery` is undefined until the first snapshot arrives. */
   if (!state) {
     return (
       <LoadingScreen
@@ -205,8 +256,12 @@ function Offline() {
       weather: params.get("weather"),
     });
   }, []);
+  /* The stand-in world is an object outside React; `snapshot` is a copy of
+     it taken whenever it changes, which is what makes <Game> redraw. */
   const [snapshot, setSnapshot] = useState(() => demo.snapshot());
 
+  /* Advance the stand-in's own clock ten times a second (monsters, weather)
+     and take a new snapshot only when it says something changed. */
   useEffect(() => {
     document.title = "The Commons · offline preview";
     const timer = window.setInterval(() => {
@@ -215,6 +270,8 @@ function Offline() {
     return () => window.clearInterval(timer);
   }, [demo]);
 
+  /* Same shape as Online's `call`: resolves with the answer's message.
+     Every answer is followed by a fresh snapshot. */
   const call = useCallback(
     (kind, args = {}) => {
       const answer = () => {
@@ -247,28 +304,35 @@ function Offline() {
   );
 }
 
-/* How often a held key swings at a creature in the way; a diagonal takes √2
-   as long. Walking itself is continuous (see world/motion.js): the server
-   only hears which tile you moved onto, and allows one every 120ms. */
+/* How often a held key swings at a creature in the way, in ms; a diagonal
+   takes √2 as long (stepTime). Walking itself is continuous (see
+   world/motion.js): the server only hears which tile you moved onto, and
+   allows one every 120ms. */
 const STEP_MS = 150;
-/* A blocked plan looks for a new way this many times before giving up. */
+/* A blocked click-to-walk plan looks for a new way this many times before
+   giving up (see the frame loop and `goThen`). */
 const REPLANS = 3;
 
 /* Touch: how far a finger may wander and still be a tap, how long a press
    lasts before it is a hold, how far the thumbstick reaches and how much of
-   the middle of it does nothing, and how far a twist turns the camera. */
+   the middle of it does nothing, and how far a twist turns the camera.
+   Distances are CSS pixels, HOLD_MS is milliseconds, TWIST is radians (30°)
+   of two-finger rotation per quarter turn of the camera. */
 const TAP_SLOP = 12;
 const HOLD_MS = 320;
 const STICK_REACH = 56;
 const STICK_DEAD = 12;
 const TWIST = Math.PI / 6;
 
-/* A direction as a unit vector, or still if there is none. */
+/* A direction as a unit vector, or still ([0, 0]) if there is none. */
 function unit(x, y) {
   const length = Math.hypot(x, y);
   return length < 1e-6 ? [0, 0] : [x / length, y / length];
 }
 
+/* Whether the main input is a finger (coarse pointer), to pick the starting
+   device and the cell density. Not a guarantee: `device` follows what is
+   actually used. */
 const touchFirst = () => {
   try {
     return window.matchMedia("(pointer: coarse)").matches;
@@ -277,7 +341,8 @@ const touchFirst = () => {
   }
 };
 
-/* Set or clear one entry of a Map held in state. */
+/* Set or clear one entry of a Map held in state. The Map is copied, since
+   React only redraws when it is given a new one. */
 const editMap = (setter, k, value) =>
   setter((current) => {
     const next = new Map(current);
@@ -286,7 +351,12 @@ const editMap = (setter, k, value) =>
     return next;
   });
 
+/* Equal tiles. Also true for the same object or two nulls, so `setHover` can
+   skip a redraw when the aim has not moved. */
 const sameSpot = (a, b) => a === b || (a && b && a.x === b.x && a.y === b.y);
+/* What a felled tree or mined rock leaves behind: a cell still stands there
+   but the ground is free to build on or dig (the same rule as held.js and
+   withPending in building.js). */
 const isCleared = (cell) =>
   cell && (cell.kind === "stump" || cell.kind === "rubble");
 
@@ -314,6 +384,24 @@ const isCleared = (cell) =>
  *                    in build mode, lay a run
  *   pinch · twist    zoom · turn the camera a quarter
  */
+/*
+ * Props (the same from <Online> and <Offline>, which differ only in who
+ * answers `call`):
+ *
+ *   state            the world snapshot ("served": me, players, monsters,
+ *                    cells, ground, chat, phase, ...). `state.me` can be
+ *                    missing, so most code checks it.
+ *   projects         the town projects list for the Journal; null offline.
+ *   call(kind, args) runs a server action by name and resolves to its message
+ *                    string (shown as a notice); "move" resolves to where you
+ *                    now stand. Rejects when the world can't be reached.
+ *   live             true against a real server; false for the offline
+ *                    preview, which starts on the title screen with the camera
+ *                    circling until the player steps in.
+ *   online           the browser's network state, for the banner.
+ *   status           a connection problem from <Online>, or "".
+ *   onSaveCharacter  ({ name, appearance }) => Promise, saves the character.
+ */
 function Game({
   state: served,
   projects = null,
@@ -323,19 +411,29 @@ function Game({
   status = "",
   onSaveCharacter,
 }) {
+  /* The <main>: where the controller looks for open menus, and what goes
+     full screen. */
   const rootRef = useRef(null);
+  /* The pointer surface (.game-stage): pointer capture, pointer lock, wheel. */
   const stageRef = useRef(null);
+  /* The 3D world, filled in by <AsciiField> once it exists and nulled when it
+     goes. Null before mount or without WebGL, hence the `?.` on every use.
+     Its methods are in ascii3d/AsciiWorld.js (driveSelf, pick, rotate, ...). */
   const fieldApi = useRef(null);
   const chatRef = useRef(null);
+  /* Sound listens to the field's events through the same ref. */
   const [muted, toggleSound] = useCommonsSound(fieldApi);
 
   /* ── Input: settings, the device in hand, and what it calls things ─── */
 
+  /* Saved player settings (input/settings.js), re-read on every change. */
   const settings = useCommonsSettings();
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const bindings = useMemo(() => resolveBindings(settings.keys), [settings.keys]);
   const keymap = useMemo(() => createKeymap(bindings), [bindings]);
+  /* key → actions. A ref because the keyboard listener is not reinstalled
+     when a binding changes. */
   const keymapRef = useRef(keymap);
   keymapRef.current = keymap;
   /* What the player last touched: "keyboard" (and mouse), "touch" or
@@ -344,7 +442,12 @@ function Game({
   const deviceRef = useRef(device);
   deviceRef.current = device;
   const [family, setFamily] = useState("generic");
+  /* What every glyph and hint in the HUD reads (input/InputContext.js). */
   const input = useMemo(() => ({ device, family, bindings }), [device, family, bindings]);
+  /* Switch `device` to whatever was touched last. Capture phase, so it hears
+     events a window stops from bubbling. Untrusted events are ignored: the
+     controller code presses Escape and the like as synthetic keys to drive
+     menus (input/useGamepad.js), and that must not flip back to "keyboard". */
   useEffect(() => {
     const onKey = (event) => {
       /* The phone's own keyboard typing a chat line is still touch. */
@@ -362,6 +465,8 @@ function Game({
     };
   }, []);
 
+  /* The window width only feeds the "auto" HUD scale (a controller on a wide
+     screen draws bigger). */
   const [width, setWidth] = useState(() => window.innerWidth);
   useEffect(() => {
     const onResize = () => setWidth(window.innerWidth);
@@ -369,6 +474,7 @@ function Game({
     return () => window.removeEventListener("resize", onResize);
   }, []);
   const uiScale = resolveUiScale(settings.uiScale, { device, width });
+  /* The system's reduced-motion preference, read once (not followed live). */
   const [systemCalm] = useState(() => {
     try {
       return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -377,12 +483,15 @@ function Game({
     }
   });
   const reducedMotion = resolveReducedMotion(settings.reducedMotion, systemCalm);
+  /* The field starts from the system preference alone; this lays the
+     player's own choice over it, now and whenever it changes. */
   useEffect(() => {
     if (fieldApi.current) fieldApi.current.reducedMotion = reducedMotion;
   }, [reducedMotion]);
 
   /* Draw under a phone's notch and home bar while the game is up; the HUD
-     keeps clear of them itself (see commons/ux.css). */
+     keeps clear of them itself (see commons/ux.css). Cleanup puts the
+     page's own viewport tag back, since this component can unmount. */
   useEffect(() => {
     const meta = document.querySelector('meta[name="viewport"]');
     if (!meta) return undefined;
@@ -395,19 +504,32 @@ function Game({
   const [tutorial, setTutorial] = useState(() => loadTutorial(localStore()));
   const tutorialRef = useRef(tutorial);
   tutorialRef.current = tutorial;
+  /* Persist on every change (the arrow body returns nothing, as an effect
+     must). */
   useEffect(() => saveTutorial(localStore(), tutorial), [tutorial]);
+  /* Tell the tutorial something happened; it only ticks off the card on
+     show if the event is the one that card teaches. Stable, so any effect
+     may list it. */
   const teach = useCallback(
     (event) => setTutorial((done) => advanceTutorial(done, event)),
     [],
   );
 
+  /* ── Interface state ──────────────────────────────────────────────── */
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  /* The line of text at the bottom (see `flash`). */
   const [notice, setNotice] = useState("");
+  /* The Fieldcraft window: null when shut, else its tab ("Craft", "Pack" or
+     "Journal"). */
   const [panel, setPanel] = useState(null);
   const [building, setBuilding] = useState(false);
+  /* The piece kind to place (an entry of BUILD_MENU). */
   const [selected, setSelected] = useState("wall");
+  /* The tile being aimed at: under the mouse, in the middle of the view in
+     first person, or in front of you with a controller. Set via `setHover`. */
   const [hover, setHoverState] = useState(null);
   const [chatting, setChatting] = useState(false);
   const [draft, setDraft] = useState("");
@@ -419,17 +541,23 @@ function Game({
   const firstPersonRef = useRef(false);
   firstPersonRef.current = firstPerson;
   const customizing = sheet !== null;
+  /* The player whose card is open (clicked from a nametag). */
   const [inspected, setInspected] = useState(null);
   const [raw, setRaw] = useState(false);
   const [help, setHelp] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  /* Mirrors document.fullscreenElement, which can change outside our code
+     (Esc leaves full screen), so it is set from the event. */
   const [fullscreen, setFullscreen] = useState(false);
+  /* A right-drag turning the camera is under way (adds the is-turning class
+     on <main>, see game.css). */
   const [dragging, setDragging] = useState(false);
   /* Offline, the camera circles the camp until you step in. */
   const [playing, setPlaying] = useState(live);
   const playingRef = useRef(playing);
   playingRef.current = playing;
-  /* Larger cells on phones: easier to read, and far fewer to draw. */
+  /* Larger cells on phones: easier to read, and far fewer to draw. Chosen
+     once; it does not follow a later resize. */
   const [density] = useState(() =>
     window.innerWidth < 700 || touchFirst() ? "coarse" : "normal",
   );
@@ -438,10 +566,16 @@ function Game({
      both drawn as done straight away (see commons/building.js). */
   const [pending, setPending] = useState(() => new Map());
   const [removed, setRemoved] = useState(() => new Map());
+  /* From here on `state` is the served snapshot with those two overlays
+     applied, and is what everything draws and decides from (`served` is only
+     used here). Keys of both maps are "x,y". */
   const state = useMemo(
     () => withPending(served, pending, removed),
     [served, pending, removed],
   );
+  /* Which way a door, sign or bench will face: 0-3 quarter turns, or
+     undefined for "not chosen" (the build call then leaves `facing` out
+     entirely, see sendBuild). */
   const [facing, setFacing] = useState(undefined);
   const facingPickRef = useRef(facing);
   facingPickRef.current = facing;
@@ -450,6 +584,8 @@ function Game({
   const paintRef = useRef(paint);
   paintRef.current = paint;
 
+  /* You. Taken from the overlaid state, so counts already have pending
+     placements' costs taken off. */
   const me = state.me;
 
   const stateRef = useRef(state);
@@ -460,6 +596,8 @@ function Game({
   const [digMode, setDigMode] = useState(null);
   const digRef = useRef(digMode);
   digRef.current = digMode;
+  /* Building and digging are exclusive: turning either on turns the other
+     off. */
   useEffect(() => {
     if (digMode) setBuilding(false);
   }, [digMode]);
@@ -471,10 +609,15 @@ function Game({
   const hoverRef = useRef(hover);
   hoverRef.current = hover;
 
+  /* Keeps the same object when the tile is unchanged, so calling this every
+     frame (first person does) does not redraw the HUD every frame. */
   const setHover = useCallback((spot) => {
     setHoverState((current) => (sameSpot(current, spot) ? current : spot));
   }, []);
 
+  /* One notice at a time: a new message replaces the old and restarts the
+     3.2s timer, which is cleared on unmount. Empty messages are ignored, so
+     a server answer with nothing to say can be passed straight in. */
   const noticeTimer = useRef(null);
   useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
   const flash = useCallback((message) => {
@@ -484,6 +627,8 @@ function Game({
     noticeTimer.current = window.setTimeout(() => setNotice(""), 3200);
   }, []);
 
+  /* `call` plus showing the server's answer as a notice. Never rejects:
+     a failure is a notice and a null result. */
   const act = useCallback(
     async (kind, args = {}) => {
       try {
@@ -500,32 +645,67 @@ function Game({
 
   /* ── Walking ──────────────────────────────────────────────────────── */
 
+  /*
+   * Movement is predicted in three layers:
+   *
+   *   body    (bodyRef) a continuous body steered every frame by the frame
+   *           loop below. This is what is drawn (`driveSelf`), so walking is
+   *           smooth and never waits on the network.
+   *   walker  (walkerRef, ascii3d/prediction.js) tile bookkeeping: the
+   *           server's last word on where you stand, plus the steps sent and
+   *           not yet answered. At most four may be in flight; past that the
+   *           loop stops asking to move until the server catches up.
+   *   server  hears only whole tiles. When the body crosses into a new tile
+   *           the loop calls `sendStep`, and the answer ("you stand here")
+   *           comes back through `walker.ack`.
+   *
+   * Reconciling: a snapshot arrives and the effect below runs `walker.sync`
+   * (which ignores a snapshot that is merely behind your own steps), and a
+   * disagreement larger than a tile moves the body (`placeBody`). A step the
+   * server refuses therefore costs one small correction instead of a jump.
+   */
+
   /* Where you are: the server's word plus the steps still on their way to
      it (see prediction.js), so walking never waits on a round trip. */
   const walkerRef = useRef(null);
   if (!walkerRef.current) walkerRef.current = createWalker();
-  /* When the next step may go. */
+  /* When the next swing or bumped step may go (performance.now() ms). */
   const nextStepRef = useRef(0);
+  /* The last direction faced as a map step; what "act" aims at when there
+     is no pointer. */
   const facingRef = useRef({ dx: 0, dy: 1 });
+  /* A click-to-walk route: { steps, then, goal, why, replans }, or null.
+     `then` runs on arrival. Any key or stick input cancels it. */
   const planRef = useRef(null);
+  /* Movement action ids (moveUp...) currently held, in press order. */
   const heldRef = useRef([]);
   /* Keys pressed and let go between two frames still take their step. */
   const tapRef = useRef(null);
-  /* The touch thumbstick's lean, in screen pixels, while a finger drags. */
+  /* The touch thumbstick's lean, in screen pixels, while a finger drags
+     (null inside its dead zone). */
   const stickRef = useRef(null);
   /* A controller's left stick, -1 to 1 each way, while it leans. */
   const padMoveRef = useRef(null);
+  /* The primary button (or a held "act" on a pad, or a held finger): `held`
+     keeps swinging, `last` is when it last did (performance.now() ms). */
   const mouseRef = useRef({ held: false, last: 0 });
-  /* When a movement key last went down, and when a step last went out. */
+  /* When a movement key last went down, and when a step last went out; a
+     key released before any step followed its press still takes one (see
+     onKeyUp). */
   const downAtRef = useRef(0);
   const stepAtRef = useRef(0);
 
   /* The body that walks: the same continuous motion as the site. The
      server hears about the tiles it crosses; what you see is the body. */
   const bodyRef = useRef(null);
+  /* passability(state) memoised against the snapshot object it was built
+     from: the frame loop needs it every frame but it only changes with the
+     snapshot. */
   const navRef = useRef({ state: null, nav: null });
 
-  /* Put the body on a tile, still, and show it there at once if asked. */
+  /* Put the body on a tile, still, and show it there at once if asked
+     (`snap`; otherwise the figure follows the body there, see
+     AsciiWorld.driveSelf). */
   const placeBody = useCallback((at, snap = false) => {
     const body = bodyRef.current;
     if (!body || !at) return;
@@ -537,6 +717,8 @@ function Game({
     fieldApi.current?.driveSelf(body, snap);
   }, []);
 
+  /* Runs for each new `me`. The first one creates the body on the player's
+     tile; later ones reconcile the walker and, if need be, the body. */
   useEffect(() => {
     const walker = walkerRef.current;
     if (!me) return;
@@ -551,19 +733,25 @@ function Game({
     const at = walker.position;
     const body = bodyRef.current;
     /* Only a real correction or a move you didn't make (a respawn) puts the
-       body somewhere; being a step behind the server's word is just lag. */
+       body somewhere; being a step behind the server's word is just lag.
+       0.9 is just under a tile; past 2.5 tiles the figure jumps there too
+       instead of catching up. */
     if (at && Math.max(Math.abs(body.x - at.x), Math.abs(body.y - at.y)) > 0.9) {
       placeBody(at, Math.hypot(body.x - at.x, body.y - at.y) > 2.5);
     }
   }, [me, placeBody]);
 
+  /* Your tile as the game believes it (prediction included); the served
+     position only before the walker has one. Read it, don't cache it. */
   const here = useCallback(
     () => walkerRef.current.position || stateRef.current.me,
     [],
   );
 
   /* Tell the server about a step and keep the guess squared with its
-     answer. */
+     answer. `moved` is whether the step was judged to move you (false for a
+     swing or a bump, which are still sent). The walker keeps a ticket so the
+     reply, which is where you stand, settles this step and any before it. */
   const sendStep = useCallback(
     (dx, dy, moved) => {
       const walker = walkerRef.current;
@@ -579,6 +767,7 @@ function Game({
       call("move", { dx, dy })
         .then(settle)
         .catch(() => {
+          /* No position to go on: keep the guess, free the in-flight slot. */
           settle(null);
           flash("Movement interrupted. Reconnecting…");
         });
@@ -588,7 +777,9 @@ function Game({
 
   /* A swing at a creature one tile away, in any of the eight directions: a
      step into it is an attack. Returns whether you moved (never, for a
-     creature). */
+     creature). This is also the way a single step is taken by `attack` and
+     by pushing against a creature in the frame loop; plain walking does not
+     come through here. */
   const stepBy = useCallback(
     (dx, dy) => {
       const st = stateRef.current;
@@ -600,7 +791,8 @@ function Game({
       fieldApi.current?.faceSelf(dx, dy);
       const now = performance.now();
       stepAtRef.current = now;
-      /* Keep the beat while swinging; start it afresh after a pause. */
+      /* Keep the beat while swinging; start it afresh after a pause (more than
+         60ms past the last beat's due time). */
       const base = now - nextStepRef.current > 60 ? now : nextStepRef.current;
       nextStepRef.current = base + stepTime(dx, dy, STEP_MS);
       const { creature, moved } = judgeStep(nav, from, dx, dy);
@@ -614,7 +806,10 @@ function Game({
     [sendStep, placeBody, here],
   );
 
-  /* Walk to the nearest tile where `goal` holds, then do `then`. */
+  /* Walk to the nearest tile where `goal` holds, then do `then`. Sets
+     `planRef`, which the frame loop follows; `goal` is kept in the plan so a
+     blocked route can be re-found, up to `replans` times. With the path
+     empty (already there) `then` runs at once. */
   const goThen = useCallback(
     (goal, then, why = "can't find a way there", replans = REPLANS) => {
       const st = stateRef.current;
@@ -634,10 +829,14 @@ function Game({
     [flash, here],
   );
 
+  /* Goals for `goThen`: close enough to work the tile, or standing beside it
+     (4 directions) for a swing. */
   const inReach = (spot) => (x, y) => withinReach({ x, y }, spot.x, spot.y);
   const nextTo = (spot) => (x, y) =>
     Math.abs(x - spot.x) + Math.abs(y - spot.y) === 1;
 
+  /* Turn to a tile: the figure turns the exact way, `facingRef` keeps the
+     nearer of the four straight directions. */
   const face = useCallback(
     (spot) => {
       const from = here();
@@ -656,12 +855,16 @@ function Game({
 
   /* ── Building ─────────────────────────────────────────────────────── */
 
-  /* Pieces asked for and not yet sent, in order; what went up, for Z. */
+  /* Pieces asked for and not yet sent, in order; what went up, for Z (the
+     last 20 only). `buildAtRef` is the earliest time the next may go, in
+     performance.now() ms, to stay inside the server's build cooldown. */
   const queueRef = useRef([]);
   const undoRef = useRef([]);
   const buildAtRef = useRef(0);
 
-  /* Ask for a run of pieces. Signs ask what to say, one at a time. */
+  /* Ask for a run of pieces. Signs ask what to say, one at a time. Nothing is
+     sent here: pieces that pass the same checks the server applies are
+     queued, and `pumpBuild` sends them. */
   const enqueue = useCallback((spots) => {
     if (!(stateRef.current.me?.hp > 0)) return;
     const kind = selectedRef.current;
@@ -688,7 +891,10 @@ function Game({
     ];
   }, [flash, here]);
 
-  /* Send one piece. It is drawn at once; the server's answer replaces it. */
+  /* Send one piece. It is drawn at once (`pending`); the server's answer
+     replaces it. A message starting "built" is success; "wait" is the server
+     asking to try again later, so the piece goes back to the front of the
+     queue after the cooldown; anything else is a reason, shown as a notice. */
   const sendBuild = useCallback(
     (job) => {
       const k = `${job.x},${job.y}`;
@@ -714,7 +920,8 @@ function Game({
     [call, face, flash],
   );
 
-  /* Take a piece down; it goes at once and comes back if the server says no. */
+  /* Take a piece down; it goes at once (`removed`) and comes back if the
+     server says no. The extra 40ms on the cooldown is slack for the wire. */
   const removeAt = useCallback(
     (spot) => {
       const k = `${spot.x},${spot.y}`;
@@ -739,7 +946,10 @@ function Game({
   /*
    * Work through the queue, one piece per beat: walk into reach of the
    * next piece if need be, drop it with the reason if it can't go up, and
-   * otherwise send it. Runs from the step loop below.
+   * otherwise send it. Runs from the step loop below. Returns whether it did
+   * something this frame (so the loop doesn't also act on a held button).
+   * `job.walked` marks a piece already walked towards once; if still out of
+   * reach after that it is dropped rather than chased forever.
    */
   const pumpBuild = useCallback(
     (now) => {
@@ -797,7 +1007,11 @@ function Game({
     [stepBy, goThen, here],
   );
 
-  /* The one verb: whatever makes sense for what was clicked. */
+  /* The one verb: whatever makes sense for what was clicked or aimed at. In
+     order: build mode queues a piece; with the shovel out, dig there; a
+     creature is attacked; something built is used; a bush, tree or rock is
+     gathered; failing all that, walk there. Everything that needs reach
+     walks over first (`goThen`) and acts on arrival. */
   const primary = useCallback(
     (spot) => {
       const st = stateRef.current;
@@ -852,6 +1066,7 @@ function Game({
     [goThen, enqueue, attack, act, face, here],
   );
 
+  /* The tile in front of you, for "act" and "remove" with no pointer. */
   const facingSpot = useCallback(() => {
     const from = here();
     if (!from) return null;
@@ -861,6 +1076,19 @@ function Game({
     };
   }, [here]);
 
+  /*
+   * The frame loop: the heartbeat of play. Each frame it
+   *   1. works out where the player wants to go: held keys, else the
+   *      thumbstick or pad stick, else the click-to-walk plan;
+   *   2. steers the body (stepBody) and reports each tile it crosses;
+   *   3. then does at most one of: swing at a creature being pushed against,
+   *      finish a plan, send the next queued building piece, repeat a held
+   *      swing.
+   * It is a single rAF loop, not several effects, so these always happen in
+   * this order. Everything it reads comes from refs. The callbacks in its
+   * dependency list are all stable, so it is restarted rarely; cleanup
+   * cancels the next frame.
+   */
   /* Walking: held keys first, then any plan, steering one body every
      frame. The server is told each tile the body crosses. */
   useEffect(() => {
@@ -869,6 +1097,7 @@ function Game({
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const now = performance.now();
+      /* Seconds, capped at 0.1 so a stalled tab doesn't fling the body. */
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const body = bodyRef.current;
@@ -878,11 +1107,13 @@ function Game({
       if (navRef.current.state !== st) navRef.current = { state: st, nav: passability(st) };
       const nav = navRef.current.nav;
       const alive = st.me.hp > 0;
+      /* A tap lasts exactly one frame: it is consumed here. */
       const held = heldRef.current.length ? heldRef.current : tapRef.current;
       tapRef.current = null;
       /* Every key held counts, so W and D together walk up and to the
          right of the screen, which from the isometric corner is due north
-         on the map. The thumbstick leans any way at all. */
+         on the map. The thumbstick leans any way at all. `lean` is in screen
+         terms; screenToMap turns it by the camera's heading below. */
       const lean = !alive
         ? null
         : held?.length
@@ -891,18 +1122,24 @@ function Game({
               Math.sign(held.reduce((sum, k) => sum + MOVE_VECTORS[k][1], 0)),
             ]
           : stickRef.current || padMoveRef.current;
+      /* `want`: the direction to steer in, on the map, [0, 0] to stand. */
       let want = [0, 0];
+      /* Any lean overrides (and cancels) a click-to-walk plan. */
       const plan = alive && !lean ? planRef.current : null;
       if (lean) {
         planRef.current = null;
         stepAtRef.current = now;
         want = screenToMap(fieldApi.current?.heading() ?? ISO_YAW, lean[0], lean[1]);
       } else if (plan) {
-        /* Reached a tile on the way: on to the next. */
+        /* Reached a tile on the way (within 0.3 of its centre): on to the next. */
         while (plan.steps.length && Math.hypot(plan.steps[0].x - body.x, plan.steps[0].y - body.y) < 0.3) plan.steps.shift();
         if (plan.steps.length) {
           const next = plan.steps[0];
           const from = here();
+          /* `near`: the next waypoint is within two tiles of where the game
+             thinks you stand; further means a correction moved you off the
+             route. `stall`: seconds spent barely moving; past 0.6 the way is
+             treated as blocked. Both lead to a re-plan. */
           const near = Math.max(Math.abs(next.x - from.x), Math.abs(next.y - from.y)) <= 2;
           plan.stall = body.speed < 0.3 ? (plan.stall || 0) + dt : 0;
           if (near && nav.free(next.x, next.y) && plan.stall < 0.6) {
@@ -914,6 +1151,8 @@ function Game({
           } else planRef.current = null;
         }
       }
+      /* First person has no pointer on the map: aiming is redone every frame
+         from the view. */
       if (firstPersonRef.current) {
         /* The middle of the view is what you aim at, and what you face. */
         setHover(fieldApi.current?.pickCenter() || null);
@@ -922,7 +1161,8 @@ function Game({
           if (fx || fy) facingRef.current = { dx: fx, dy: fy };
         }
       }
-      /* Too far ahead of the server already: let it catch up. */
+      /* Too far ahead of the server already (four steps in flight): let it
+         catch up. This also stops the facing update just below. */
       if (!walker.ready) want = [0, 0];
       if (want[0] || want[1]) {
         const [fx, fy] = octStep(want);
@@ -930,7 +1170,9 @@ function Game({
       }
 
       /* People and creatures stop the body, except where it already
-         overlaps them, so one stepping up beside you cannot pin you. */
+         overlaps them, so one stepping up beside you cannot pin you (0.8 of
+         a tile is the body plus a little). Terrain that is not open is always
+         solid. */
       const solid = (x, y) => {
         if (!nav.open(x, y)) return true;
         if (nav.free(x, y)) return false;
@@ -946,7 +1188,8 @@ function Game({
       if (body.speed > 0.5 && tutorialStep(tutorialRef.current)?.id === "move") teach("move");
 
       /* A tile crossed is a step taken: say so, one at a time, never
-         cutting a corner. */
+         cutting a corner. At most three per frame. A step the server would
+         refuse puts the body back on its tile. */
       for (let guard = 0; alive && guard < 3 && walker.ready; guard += 1) {
         const at = here();
         const tile = tileOf(body);
@@ -967,6 +1210,8 @@ function Game({
       }
       fieldApi.current?.driveSelf(body);
 
+      /* From here on the frame is for actions, and the first that applies
+         wins (each branch returns). */
       if (lean) {
         /* Pushing on a creature is a swing at it, on the server's beat. */
         const from = here();
@@ -981,12 +1226,15 @@ function Game({
         return;
       }
       if (plan) {
+        /* `then` or an earlier re-plan may have replaced planRef; only the
+           plan this frame started with may finish itself. */
         if (!plan.steps.length && planRef.current === plan) {
           planRef.current = null;
           plan.then?.();
         }
         return;
       }
+      /* Building is paced by its own queue and cooldown. */
       if (pumpBuild(now)) return;
       /* Holding the button down on a creature, a tree, or with the shovel
          out, any ground it can work, keeps at it (see commons/held.js). */
@@ -1014,6 +1262,11 @@ function Game({
 
   /* ── Controllers ──────────────────────────────────────────────────── */
 
+  /* input/useGamepad.js polls the pad each frame and calls these. While a
+     menu or window is open it drives the menu itself and only `onFrame`
+     still arrives (with the sticks zeroed). Actions go to `runRef` so a
+     press always runs the latest `run`. */
+
   /* The right stick turns the camera a quarter per flick; it has to come
      back to the middle before it turns again. */
   const lookArmed = useRef(true);
@@ -1032,8 +1285,12 @@ function Game({
       flash(connected ? `${FAMILY_NAME[maker]} connected` : "controller disconnected");
     },
     onAction: (action) => {
+      /* Before the player steps in, the pad only drives the title screen as
+         a menu (data-pad-menu), never the game. */
       if (!playingRef.current) return;
       if (action === "act") mouseRef.current = { held: true, last: performance.now() };
+      /* B backs out of whatever is open but never opens the menu itself
+         (Start does, as "pause"). */
       if (action === "cancel") runRef.current.back(false);
       else runRef.current.run(action);
     },
@@ -1047,13 +1304,18 @@ function Game({
       if (!field || !playingRef.current) return;
       const [lx, ly] = frame.look;
       if (firstPersonRef.current) {
+        /* Radians per second at full lean: turning is a little faster than
+           nodding. */
         if (lx || ly) field.look(lx * dt * 2.6, ly * dt * 2);
         return;
       }
+      /* Flick past 0.6 to turn a quarter, then it must return below 0.25
+         before it can turn again. */
       if (Math.abs(lx) > 0.6 && lookArmed.current) {
         lookArmed.current = false;
         runRef.current.run(lx > 0 ? "cameraRight" : "cameraLeft");
       } else if (Math.abs(lx) < 0.25) lookArmed.current = true;
+      /* Stick down zooms out (factors above 1 do, as in the zoomOut action). */
       if (Math.abs(ly) > 0.1) field.zoomBy(Math.exp(ly * dt * 1.6));
       /* No pointer: aim at whatever is in front of you. */
       if (deviceRef.current === "gamepad") setHover(facingSpot());
@@ -1065,6 +1327,8 @@ function Game({
   /* Gains float up off you: experience, gold, what you gathered. Hits,
      falls and level ups shake the controller or the phone. */
   const lastMe = useRef(null);
+  /* Compares each new `me` with the last. The first snapshot has nothing to
+     compare with and shows nothing. */
   useEffect(() => {
     const prev = lastMe.current;
     lastMe.current = me;
@@ -1074,6 +1338,7 @@ function Game({
       const fell = me.hp <= 0;
       rumble(fell ? "death" : "hit");
       if (deviceRef.current === "touch" && settingsRef.current.rumble)
+        /* Milliseconds: a long buzz for a hit, a pattern for a death. */
         navigator.vibrate?.(fell ? [80, 60, 220] : 35);
     }
     if (me.level > prev.level) rumble("levelUp");
@@ -1089,6 +1354,8 @@ function Game({
           `+${after[item] - before[item]} ${ITEMS[item]?.name.toLowerCase() || item}`,
           "gain",
         );
+        /* Any increase counts, however it came, so the "gather" card is
+           ticked by the first thing picked up. */
         teach("gather");
       }
     });
@@ -1141,6 +1408,22 @@ function Game({
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
+  /*
+   * The keyboard. Handlers are installed on window and read bindings and
+   * `run` through refs, so only state read directly here is in the
+   * dependency list. The order of the checks in onKeyDown matters:
+   *
+   *   character sheet open → ignore (it handles its own keys)
+   *   Ctrl/Cmd/Alt chords   → left to the browser, except Ctrl/Cmd+Z (undo)
+   *   typing in a field      → only Esc, which gives the keyboard back
+   *   inside a window        → the window owns Tab/arrows/Enter; Esc and the
+   *                            panel keys still work
+   *   title screen           → nothing; its buttons take the keys
+   *   everything else        → movement, Esc, build hotkeys, named actions
+   *
+   * Movement is not run as an action: it only records which keys are held
+   * (`heldRef`) for the frame loop.
+   */
   useEffect(() => {
     const typing = () =>
       document.activeElement &&
@@ -1162,6 +1445,8 @@ function Game({
         return;
       }
       const { run, back } = runRef.current;
+      /* Every action this key is bound to; a shared key (R) names several
+         and `run` takes the one that applies. */
       const actions = actionsForKey(keymapRef.current, event.key);
       const has = (a) => actions.includes(a);
       /* Inside a window the keyboard belongs to the window: Tab and the
@@ -1208,6 +1493,8 @@ function Game({
         run("undo");
         return;
       }
+      /* The digit keys pick a build piece directly (reserved, not
+         remappable; see RESERVED_KEYS). */
       const slot = BUILD_MENU.find((entry) => entry.key === event.key);
       if (slot) {
         setSelected(slot.kind);
@@ -1222,6 +1509,8 @@ function Game({
     const onKeyUp = (event) => {
       const moves = actionsForKey(keymapRef.current, event.key).filter((a) => MOVE_VECTORS[a]);
       if (!moves.length) return;
+      /* Note: not gated on `playing` or windows, so a key let go after a
+         window opened still stops the walk. */
       const before = heldRef.current;
       heldRef.current = before.filter((k) => !moves.includes(k));
       /* Let go before the step it asked for was taken: take it anyway. */
@@ -1232,6 +1521,8 @@ function Game({
       )
         tapRef.current = before;
     };
+    /* Losing focus swallows the key-up events, so let everything go rather
+       than walk on forever. */
     const release = () => {
       heldRef.current = [];
       mouseRef.current.held = false;
@@ -1248,16 +1539,22 @@ function Game({
 
   /* ── Mouse ────────────────────────────────────────────────────────── */
 
+  /* A right or middle button drag (turning the camera): last position,
+     total movement and the turn accumulated towards the next quarter. */
   const dragRef = useRef(null);
+  /* The map tile under a pointer event, or null (off the ground, no field). */
   const pick = (event) =>
     fieldApi.current?.pick(event.clientX, event.clientY) || null;
 
+  /* Tell the field about first person, and let go of the mouse when leaving
+     it. */
   useEffect(() => {
     fieldApi.current?.setFirstPerson(firstPerson);
     if (!firstPerson && document.pointerLockElement) document.exitPointerLock?.();
   }, [firstPerson, playing]);
 
-  /* With the pointer locked to the view, the mouse is your head. */
+  /* With the pointer locked to the view, the mouse is your head (radians per
+     pixel of movement). Locking happens on the first click (onPointerDown). */
   useEffect(() => {
     const onMove = (event) => {
       if (!firstPersonRef.current || document.pointerLockElement !== stageRef.current) return;
@@ -1267,7 +1564,9 @@ function Game({
     return () => document.removeEventListener("mousemove", onMove);
   }, []);
 
-  /* The wheel needs a listener that may cancel scrolling the page. */
+  /* The wheel needs a listener that may cancel scrolling the page: React's
+     onWheel is passive and could not. Zoom is exponential in the wheel
+     distance, so equal turns zoom by equal factors. */
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return undefined;
@@ -1282,8 +1581,18 @@ function Game({
   /* ── Touch ────────────────────────────────────────────────────────── */
 
   /* The fingers down, where the first one landed, and what it has become:
-     null until it is a tap, "hold", "stick", "paint" or "pinch". */
+     null until it is a tap, "hold", "stick", "paint" or "pinch".
+
+     One finger: a quick lift is a tap (`primary`); still for HOLD_MS it
+     becomes "hold" (keep gathering or attacking); moving past TAP_SLOP makes
+     it "paint" in build mode (drag a run) or otherwise a "stick" (walk).
+     Two fingers are "pinch" (zoom and twist the camera) and nothing else
+     until all fingers are up. All of it is on the stage with pointer
+     capture, so a finger keeps reporting after it leaves the element. */
   const touchRef = useRef({ points: new Map(), start: null, mode: null, timer: 0 });
+  /* The thumbstick ring to draw ({ x, y, dx, dy } in pixels) while one is
+     being dragged; state so it redraws, unlike `stickRef` which the frame
+     loop reads. */
   const [stick, setStick] = useState(null);
   useEffect(() => () => window.clearTimeout(touchRef.current.timer), []);
 
@@ -1297,6 +1606,7 @@ function Game({
     t.start = null;
   };
 
+  /* Distance and angle between the first two fingers. */
   const twoFingers = () => {
     const [a, b] = [...touchRef.current.points.values()];
     return {
@@ -1333,6 +1643,9 @@ function Game({
     }, HOLD_MS);
   };
 
+  /* Pinch: the distance ratio zooms; twist accumulates until it passes
+     TWIST, then turns the camera a quarter (against the twist, so the world
+     turns with the fingers) and starts over. */
   const onTouchMove = (event) => {
     const t = touchRef.current;
     if (!t.points.has(event.pointerId)) return;
@@ -1342,6 +1655,7 @@ function Game({
       const now = twoFingers();
       const p = t.pinch;
       if (p.dist > 0 && now.dist > 0) fieldApi.current?.zoomBy(p.dist / now.dist);
+      /* The shortest way round, across the -PI/PI seam. */
       let turn = now.angle - p.angle;
       if (turn > Math.PI) turn -= 2 * Math.PI;
       if (turn < -Math.PI) turn += 2 * Math.PI;
@@ -1391,6 +1705,8 @@ function Game({
     setStick({ x: s.x, y: s.y, dx, dy });
   };
 
+  /* Also handles pointercancel (see the stage's props), which never counts
+     as a tap or a finished run. */
   const onTouchUp = (event) => {
     const t = touchRef.current;
     t.points.delete(event.pointerId);
@@ -1412,8 +1728,14 @@ function Game({
     else if (mode === null) primary(s.spot);
   };
 
+  /* The stage's pointer handlers cover mouse, pen and touch. Touch is
+     handed to the handlers above. For a mouse: left acts or paints, right
+     and middle drag the camera round (a right click without a drag leaves
+     build mode, see onPointerUp). */
   const onPointerDown = (event) => {
+    /* HUD controls over the stage keep their own clicks. */
     if (event.target.closest("button, a, input, form")) return;
+    /* On the title screen any click on the world starts the game. */
     if (!playing) {
       setPlaying(true);
       return;
@@ -1462,12 +1784,14 @@ function Game({
       drag.x = event.clientX;
       drag.y = event.clientY;
       drag.moved += Math.abs(dx) + Math.abs(dy);
+      /* Under 4px of travel is still a click, not a drag. */
       if (drag.moved > 4 && !dragging) setDragging(true);
       if (firstPersonRef.current) {
         fieldApi.current?.look(dx * 0.005, dy * 0.005);
         return;
       }
-      /* Dragging sideways swings the camera round, a quarter at a time. */
+      /* Dragging sideways swings the camera round, a quarter at a time per
+         90px. */
       drag.turn += dx;
       if (Math.abs(drag.turn) > 90) {
         turnCamera(-Math.sign(drag.turn));
@@ -1510,6 +1834,8 @@ function Game({
 
   /* ── Talking ──────────────────────────────────────────────────────── */
 
+  /* The input only exists once `chatting` is set, so focus it after that
+     render (see Chat.js). */
   const openChat = useCallback(() => {
     setChatting(true);
     window.setTimeout(() => chatRef.current?.focus(), 0);
@@ -1538,6 +1864,7 @@ function Game({
 
   /* ── Actions ──────────────────────────────────────────────────────── */
 
+  /* A quarter turn: -1 left, 1 right. Also ticks off the camera card. */
   const turnCamera = useCallback(
     (way) => {
       fieldApi.current?.rotate(way * (Math.PI / 2));
@@ -1546,6 +1873,8 @@ function Game({
     [teach],
   );
 
+  /* Step the selected piece along the build menu (wrapping) and enter build
+     mode. */
   const cyclePiece = (way) => {
     const at = BUILD_MENU.findIndex((entry) => entry.kind === selectedRef.current);
     const next = BUILD_MENU[(at + way + BUILD_MENU.length) % BUILD_MENU.length];
@@ -1571,7 +1900,10 @@ function Game({
     } else if (openMenu) setMenuOpen(true);
   };
 
-  /* Every control, from every device, arrives here by name. */
+  /* Every control, from every device, arrives here by name (the ids in
+     input/actions.js; a few extras come from the pad layout, e.g. "cancel"
+     goes to `back`). Panel toggles flip: pressing the same key again
+     closes. Unknown names fall through the switch and do nothing. */
   const run = (action) => {
     const alive = me?.hp > 0;
     const toggle = (tab) => setPanel((p) => (p === tab ? null : tab));
@@ -1657,9 +1989,13 @@ function Game({
       default:
     }
   };
+  /* The latest `run` and `back`, for the long-lived listeners above (the
+     keyboard effect, the controller callbacks). Written every render; those
+     callbacks run after it. */
   const runRef = useRef(null);
   runRef.current = { run, back };
 
+  /* Opening a window is itself what teaches these cards. */
   useEffect(() => {
     if (panel) teach("craft");
   }, [panel, teach]);
@@ -1672,6 +2008,8 @@ function Game({
 
   /* ── Drawing ──────────────────────────────────────────────────────── */
 
+  /* What is aimed at, and the line describing it (the creature's health, the
+     shovel's effect, or what the tile holds). */
   const aim = playing ? hover || null : null;
   const aimedCreature =
     aim && state.monsters.find((m) => m.x === aim.x && m.y === aim.y);
@@ -1685,7 +2023,9 @@ function Game({
     : aim
       ? describeTarget(aim.x, aim.y, state.cells, state.ground)
       : null;
-  /* What the ghost shows: the run being dragged, or the aimed tile. */
+  /* What the ghost shows: the run being dragged, or the aimed tile. Where
+     you stand is passed as numbers so the memo below isn't redone for a new
+     position object with the same tile. */
   const standX = here()?.x;
   const standY = here()?.y;
   const ghosts = useMemo(() => {
@@ -1697,12 +2037,29 @@ function Game({
         : [];
     return ghostsFor(state, { x: standX, y: standY }, spots, selected, facing);
   }, [building, playing, paint, aim, state, standX, standY, selected, facing]);
+  /* The open player card follows their live record; the clicked copy is the
+     fallback if they have just left. */
   const inspection =
     state.players.find((p) => p.id === inspected?.id) || inspected;
 
   /* Windows over the game hide the tutorial card. */
   const windowOpen = Boolean(menuOpen || settingsOpen || help || panel || customizing);
 
+  /*
+   * Layers, bottom to top inside <main>:
+   *   .game-stage    the pointer surface: <AsciiField> (the picture and the
+   *                  nametags over it) and the touch thumbstick ring
+   *   .game-hud      the in-game HUD, only while playing; every control in
+   *                  it is a view that calls back into the functions above
+   *   <TitleScreen>  while not yet playing
+   *   .game-overlay  a second HUD layer for the menu, controls list and
+   *                  settings, so they also open over the title screen
+   *   Inspect, CharacterSheet  full-window cards
+   * <main> carries the device (`data-input`), the HUD scale and the
+   * accessibility modes as attributes and classes for the CSS to key off.
+   * Windows use role="dialog" so the keyboard and controller treat them as
+   * menus (see the keyboard effect and input/useGamepad.js).
+   */
   return (
     <InputContext.Provider value={input}>
     <main

@@ -11,8 +11,32 @@ import { planBuild, planDemolish } from "../../lib/building";
  * anyway: a little camp at the crossroads, a few survivors pottering about and
  * some wildlife, all in the same snapshot shape the Convex query returns, so
  * the renderer cannot tell the difference. Nothing here is saved.
+ *
+ * Caller: src/arcade/Commons.js (the offline path). It calls createDemo once,
+ * runs `tick(Date.now())` on a 100 ms timer (the demo itself only advances
+ * every 450 ms and says so by returning true), takes `snapshot()` whenever
+ * that returns true or after any `call(name, args)`, and feeds it to the same
+ * <Game> the online path uses. `?phase=` and `?weather=` pin the sky.
+ *
+ * Invariants:
+ * - The snapshot must keep the shape of the Convex `state` query in
+ *   convex/world.ts (now, phase, weather, region, view, online, me, players,
+ *   monsters, cells, ground, groundChunks, chat). Whatever the real query
+ *   gains that the field reads must be added here too, or the offline field
+ *   breaks silently; the view box here is the server's 61 x 29
+ *   (VIEW_W / VIEW_H in convex/field.ts) centred on you.
+ * - Rules come from the same shared modules the server uses (terrain.js,
+ *   ground.js, building.js, survival.js), so what can be built, dug or
+ *   walked offline is what the server would allow. Only the bookkeeping is
+ *   faked; `calls` answer with the message string the server would, or null.
+ * - Randomness comes from a fixed seed (rng(7)) so layouts repeat; the sky
+ *   follows the wall clock. The world is not persisted and is gone on
+ *   reload. Tile coordinates are the real world's, so the camp is placed
+ *   with isSolid/inSafeZone checks on the real terrain.
  */
 
+/* Appearances for the player and the four wanderers; keys are the ones the
+   figure builders read (models.js buildSurvivor). LOOKS[4] is yours. */
 const LOOKS = [
     { skin: "bronze", hair: "ink", outfit: "tide", cloak: "sea", hairstyle: "long", headwear: "none", sigil: "@" },
     { skin: "porcelain", hair: "copper", outfit: "rust", cloak: "wine", hairstyle: "braids", headwear: "hood", sigil: "&" },
@@ -33,9 +57,14 @@ const DAY_LENGTH = DAY.reduce((sum, [, s]) => sum + s, 0);
 const PHASES = DAY.map(([name]) => name);
 /* Mostly fair, sometimes not, as on the server. */
 const WEATHERS = ["clear", "clear", "clear", "clear", "rain", "fog", "storm"];
+/* Hit points and xp reward per creature kind. These are NOT the server's
+   (src/lib/game/creatures.js has wolf 30 hp / 40 xp and so on; only the rat's
+   hp matches): the preview is kept easier so a first visit can win a fight. */
 const MONSTER_HP = { rat: 8, wolf: 18, kobold: 14, troll: 40 };
 const MONSTER_XP = { rat: 4, wolf: 10, kobold: 8, troll: 30 };
 
+/* A small linear congruential generator (the Numerical Recipes constants),
+   so the demo plays out the same way each load. Returns () => [0, 1). */
 function rng(seed) {
     let s = seed >>> 0;
     return () => {
@@ -44,7 +73,11 @@ function rng(seed) {
     };
 }
 
-/* A clear rectangle near the crossroads to pitch the camp in. */
+/* A clear 7 x 6 rectangle near the crossroads (the origin) to pitch the camp
+   in: walks outward in rings of radius 7..39 and takes the first spot with
+   no solid tiles, not in the safe zone, and clear of the road axes (x or y of
+   0). Returns its top-left corner; the fallback (8, 8) is only used if
+   nothing fits. */
 function findCamp() {
     for (let r = 7; r < 40; r += 1) {
         for (let a = 0; a < 16; a += 1) {
@@ -62,6 +95,8 @@ function findCamp() {
     return { x: 8, y: 8 };
 }
 
+/* The closest water tile to a point, searching square rings outward (so
+   "closest" is by Chebyshev distance), or null within 40 tiles. */
 function nearestWater(fromX, fromY) {
     for (let r = 2; r < 40; r += 1) {
         for (let dy = -r; dy <= r; dy += 1) {
@@ -76,6 +111,12 @@ function nearestWater(fromX, fromY) {
     return null;
 }
 
+/*
+ * Make the stand-in world. `phase` and `weather`, if they are valid names,
+ * pin the sky; otherwise it cycles (a shortened day) and the weather drifts.
+ * Returns { tick(now) -> boolean, snapshot(now?) -> state, call(name, args)
+ * -> message | position | null }. Unknown call names answer null.
+ */
 export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
     const random = rng(7);
     const camp = findCamp();
@@ -112,6 +153,9 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         }
     }
 
+    /* Players: you first (the code relies on players[0] being you), then four
+       wanderers. They look like server players but carry extra fields
+       (`look`, `tools`) that snapshot() renames to `appearance`. */
     const players = [
         /* Start a few steps back, so the first view takes in the camp. */
         { id: "you", name: "wanderer", ...(isSolid(hx + 3, hy + 9) ? openNear(hx + 3, hy + 9) : { x: hx + 3, y: hy + 9 }), self: true, look: LOOKS[4], tools: { weapon: 1, shovel: 1 } },
@@ -136,8 +180,12 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         { kind: "rat", x: camp.x + 14, y: camp.y + 6 },
     ].map((m, i) => ({ ...m, ...(isSolid(m.x, m.y) ? openNear(m.x, m.y) : {}), id: `m${i}`, hp: MONSTER_HP[m.kind], maxHp: MONSTER_HP[m.kind] }));
     let monsterIds = monsters.length;
+    /* Fallen creatures waiting to come back, with the `clock` tick they return
+       at (25 ticks, roughly 11 seconds, after dying). */
     const returning = [];
     const chat = [{ name: "", text: "You wake at the edge of a camp. Nothing here is saved.", kind: "system" }];
+    /* Your private numbers (the `me` part of the snapshot, merged over the
+       position/health fields in snapshot()). */
     const me = {
         level: 1,
         xp: 0,
@@ -155,14 +203,21 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         milestones: [],
         home: null,
     };
+    /* The xp to reach the next level. Gentler than the server's
+       (xpForLevel in convex/field.ts, 40 * level^1.5), so a preview levels. */
     const xpNeeded = (level) => 20 + level * 15;
 
-    /* Dug and piled ground, "x,y" → steps, and the chunks it has touched. */
+    /* Dug and piled ground, "x,y" → steps, and the chunks it has touched
+       ("cx:cy", as `groundChunks` in the server's snapshot). Only touched
+       chunks are listed: the real server lists every chunk in view, which
+       AsciiWorld's change detection (worldEvents.changedEdits) knows about. */
     const ground = new Map();
     const groundChunks = new Set();
     const editAt = (x, y) => ground.get(`${x},${y}`);
     /* What was shovelled into each tile, so digging it out returns the same. */
     const fills = new Map();
+    /* The server's movement rule: a structure decides if there is one (floors
+       and open doors can be walked on), else the dug-ground-aware terrain. */
     const solidAt = (x, y) => {
         const c = cells.find((cell) => cell.x === x && cell.y === y);
         if (!c) return groundSolid(x, y, editAt(x, y));
@@ -172,6 +227,9 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
     };
     const occupied = (x, y) => players.some((p) => p.x === x && p.y === y) || monsters.some((m) => m.x === x && m.y === y);
 
+    /* Move one step if the tile is open and empty. Does not check diagonal
+       corners; `calls.move` does that for you, and the wanderers and monsters
+       only step in the four straight directions. */
     function tryStep(entity, dx, dy) {
         const nx = entity.x + dx;
         const ny = entity.y + dy;
@@ -189,6 +247,12 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
     let engaged = false;
     const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
+    /* One step of the world's life, at most every 450 ms: wanderers drift
+       (45% chance a tick, 30% of those a step toward camp along x), monsters chase or
+       wander, neighbours trade blows, health creeps back, the fallen return.
+       A bitten wanderer is floored at 12 hp, so the camp never empties.
+       `now` is a millisecond timestamp. Returns whether it advanced, i.e.
+       whether a new snapshot is worth taking. */
     function tick(now) {
         if (now - last < 450) return false;
         last = now;
@@ -246,6 +310,9 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         return true;
     }
 
+    /* Hurt a monster; if it dies, remove it, queue its return, and when `by`
+       is you, pay out xp, gold, meat and level-ups. `by` is null for a
+       wanderer's blow. */
     function wound(m, amount, by) {
         m.hp = Math.max(0, m.hp - amount);
         if (m.hp > 0) return;
@@ -266,6 +333,8 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         }
     }
 
+    /* The closest of `list` within `reach` (taxicab distance), or null. Ties
+       go to the later entry. */
     function nearest(list, from, reach) {
         let best = null;
         let bestDistance = reach;
@@ -279,6 +348,8 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         return best;
     }
 
+    /* An open spot within 15 tiles of camp, more than 6 away from `m`, to put
+       something back. Gives `m`'s own spot back if 40 tries find nothing. */
     function respawn(m) {
         for (let tries = 0; tries < 40; tries += 1) {
             const x = camp.x + Math.round((random() - 0.5) * 30);
@@ -288,7 +359,8 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         return { x: m.x, y: m.y };
     }
 
-    /* Start late in the afternoon, so dusk comes on during a first visit. */
+    /* Start 100 s into the 325 s day (DAY_LENGTH), 50 s before dusk, so
+       dusk comes on during a first visit. */
     const started = Date.now() - 100 * 1000;
     function phaseAt(now) {
         if (PHASES.includes(fixedPhase)) return fixedPhase;
@@ -310,6 +382,9 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         return weather;
     }
 
+    /* The state as the Convex query would give it, as plain copies so React
+       sees a change (the demo mutates its own objects in place). `now` is a
+       millisecond timestamp. */
     function snapshot(now = Date.now()) {
         return {
             now,
@@ -356,6 +431,8 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         };
     }
 
+    /* Add a chat line, keeping the last 40 (snapshot() sends the newest 12,
+       newest first, as the server does). */
     function say(name, text, kind = "chat") {
         chat.push({ name, text, kind });
         if (chat.length > 40) chat.shift();
@@ -456,6 +533,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
             if (plan.error !== undefined) return plan.error;
             ground.set(`${x},${y}`, plan.edit);
             fills.set(`${x},${y}`, plan.fill);
+            /* 16 is CHUNK (src/lib/terrain.js), written out here. */
             groundChunks.add(`${Math.floor(x / 16)}:${Math.floor(y / 16)}`);
             if (cleared) cells.splice(cells.indexOf(existing), 1);
             if (plan.item === "stone") me.stone += plan.change;

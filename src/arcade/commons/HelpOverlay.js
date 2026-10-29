@@ -4,8 +4,25 @@ import { Glyph, useInput } from "./input/InputContext";
 import { BUTTON_GLYPHS, PAD_LAYOUT } from "./input/gamepad";
 import { tabListKeys } from "./input/focus";
 
+/*
+ * The controls list: a window with one tab each for keyboard and mouse, a
+ * controller and touch, opening on whichever the player is using now.
+ * Shown from the menu, the title screen and the help key; the only prop is
+ * `onClose`. Used by Commons.js.
+ *
+ * Keyboard rows are built from <Glyph>, so they show the player's current
+ * (remapped) keys. The controller table is built from PAD_LAYOUT and
+ * BUTTON_GLYPHS, so it follows the layout in input/gamepad.js, but the
+ * sentence for each action is the `say` table below and must be extended by
+ * hand when an action is added to a layout (an unlisted action falls back to
+ * its raw id). The touch rows and the wording of the key rows are static
+ * text.
+ */
+
 const K = ({ children }) => <kbd>{children}</kbd>;
-/* The player's own key for an action, remapped or not. */
+/* The player's own key for an action, remapped or not. `device="keyboard"`
+   forces keycaps even if a controller is in hand, since this tab is about
+   the keyboard. */
 const A = ({ a }) => <Glyph action={a} device="keyboard" fallback={<em>no key</em>} />;
 
 const KEY_GROUPS = [
@@ -67,6 +84,8 @@ const TOUCH_ROWS = [
   ["☰", "the menu: settings, controls, the way out"],
 ];
 
+/* The controller tab, drawn with the buttons printed on the player's maker
+   of pad (`family`, see controllerFamily in input/gamepad.js). */
 function PadTable({ family }) {
   const glyphs = BUTTON_GLYPHS[family] || BUTTON_GLYPHS.generic;
   const say = (a) =>
@@ -130,13 +149,16 @@ function PadTable({ family }) {
   );
 }
 
+/* The tab ids are InputContext device names; `view` starts at the current one. */
 const VIEWS = [
   ["keyboard", "Keyboard and mouse"],
   ["gamepad", "Controller"],
   ["touch", "Touch"],
 ];
 
-/* Every control, for whichever device is in hand; the others a tab away. */
+/* Every control, for whichever device is in hand; the others a tab away.
+   The tablist uses tabListKeys so left/right arrows step tabs, and the
+   selected tab is data-autofocus so a d-pad has somewhere to start. */
 export default function HelpOverlay({ onClose }) {
   const input = useInput();
   const [view, setView] = useState(input.device);

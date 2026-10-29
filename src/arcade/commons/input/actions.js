@@ -9,6 +9,17 @@
  *
  * Keys are `KeyboardEvent.key` values, with single characters lower-cased
  * (see normalizeKey), so "b" and "B" are one binding.
+ *
+ * Not here: what an action does (Commons.js maps names to behaviour), the
+ * controller buttons (gamepad.js), or where a player's remaps are stored
+ * (settings.js keeps the `custom` object this file lays over the defaults).
+ *
+ * Shared with the native app: apps/commons/src/shared.ts re-exports
+ * ACTION_IDS, DEFAULT_KEYS, MOVE_VECTORS and the binding helpers through the
+ * `@site/*` alias. Keep this file plain JS with no imports, no DOM and no
+ * React, or the Metro bundle for iOS/Android/tvOS breaks. Adding an action
+ * here adds it for every client, so also give it a DEFAULT_KEYS entry (the
+ * lookups below index DEFAULT_KEYS by every id in ACTIONS).
  */
 
 /* Every action, in the order the settings list shows them. `group` sorts
@@ -47,11 +58,15 @@ export const ACTIONS = [
   { id: "respawn", label: "Wake up after a death", group: "Act" },
 ];
 
+/* Just the ids, in ACTIONS order. */
 export const ACTION_IDS = ACTIONS.map((a) => a.id);
 const BY_ID = Object.fromEntries(ACTIONS.map((a) => [a.id, a]));
+/* The label for the help and settings lists; an unknown id labels itself. */
 export const actionLabel = (id) => BY_ID[id]?.label || id;
 
-/* Which way each walking action leans, in screen terms. */
+/* Which way each walking action leans, as [x, y] in screen terms (y grows
+   downward, so "up" is -1). Held walking keys are summed from these, so W
+   and D together lean up and to the right. */
 export const MOVE_VECTORS = {
   moveUp: [0, -1],
   moveDown: [0, 1],
@@ -59,7 +74,9 @@ export const MOVE_VECTORS = {
   moveRight: [1, 0],
 };
 
-/* The keys out of the box. The first key of each is the one shown. */
+/* The keys out of the box, as normalized keys. The first key of each is the
+   one shown on keycaps and hints. Both turnPiece and respawn start on R,
+   which is allowed (see MAY_SHARE). */
 export const DEFAULT_KEYS = {
   moveUp: ["w", "ArrowUp"],
   moveDown: ["s", "ArrowDown"],
@@ -103,6 +120,9 @@ const MAY_SHARE = [["turnPiece", "respawn"]];
 const mayShare = (a, b) =>
   MAY_SHARE.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
 
+/* The form keys are compared and stored in: single characters lower-cased,
+   and the legacy names "Spacebar" and "Esc" (old browsers) mapped to the
+   modern ones. Anything falsy becomes "" so callers can filter it out. */
 export function normalizeKey(key) {
   if (!key) return "";
   if (key === "Spacebar") return " ";
@@ -122,7 +142,7 @@ const KEY_NAMES = {
   Backspace: "⌫",
 };
 
-/* How a key is written on a keycap. */
+/* How a key is written on a keycap. "—" stands for no key at all. */
 export function keyLabel(key) {
   if (KEY_NAMES[key]) return KEY_NAMES[key];
   if (!key) return "—";
@@ -133,6 +153,11 @@ export function keyLabel(key) {
  * The full bindings: the defaults with any of the player's own laid over
  * them. `custom` only holds what was changed, so new defaults still reach
  * players who never touched the settings.
+ *
+ * A custom entry replaces an action's keys wholesale, and an empty array is
+ * kept as is: that is how an action the player took a key from ends up
+ * unbound (see unboundActions) rather than quietly getting its default back.
+ * Returns a fresh object each call; callers may mutate it.
  */
 export function resolveBindings(custom = {}) {
   const out = {};
@@ -143,7 +168,9 @@ export function resolveBindings(custom = {}) {
   return out;
 }
 
-/* key → the actions it asks for, for looking up a key press. */
+/* key → the actions it asks for, for looking up a key press. A Map of
+   arrays because a key can legitimately mean two actions (R: turn a piece
+   or wake up); the caller picks whichever applies in the current state. */
 export function createKeymap(bindings) {
   const map = new Map();
   for (const [id, keys] of Object.entries(bindings)) {
@@ -156,6 +183,7 @@ export function createKeymap(bindings) {
   return map;
 }
 
+/* The action ids a key press asks for (an empty array when none). */
 export function actionsForKey(keymap, key) {
   return keymap.get(normalizeKey(key)) || [];
 }
@@ -164,6 +192,11 @@ export function actionsForKey(keymap, key) {
  * Give `action` a new main key. The key is taken off anything else that
  * had it (unless the two may share), and that action keeps its other keys.
  * Returns the new custom overrides and what lost the key, or an error.
+ *
+ * Pure: `custom` is not mutated. Success is `{ custom, displaced }` where
+ * `displaced` lists the action ids that lost the key (the settings screen
+ * names them); failure is `{ custom, error }` with `custom` unchanged and
+ * `error` a sentence ready to show the player.
  */
 export function rebind(custom, action, key) {
   const k = normalizeKey(key);
@@ -181,13 +214,14 @@ export function rebind(custom, action, key) {
       displaced.push(id);
     }
   }
-  /* The new key goes first; the old main key stays as a spare only when it
-     was not one of the defaults' extras, so a list never grows unbounded. */
+  /* The new key goes first, then the action's existing keys, cut to two so
+     repeated rebinding cannot grow the list without bound. */
   next[action] = [k, ...all[action].filter((x) => x !== k)].slice(0, 2);
   return { custom: next, displaced };
 }
 
-/* Put one action back to its default keys, or all of them. */
+/* Put one action back to its default keys, or (with no `action`) all of
+   them. Returns the new custom overrides; `custom` is not mutated. */
 export function resetBinding(custom, action) {
   if (!action) return {};
   const next = { ...custom };
@@ -195,7 +229,8 @@ export function resetBinding(custom, action) {
   return next;
 }
 
-/* Actions left with no key at all, to warn about in the settings. */
+/* Actions left with no key at all, to warn about in the settings. Actions
+   with `remap: false` are skipped: they cannot be unbound by the player. */
 export function unboundActions(bindings) {
   return ACTION_IDS.filter((id) => BY_ID[id].remap !== false && !(bindings[id] || []).length);
 }

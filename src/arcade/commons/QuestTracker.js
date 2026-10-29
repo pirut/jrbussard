@@ -6,6 +6,15 @@ import "./gameplay.css";
  * The task in hand, under the world panel: what to do, how far along each
  * part is, and the reward to claim once it is done. The title opens the
  * journal, where the whole road is.
+ *
+ *   me       your player; renders nothing until it exists
+ *   onOpen   the title button opens the journal
+ *   onClaim  the claim button, shown only once every objective is done
+ *
+ * After the last quest (`status.quest` is null) it shows a closing card
+ * instead. A `p.need > 1` objective is a counter with a progress bar; a
+ * single-step one shows a tick or a dash. The reward itself is paid by the
+ * server on claim; this only reads the player's own counters.
  */
 export default function QuestTracker({ me, onOpen, onClaim }) {
   const status = questStatus(me);

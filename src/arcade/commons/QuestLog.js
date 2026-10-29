@@ -2,7 +2,21 @@ import React from "react";
 import { QUESTS, CHAPTERS, questStatus, rewardLabel } from "../../lib/game/quests";
 import "./gameplay.css";
 
-/* The whole road, for the journal: done, in hand, and still ahead. */
+/*
+ * The whole road, for the journal: done, in hand, and still ahead. Quests are
+ * grouped under CHAPTERS; a quest's state comes from comparing its position
+ * in QUESTS with `status.index` (the player's current quest), so completed
+ * ones show a tick, the current one its detail, progress and claim button,
+ * and later ones just their reward.
+ *
+ *   me       your player (questStatus reads me.quest and progress counters)
+ *   onClaim  claim the finished current quest; Commons.js sends it to the
+ *            server
+ *
+ * The chapter heading numerals are a fixed list of four, matching CHAPTERS;
+ * add a numeral if a chapter is added. Rendered in the journal panel
+ * (CommonsPanels.js).
+ */
 export default function QuestLog({ me, onClaim }) {
   const status = questStatus(me);
   return (

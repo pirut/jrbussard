@@ -8,10 +8,20 @@ import { glyphCode, GLYPH_SETS } from "./asciiPass";
  * so a busy camp costs a single draw call.
  *
  * The motion is plain arithmetic (puffAt) so it can be tested without a GPU.
+ *
+ * Owned and driven by AsciiWorld: it is told what happened by worldEvents.js
+ * results and the building sync (add), ticked once a frame (update) and
+ * disposed with the scene. Units are map tiles and seconds, on the same
+ * clock for add() and update() (AsciiWorld.time), so a puff's age is simply
+ * the difference. Nothing here is synced with the server; it is decoration.
  */
 
-/* Per kind: colours to pick from, how many bits, how fast they fly out and
-   up, how heavy they are, how long they last, and how big. */
+/* Per kind: colours to pick from (hex), how many bits, how fast they fly out
+   (`out`, tiles/s, scattered in a ring) and up (`up`, initial tiles/s), how
+   heavy they are (`gravity`, tiles/s^2), how long they last (`life`, s) and
+   how big (`size`, a scale on the 0.08-tile cube). Each value is jittered a
+   little per bit in throwPuff, so these are averages. Unknown kinds draw as
+   "dust". */
 export const PUFF_KINDS = {
     wood: { colors: [0xc89a62, 0x8a6238, 0xe0c08a], count: 10, out: 1.8, up: 2.6, gravity: 9, life: 0.55, size: 1 },
     stone: { colors: [0xb4bab4, 0x7f877f, 0xdad9cf], count: 9, out: 2.2, up: 2.2, gravity: 11, life: 0.45, size: 0.85 },
@@ -29,7 +39,9 @@ export function puffAt(seed, t) {
     if (!seed || t < 0 || t >= seed.life) return null;
     const k = t / seed.life;
     /* A little air drag, so they slow as they spread instead of flying
-       straight out. */
+       straight out: horizontal speed decays as e^(-3t), and this is its
+       integral over [0, t] (without the vx factor). Vertical motion has no
+       drag; it is the usual ballistic arc, held at `floor` once it lands. */
     const drift = (1 - Math.exp(-3 * t)) / 3;
     const y = Math.max(seed.floor, seed.y + seed.vy * t - 0.5 * seed.gravity * t * t);
     return {
@@ -40,7 +52,11 @@ export function puffAt(seed, t) {
     };
 }
 
-/* The bits for one puff at `at` (x, y, z), each with its own way out. */
+/* The bits for one puff at `at` (x, y, z, in tiles; y is the ground, which
+   the bits will not sink below), each with its own way out. They leave at
+   evenly spaced angles around the point, nudged by `random`, so a puff is a
+   ring and not a clump. `born` is the time it was thrown; `random` is
+   injectable for tests. */
 export function throwPuff(kind, at, born, random = Math.random) {
     const spec = PUFF_KINDS[kind] || PUFF_KINDS.dust;
     const seeds = [];
@@ -68,6 +84,12 @@ export function throwPuff(kind, at, born, random = Math.random) {
 const m4 = new THREE.Matrix4();
 const colour = new THREE.Color();
 
+/*
+ * A ring buffer of `capacity` bits drawn as one InstancedMesh. When more are
+ * thrown than there is room, the oldest are overwritten, live or not. The
+ * mesh, its geometry and its material belong to this object; dispose()
+ * removes and frees them.
+ */
 export class Puffs {
     /* `still` (reduced motion) throws nothing: the bits are only for show. */
     constructor(scene, { capacity = 160, still = false } = {}) {
@@ -77,6 +99,10 @@ export class Puffs {
         this.live = 0;
         this.mesh = new THREE.InstancedMesh(
             new THREE.BoxGeometry(0.08, 0.08, 0.08),
+            /* As in materials.js: alpha carries the glyph set, which only
+               survives into the scene target because blending is off and
+               the material is not "opaque" to three.js (opaque would force
+               alpha to 1). Colour comes from the per-instance colours. */
             new THREE.MeshBasicMaterial({
                 color: 0xffffff,
                 blending: THREE.NoBlending,
@@ -85,8 +111,12 @@ export class Puffs {
             }),
             capacity,
         );
+        /* The bits move every frame and the mesh's bounds are not
+           recomputed for them, so culling by those bounds could hide them. */
         this.mesh.frustumCulled = false;
+        /* Off until something is thrown: nothing to draw most of the time. */
         this.mesh.visible = false;
+        /* A zero scale hides an unused slot. */
         m4.makeScale(0, 0, 0);
         for (let i = 0; i < capacity; i += 1) {
             this.mesh.setMatrixAt(i, m4);
@@ -106,10 +136,14 @@ export class Puffs {
             this.mesh.setColorAt(i, colour.setHex(seed.color));
         });
         this.mesh.instanceColor.needsUpdate = true;
+        /* Only "something may be live": update() counts the real number. */
         this.live = this.seeds.length;
         this.mesh.visible = true;
     }
 
+    /* Advance every live bit to `time` (the clock add() was given), retire
+       the ones that have landed, and hide the whole mesh when none remain.
+       Cheap when idle: returns at once if nothing is live. */
     update(time) {
         if (!this.live) return;
         let any = 0;
@@ -131,6 +165,7 @@ export class Puffs {
         this.mesh.visible = any > 0;
     }
 
+    /* Frees the geometry and material this made. */
     dispose() {
         this.scene.remove(this.mesh);
         this.mesh.geometry.dispose();

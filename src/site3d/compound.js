@@ -26,18 +26,44 @@ import { P, place } from "../arcade/ascii3d/shapes";
  * stands on the wall tiles the tile world already has, so walking and
  * collisions are unchanged; only the landmarks stand outside, across the
  * street, on lots the compound keeps clear of tenements.
+ *
+ * Purely visual and client-only: nothing here is read by the server, by
+ * world/build.js or by walking. It is called once per room from
+ * SiteScene.buildCompounds (geometry) and once from SiteScene.init
+ * (reservedTiles), and the two must agree, see below. It draws into a
+ * Batch (arcade/ascii3d/terrainMesh.js), which collects triangles per
+ * material and hands back one merged mesh each, so every tower and wall tile
+ * costs vertices rather than draw calls; that is why nothing here creates a
+ * Mesh itself.
+ *
+ * Invariants: no Math.random or clock; any variation is a hash of tile
+ * position, so every visitor sees the same walls. The shapes assume the
+ * fixed isometric view of SiteScene (a camera off the south-east corner,
+ * see ascii3d/iso.js): walls get taller away from the camera
+ * so the interior stays visible, and the wall-cutaway in iso.js trims
+ * whatever still stands between the camera and JR. Landmark builders take
+ * (batch, x, z, groundY), in that order, like architecture.js.
  */
 
+/* Wall heights in tiles: the back (north) wall, the side walls, and the
+   low front (south) parapet you look over. Diorama's arcade hall reuses the
+   north height (3.4) for its back wall. */
 const NORTH = 3.4;
 const SIDE = 2.4;
 const SOUTH = 0.9;
 
+/* The room's brick, nudged 16% toward the room's tint (an RGB 0-255 triple
+   from rooms.js), so each compound is the same Kremlin red with a hint of
+   its room's mood. Returns a CSS hex string. */
 function roomBrick(room) {
     const tint = new THREE.Color(room.tint[0] / 255, room.tint[1] / 255, room.tint[2] / 255);
     return `#${new THREE.Color(BRICK).lerp(tint, 0.16).getHexString()}`;
 }
 
-/* Runs of open tiles along one side: the doors. */
+/* Runs of open tiles along one side: the doors. `tiles` is the side's
+   interior tiles in order (corners excluded); `open(x, y)` is true where
+   there is no wall. Returns each run's centre ({x, y}, possibly a half
+   tile) and its length n in tiles. */
 function gaps(tiles, open) {
     const runs = [];
     let run = null;
@@ -50,7 +76,13 @@ function gaps(tiles, open) {
     return runs.map((r) => ({ x: (r[0].x + r[r.length - 1].x) / 2, y: (r[0].y + r[r.length - 1].y) / 2, n: r.length }));
 }
 
-/* The landmark behind each room, as [builder, offset along the wall]. */
+/* The landmark behind each room, keyed by room id (world/rooms.js), as
+   [offset along the north wall, builder]. The offset is a fraction 0-1 of
+   the wall's width; the builder is called as (batch, x, z, groundY) with x
+   the rounded position along the wall and z BACK tiles north of it. The
+   small z nudges (-0.4, -0.6 ...) and the scales are authored values that
+   place each landmark relative to BACK; there is no formula behind them.
+   A room id missing from here simply has no landmark. */
 const LANDMARKS = {
     observatory: [
         [0.5, (b, x, z, y) => observatoryDome(b, x, z - 0.4, y, { scale: 1.2 })],
@@ -78,6 +110,18 @@ const CLEAR = { w: 6, d: 6 };
 /* Landmarks stand back from the wall, past the street that runs round it. */
 const BACK = 4.6;
 
+/*
+ * The set of "x,y" tile keys north of each room that must stay free of
+ * tenements because a landmark stands there. SiteScene.buildChunk skips
+ * these tiles, and cityAt does not treat a lot that touches one as a
+ * candidate for an oddity. It must be derived from the same LANDMARKS,
+ * the same centre formula and the same BACK as buildCompound, or a tenement
+ * grows through a church: change one, change the other. The band runs from
+ * two tiles north of the room's top wall row for CLEAR.d tiles further
+ * north, CLEAR.w + 1 tiles wide (the x loop is inclusive) around each
+ * landmark's centre. `rooms` is world.rooms; the result only depends on it,
+ * so it is deterministic.
+ */
 export function reservedTiles(rooms) {
     const keep = new Set();
     rooms.forEach((room) => {
@@ -93,7 +137,10 @@ export function reservedTiles(rooms) {
 
 /*
  * Build one room's compound into the batch. `open(x, y)` says whether a
- * border tile is a door; `floor` is the height the room stands at.
+ * border tile is a door; `floor` is the height the room stands at. The
+ * border tiles are the room's own wall ring from world/build.js; each
+ * non-door tile gets a wallTile, and any run of door tiles gets a gate
+ * tower (north, west, east) or two low posts (south) in its place.
  */
 export function buildCompound(b, room, open, floor) {
     const brick = roomBrick(room);
@@ -112,7 +159,10 @@ export function buildCompound(b, room, open, floor) {
         west: gaps(west, open),
         east: gaps(east, open),
     };
-    /* Tiles under a gate tower are built by the tower, not the wall. */
+    /* Tiles under a gate tower are built by the tower, not the wall. The
+       radius is the opening's half-width plus 1.2, a little wider than the
+       tower's own half-width (n/2 + 0.7 to 0.8), so no wall tile pokes out
+       beside its piers. */
     const underGate = (side, t) => doors[side].some((g) => Math.hypot(g.x - t.x, g.y - t.y) <= g.n / 2 + 1.2);
 
     north.forEach((t) => !open(t.x, t.y) && !underGate("north", t) && wallTile(b, t.x, t.y, floor, NORTH, true, brick));
@@ -139,7 +189,11 @@ export function buildCompound(b, room, open, floor) {
         }),
     );
 
-    /* Towers part-way along long walls, to break the run. */
+    /* Towers part-way along long walls, to break the run: one mid-way on each
+       side wall of a room 17 or more tall, and one every 12 tiles along the
+       north wall (starting 12 in from the west edge, stopping 6 short of the
+       east corner). Skipped within 3 tiles of a door so they never crowd a
+       gate. */
     const tooClose = (side, t) => doors[side].some((g) => Math.hypot(g.x - t.x, g.y - t.y) < g.n / 2 + 3);
     if (room.h >= 17) {
         const my = Math.round(y0 + room.h / 2);

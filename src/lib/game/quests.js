@@ -4,6 +4,32 @@
  * reward that is claimed rather than handed out, so finishing one is a
  * moment. `player.quest` is the index of the task in hand; past the end,
  * the chain is done.
+ *
+ * Responsibility: the quest list, how far along an objective is, and the
+ * decision whether the task in hand can be claimed and what it pays
+ * (planClaim). It deliberately does not grant anything or count anything:
+ * counters are bumped by the mutations (stats.js lists the keys), and
+ * convex/game.ts claimQuest applies the reward and advances `player.quest`.
+ *
+ * Callers: convex/game.ts (planClaim); the browser's quest log and tracker
+ * (src/arcade/commons/QuestLog.js, QuestTracker.js); and the native app via
+ * apps/commons/src/shared.ts (QUESTS, CHAPTERS, questStatus, rewardLabel)
+ * for its HUD and the claim button.
+ *
+ * Invariants:
+ * - Dependency-free, deterministic plain JavaScript shared with the server
+ *   and both clients. The server is authoritative: clients call questStatus
+ *   only to draw progress and enable the button; claimQuest runs planClaim
+ *   again on the stored player, and the client never names which quest it
+ *   is claiming, so it cannot skip ahead.
+ * - Order is identity. A player's `quest` is an index into QUESTS, so
+ *   inserting or reordering entries (other than appending) moves everyone to
+ *   a different task. Appending is safe: a player past the old end simply
+ *   has a new task to do. `id` is for humans and tests; only the index is
+ *   stored.
+ * - Objectives read lifetime counters and current state, not progress since
+ *   the task began. A task whose objectives are already met is claimable the
+ *   moment it comes up, which is how veterans catch up quickly.
  */
 import { statOf } from "./stats.js";
 
@@ -16,8 +42,20 @@ import { statOf } from "./stats.js";
  *   objectives: Objective[], reward: Reward }} Quest
  */
 
+/* Chapter titles, indexed by a quest's `chapter` field. */
 export const CHAPTERS = ["First light", "Hunter", "Settler", "Warden"];
 
+/*
+ * The chain, in order. Each `objectives` entry is one of three kinds:
+ *   { stat, count }   a counter in player.stats reaching `count` (stats.js
+ *                     says what each key counts: mostly units gained, so
+ *                     "gather:wood" 12 is twelve wood, not twelve swings)
+ *   { tool, tier }    the equipment slot holding at least `tier`
+ *   { home: true }    a respawn point set by using a bedroll
+ * `detail` is player-facing advice and mentions browser keys ("Craft (C)");
+ * the native app shows the same text. Rewards: xp always, plus optional
+ * gold, healing potions and items (ITEMS ids from survival.js).
+ */
 /** @type {Quest[]} */
 export const QUESTS = [
   {
@@ -147,7 +185,9 @@ export const QUESTS = [
 ];
 
 /**
- * How far along one objective is.
+ * How far along one objective is: `have` is clamped to `need` so progress
+ * never reads past 100%. Stat objectives need `count`; tool objectives need
+ * `tier` (a higher tier than asked counts); the home objective is 0 or 1.
  * @param {Objective} objective
  * @param {any} player
  * @returns {{ have: number, need: number, done: boolean }}
@@ -170,7 +210,10 @@ export function objectiveProgress(objective, player) {
 
 /**
  * The task in hand, how far along each objective is, and whether it can be
- * claimed. `quest` is null once the chain is finished.
+ * claimed. `quest` is null once the chain is finished, `progress` is then
+ * empty, `complete` is false and `chapter` stays on the last one. `index` is
+ * the stored position (clamped to a non-negative integer, so a player with
+ * no `quest` field starts at 0) and `total` the length of the chain.
  * @param {any} player
  */
 export function questStatus(player) {
@@ -194,7 +237,10 @@ export function questStatus(player) {
 
 /**
  * Claim the task in hand. Returns what to add to the player, or an error the
- * client can show as is.
+ * client can show as is. Refuses when dead ("wake up first"), when the chain
+ * is finished, or when an objective is short (naming the first one that is,
+ * with its counts). On success `next` is the index to store, `reward` what to
+ * grant and `message` the line for the player. It grants nothing itself.
  * @param {any} player
  * @returns {{ error: string } | { error?: undefined, quest: Quest, next: number,
  *   reward: Reward, message: string }}
@@ -219,6 +265,8 @@ export function planClaim(player) {
 }
 
 /**
+ * A short "+50 xp · +15 gold · +1 meal" summary of a reward. Item names are
+ * the raw ITEMS ids, not display names.
  * @param {Reward} reward
  * @returns {string}
  */

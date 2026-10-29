@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-/* Whether the browser thinks it is online at all. */
+/*
+ * What the player sees while the connection to the world is missing or
+ * slow: a full loading screen before the first snapshot arrives, and a
+ * banner once in the game. Used by Commons.js, which owns the actual
+ * connection state (join, 15 s heartbeat) and passes the result in as a
+ * message string; nothing here talks to the server.
+ */
+
+/* Whether the browser thinks it is online at all. This is only the
+   browser's flag (navigator.onLine): it can say "online" while the server is
+   unreachable, which is why Commons.js also tracks join/heartbeat failures. */
 export function useOnline() {
   const [online, setOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine !== false,
@@ -22,10 +32,23 @@ export function useOnline() {
 /*
  * Before the world has arrived: what is happening, and after a while what
  * to do about it, rather than a line of text that never changes.
+ *
+ *   problem  a message from a failed join or heartbeat, or "" for none
+ *   online   useOnline()'s answer
+ *   onRetry  the "try again" button (Commons.js re-joins, or reloads the page
+ *            if the world simply never answered)
+ *
+ * After 10 seconds with no world it counts as stuck even with no known
+ * problem, so the retry and back links appear rather than an endless spinner.
+ * data-pad-menu makes the controller treat the box as a menu (d-pad moves
+ * focus, A presses), see input/useGamepad.js, since this screen has no
+ * dialog role.
  */
 export function LoadingScreen({ problem, online, onRetry }) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
+    /* Cleared on unmount so a world that arrives in time never sets state
+       on a gone screen. */
     const timer = window.setTimeout(() => setSlow(true), 10000);
     return () => window.clearTimeout(timer);
   }, []);
@@ -58,10 +81,19 @@ export function LoadingScreen({ problem, online, onRetry }) {
 /*
  * In the game: a banner while the connection is down, and a short note
  * when it comes back. Moves made meanwhile are corrected by the server.
+ *
+ *   status  a problem message from Commons.js ("" when connected)
+ *   online  useOnline()'s answer; being offline overrides `status`
+ *
+ * Renders nothing when all is well. The problem is an alert, the
+ * "Reconnected" note a polite status that stays for 2.5 seconds.
  */
 export function ConnectionBanner({ status, online }) {
   const problem = !online ? "You are offline. Reconnecting when the network is back…" : status;
   const [back, setBack] = useState(false);
+  /* Remembers the previous problem so the change to "none" can be noticed.
+     Set during render (React's "adjust state on prop change" pattern) rather
+     than in an effect, so "Reconnected" shows in the same paint. */
   const [was, setWas] = useState(problem);
   if (problem !== was) {
     setWas(problem);

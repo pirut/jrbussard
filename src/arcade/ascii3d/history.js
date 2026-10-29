@@ -10,7 +10,14 @@
  * that was lost and remade (its targets come back empty), and last frame's
  * cells are ignored.
  *
- * No WebGL here, so it can be tested on its own.
+ * No WebGL here, so it can be tested on its own (tests/asciiHistory.test.ts).
+ * Its one caller is AsciiPass.trackHistory(), once per frame, which turns the
+ * answer into the shader's uHistory and uHistShift. It only decides whether
+ * last frame's pick target may be compared; it never touches that target.
+ *
+ * Invariant: the shift it is given must be the same uCellShift the shader
+ * keys its texture and dither to, in whole cells, wrapping at 4096 like
+ * iso.js does, or the reported slide is wrong.
  */
 
 const EPS = 1e-5;
@@ -19,15 +26,24 @@ const WRAP = 4096;
 /* A slide of more cells than this in one frame is a jump, not a follow. */
 const MAX_SLIDE = 8;
 
+/* The shortest signed difference between two shifts that wrap at WRAP, so a
+   shift going from 4095 to 0 reads as a slide of 1, not -4095. */
 const wrapDelta = (d) => ((((d + WRAP / 2) % WRAP) + WRAP) % WRAP) - WRAP / 2;
 
+/* One per AsciiPass. Holds just enough of the last frame's camera to compare
+   with this frame's; owns a listener on the canvas, so call unwatch() when
+   the pass is disposed. */
 export class HistoryTracker {
     constructor() {
+        /* Last frame's camera world matrix and projection matrix, column
+           major, as three.js stores them. */
         this.view = new Float64Array(16);
         this.projection = new Float64Array(16);
         this.ortho = null;
         this.shiftX = 0;
         this.shiftY = 0;
+        /* True until a frame has been recorded, and again after invalidate():
+           the next update() reports nothing to compare. */
         this.fresh = true;
         this.target = null;
         this.onContext = () => this.invalidate();
@@ -49,6 +65,7 @@ export class HistoryTracker {
         this.target.addEventListener("webglcontextrestored", this.onContext);
     }
 
+    /* Stop listening. Safe to call when nothing is watched. */
     unwatch() {
         if (this.target?.removeEventListener) {
             this.target.removeEventListener("webglcontextlost", this.onContext);
@@ -62,7 +79,9 @@ export class HistoryTracker {
      * matrix and projection matrix as 16 numbers each, and whether it is
      * orthographic; null when the caller gave none. `shift` is uCellShift.
      * Returns whether last frame's cells may be used, and by how many cells
-     * the picture slid since.
+     * the picture slid since. `enabled` is false for quality tiers that skip
+     * hold-steady entirely; the frame is still recorded, so switching back on
+     * does not need a fresh start. The slide is reported as 0 when not valid.
      */
     update(camera, shift = { x: 0, y: 0 }, enabled = true) {
         let valid = enabled && !this.fresh && camera !== null;
@@ -94,7 +113,9 @@ export class HistoryTracker {
     }
 }
 
-/* A three.js camera as update() wants it. */
+/* A three.js camera as update() wants it. The arrays are the camera's live
+   matrix elements, not copies: update() copies what it keeps. Call
+   camera.updateMatrixWorld() first if it may be stale. */
 export function cameraState(camera) {
     if (!camera) return null;
     return {

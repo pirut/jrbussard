@@ -2,7 +2,9 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { Glyph, useInput } from "./input/InputContext";
 
-/* The few controls worth knowing before stepping in, per device. */
+/* The few controls worth knowing before stepping in, per device. Each row is
+   [action names to print as glyphs, caption]; "@click" and "@leftStick" are
+   the pseudo-actions Glyph understands (input/InputContext.js). */
 const FIRST_CONTROLS = {
   keyboard: [
     [["moveUp", "moveLeft", "moveDown", "moveRight"], "walk"],
@@ -23,6 +25,16 @@ const FIRST_CONTROLS = {
 /*
  * The front of the game, over the world turning slowly behind it. A menu
  * like any console title: the d-pad or arrows move, A or Enter picks.
+ *
+ *   live       whether a server is connected; when false, says so honestly
+ *              since nothing is saved
+ *   returning  the player has done some of the tutorial, so "play" reads
+ *              "continue"
+ *   onPlay     step into the world; onHelp / onSettings open those windows
+ *
+ * data-pad-menu makes the controller treat this screen as a menu (it is
+ * not a dialog role), and "play" is autoFocus so a d-pad starts on it.
+ * Commons.js mounts it while not yet playing, over the orbiting camera.
  */
 export default function TitleScreen({ live, onPlay, onHelp, onSettings, returning }) {
   const { device } = useInput();

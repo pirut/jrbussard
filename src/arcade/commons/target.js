@@ -1,6 +1,19 @@
 import { tileAt, TREE, WATER, ROCK } from "../../lib/terrain";
 import { ITEMS, STRUCTURES, resourceAt } from "../../lib/survival";
 
+/*
+ * Names the tile under the cursor and says what clicking or pressing a key
+ * there will do, for the line above the action bar. Pure and based on the
+ * shared terrain (src/lib only; no React, no DOM). Used by Commons.js.
+ *
+ * The `verb` text is written for a keyboard and mouse ("click to chop", "B
+ * to build"): the key letters are the default bindings, and ActionBar.js
+ * rewrites them for the player's remaps or controller with relabelHint
+ * (input/phrases.js). That rewrite matches the exact wording, so changing a
+ * phrase here means checking phrases.js.
+ */
+
+/* Wording for pieces without a case of their own below. */
 const BLOCK_LOOK = {
   ...STRUCTURES,
   doorShut: { ch: "+", color: "#e0a75e", label: "shut door" },
@@ -12,6 +25,14 @@ const BLOCK_LOOK = {
  * What you are standing in front of, and therefore what a click or a key will do.
  * Terrain comes from the shared generator, so this needs nothing from the
  * server beyond the blocks other people have placed.
+ *
+ *   x, y    the tile in world coordinates
+ *   cells   the snapshot's placed pieces (pending ones included, see
+ *           building.js); `mine` and `ownerName` decide the verb
+ *   ground  the snapshot's shovel edits, or undefined
+ *
+ * Returns { label, verb }. Order matters: a placed piece wins over a
+ * shovel edit, which wins over natural resources and terrain.
  */
 export function describeTarget(x, y, cells, ground) {
   const built = cells.find((c) => c.x === x && c.y === y);

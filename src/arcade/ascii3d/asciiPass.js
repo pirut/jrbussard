@@ -49,6 +49,25 @@ import { HistoryTracker, cameraState } from "./history";
  * ever draws in "~-=_" and grass in strokes, whatever the shapes suggest.
  * People and creatures are their own set, drawn brighter and ringed with
  * empty cells so they never melt into what stands behind them.
+ *
+ * How it is driven (AsciiWorld.js, site3d/SiteScene.js, site3d/Diorama.js):
+ * setSize() whenever the character grid changes; each frame the caller
+ * renders its scene into `target` (its materials carry the glyph set in
+ * alpha, see materials.js), sets the uniforms it owns (time, sky, camera
+ * near/far, ...), optionally calls renderGhost(), then render(renderer,
+ * camera). The pass draws to the canvas itself; it does not own the
+ * renderer or the scene, only the targets, textures and materials it makes,
+ * and dispose() frees exactly those.
+ *
+ * Units: a "cell" is one character. Sizes called `Px` (uCellPx, uOffset) are
+ * device pixels of the canvas, not CSS pixels: AsciiWorld keeps the
+ * renderer's pixel ratio at 1 and sizes the canvas in device pixels itself.
+ * Everything depth-related in the shaders is the scene target's depth
+ * texture, which the caller must have drawn with the camera it passes to
+ * render() and whose near/far it has copied into uNear/uFar.
+ *
+ * Not here: choosing the rules (glyphs.js), the scene's lighting and
+ * materials, camera placement (iso.js), or when to drop quality (perf.js).
  */
 
 export { GLYPH_SETS, glyphCode };
@@ -62,15 +81,28 @@ function crtRequested() {
     }
 }
 
+/* A cell is read as 2 across by 3 down regions (the six brightnesses glyphs.js
+   matches shapes against). */
 const REGIONS_X = 2;
 const REGIONS_Y = 3;
+/* Texels of the scene target per cell: two per region each way, so a bilinear
+   sample at a region's centre falls exactly on the corner of its four
+   texels and returns their average. The scene target is therefore
+   cols*SAMPLE_X by rows*SAMPLE_Y. The shader substitutes these constants
+   into its source. */
 export const SAMPLE_X = REGIONS_X * 2;
 export const SAMPLE_Y = REGIONS_Y * 2;
 
+/* The face the atlas and the shape measurements are both drawn in. If the
+   first choice is not loaded when they run, both silently use the same
+   fallback, so they stay consistent with each other. */
 const FONT = `"JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Courier New", monospace`;
 
 /* On whole pixels, so a stroke one pixel wide lands on one column of the
-   screen instead of smearing grey across two. */
+   screen instead of smearing grey across two. The 0.55 puts the middle
+   baseline slightly below the cell's centre, where a monospace face's
+   x-height sits; shared by the atlas and by measureGlyphs() so the shapes
+   measured are the shapes drawn. */
 function drawGlyph(ctx, ch, x, cellW, cellH, stroke = false) {
     const cx = Math.round(x + cellW / 2);
     const cy = Math.round(cellH * 0.55);
@@ -84,6 +116,12 @@ function drawGlyph(ctx, ch, x, cellW, cellH, stroke = false) {
  * the character grown by a pixel or so all round: the second pass darkens
  * the wash under that rim, so a stroke stands clear of the painted colour
  * behind it however close the two are in brightness.
+ *
+ * `cellW` and `cellH` are device pixels (the atlas is cellW * GLYPHS.length
+ * wide, so very large cells could exceed the GPU's texture limit). Column i
+ * holds GLYPHS[i]. Returns { texture, count }; the caller owns the texture
+ * and must dispose it (AsciiPass.setSize/dispose do). Never mipmapped and
+ * sampled Nearest, so strokes stay sharp.
  */
 export function buildAtlas(cellW, cellH) {
     const canvas = document.createElement("canvas");
@@ -95,9 +133,12 @@ export function buildAtlas(cellW, cellH) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `500 ${Math.round(cellH * 0.9)}px ${FONT}`;
+    /* Additive, so where the red character overlaps its green rim the
+       channels simply add rather than one covering the other. */
     ctx.globalCompositeOperation = "lighter";
     ctx.fillStyle = "#0f0";
     ctx.strokeStyle = "#0f0";
+    /* The rim's thickness: about a seventh of the cell height, at least 1.5px. */
     ctx.lineWidth = Math.max(1.5, cellH / 7);
     ctx.lineJoin = "round";
     Array.from(GLYPHS).forEach((ch, i) => drawGlyph(ctx, ch, i * cellW, cellW, cellH, true));
@@ -114,7 +155,12 @@ export function buildAtlas(cellW, cellH) {
 /*
  * Each character's ink in its 2×3 regions, measured from a large rendering
  * so the numbers do not depend on the screen's cell size. Scaled so the
- * inkiest region of the inkiest character is 1.
+ * inkiest region of the inkiest character is 1. Returns one array of six
+ * per entry of GLYPHS, in glyphs.js region order (row-major, top first).
+ *
+ * Runs once per AsciiPass, using whichever font the browser resolves at that
+ * moment. The 30 by 51 canvas is roughly the 8 by 14 default cell's aspect.
+ * It uses the red channel only, since the glyphs are drawn white on black.
  */
 function measureGlyphs() {
     const w = 30;
@@ -147,10 +193,14 @@ function measureGlyphs() {
     return shapes.map((s) => s.map((v) => v / peak));
 }
 
-/* Shapes and families, as a float texture the first pass reads by index:
-   row 0 holds regions 0–3, row 1 regions 4–5, and row 2 + set lists the
-   characters that set may use, so the search only visits those (a set has
-   at most MAX_FAMILY of them). */
+/* Shapes, families and ramps, as a float texture the first pass reads by
+   index (one column per entry of GLYPHS, 97 wide, with texelFetch and no
+   filtering). Row 0 holds regions 0-3 in rgba, row 1 regions 4-5 in rg. Row
+   2 + set lists, in its red channel, the characters that set may use, so the
+   search only visits those (a set has at most MAX_FAMILY of them). Rows
+   2 + SET_NAMES.length + set hold the ramp (below). The row arithmetic is
+   duplicated in the shader (setRow, rampAt), so change both together.
+   Owned by AsciiPass (this.shapes); disposed there. */
 function buildShapeTexture() {
     const shapes = measureGlyphs();
     const n = GLYPHS.length;
@@ -181,15 +231,58 @@ function buildShapeTexture() {
     return texture;
 }
 
+/* A character's index in GLYPHS as a GLSL float literal, so the shader's
+   hard-coded strokes ("|", "_", ...) name the same atlas column as JS does. */
 const idx = (ch) => GLYPHS.indexOf(ch).toFixed(1);
 
+/* Vertex stage shared by all three passes: the quad's PlaneGeometry(2, 2)
+   already spans clip space, so positions pass straight through with no
+   matrices. Every fragment shader below works from gl_FragCoord. */
 const fullscreen = /* glsl */ `
     void main() {
         gl_Position = vec4(position.xy, 0.0, 1.0);
     }
 `;
 
-/* Pass one: per cell, which character and what colour. */
+/*
+ * Pass one: per cell, which character and what colour. Runs on a target
+ * of cols by rows pixels (one fragment per cell) with Nearest filtering.
+ *
+ * Output: rgb is the ink colour (sRGB-ish, 0 to 1). Alpha is
+ * (glyph index + 128 if this is a "body" cell) / 255. Glyph indices run to 96
+ * so they fit under 128. Pass two and the next frame's prevGlyph() both
+ * unpack it that way. The target is 8 bit, which is why the encoding is a
+ * whole number over 255.
+ *
+ * Inputs: tColor is the scene (linear RGB, alpha = set code), tDepth its
+ * depth texture. A cell is sampled at the centres of its six regions; with
+ * SAMPLE_X/Y = 4 by 6 texels per cell those are exact bilinear averages of
+ * 2 by 2 texels. Set codes are instead read with texelFetch at the cell's
+ * middle texel, because alpha must not be blended between sets. Depth of 1.0
+ * is "nothing drawn" (open sky); tests use >= 0.99999 to allow for precision.
+ *
+ * Order of the steps, which matters because later ones overwrite `glyph` and
+ * `ink`: pick a glyph by shape or by ramp (main body), dim cells behind a
+ * silhouette, outlines on near edges, paving joints, the see-through ghost,
+ * sky and weather. Constants not generated from glyphs.js and so kept in
+ * sync by hand: the stroke angle cuts (0.42 and 1.15 radians for outlines,
+ * 0.45 for creases, 0.5 and 1.2 for paving), the 0.08 edge floor, and the
+ * 0.25 to 0.6 spread range over which sharpening fades in. Other numbers
+ * are plain tuning constants; the ones whose purpose is not obvious carry
+ * their own comment at the line.
+ *
+ * World distances below (1.2, the "far behind" test; 0.3, the ghost
+ * margin) are in world units (tiles). `uOrtho` switches the isometric
+ * camera's paths: face-based texture for built things and its fixed-scale
+ * depth threshold, versus perspective's relative one.
+ *
+ * Uniforms the caller drives each frame: uTime (seconds), uNear/uFar (the
+ * scene camera's), uCellShift (whole cells the camera has slid, from
+ * snapIsoCamera), the sky and weather group (uStars, uClouds, uCloudColor,
+ * uSkyShift, uSkyTurn, uHorizon, uMoon, uFlash, uRain, uRainColor) and the
+ * look group (uGain, uInk, uRamp, uContrast, uJoints). The camera matrices
+ * and the history uniforms are set by trackHistory().
+ */
 const pickShader = /* glsl */ `
     precision highp float;
     precision highp int;
@@ -747,6 +840,14 @@ const pickShader = /* glsl */ `
  * the cell. Only sets that shine contribute. It depends only on the cell, so
  * it runs once per cell into its own small target rather than for every
  * pixel of the screen.
+ *
+ * Two rings of eight samples at radius 1.6 and 3.2 cells; the outer ring
+ * counts half as much, so the weights sum to 8 + 4 = 12, which is what the
+ * result is divided by. The 0.6 on sine squashes the ring vertically because
+ * a cell is taller than it is wide (about 8 by 14 px by default), and the
+ * second ring is offset by a further 0.39 radians (half the 0.785 spacing
+ * between samples) so its samples fall between the first's. A sample
+ * contributes only if its set is light or fire.
  */
 const glowShader = /* glsl */ `
     precision highp float;
@@ -775,7 +876,22 @@ const glowShader = /* glsl */ `
     }
 `;
 
-/* Pass two: stamp each cell's character. */
+/*
+ * Pass two: runs per screen pixel into the canvas. Finds the pixel's cell
+ * (after the margin `uOffset` that centres the grid, device pixels), unpacks
+ * the glyph and body flag from the pick target's alpha, and looks the
+ * character up in the atlas (red = glyph, green = glyph plus rim).
+ *
+ * Colour = the background, washed with the scene's own colour at this exact
+ * pixel (so surfaces read as soft painted masses), plus light spill from the
+ * glow target, darkened in a rim around each stroke, then the stroke itself
+ * in the cell's ink colour. `uFill` is how much of the scene shows through
+ * in the wash, `uWash` how bright it is, `uRim` how dark the rim goes, `uGlow`
+ * how strong the spill is, `uRaw` > 0.5 shows the plain 3D scene instead of
+ * characters (the callers' setRaw), and `uCrt` the optional scanline and
+ * vignette look. Pixels outside the grid (the margins) are the plain
+ * background.
+ */
 const drawShader = /* glsl */ `
     precision highp float;
 
@@ -844,6 +960,14 @@ const drawShader = /* glsl */ `
 /*
  * Both passes, sized to the character grid. AsciiWorld renders the scene
  * into `target`, then calls render().
+ *
+ * Owns (and dispose() frees): the shape texture, the glyph atlas, the scene
+ * target and its depth texture, the ghost target and its depth texture, the
+ * two swapped pick targets, the glow target, three materials and the quad.
+ * It does not own the WebGLRenderer. Targets and the atlas are rebuilt by
+ * setSize(), so nothing may hold on to `target` or the textures across a
+ * resize; read them again after it. Not safe to use before the first
+ * setSize() (target and friends are null until then).
  */
 export class AsciiPass {
     constructor() {
@@ -859,18 +983,29 @@ export class AsciiPass {
                 tColor: { value: null },
                 tDepth: { value: null },
                 tShapes: { value: this.shapes },
+                /* The grid, in cells. */
                 uCells: { value: new THREE.Vector2(1, 1) },
+                /* The scene camera's near and far planes (world units), to
+                   turn depth-buffer values into distances. Callers copy them
+                   from the camera each frame; these are placeholders. */
                 uNear: { value: 0.1 },
                 uFar: { value: 200 },
+                /* Overall brightness, on top of the per-set GAINS. */
                 uGain: { value: 0.95 },
+                /* The power a mixed cell's readings are pulled apart by
+                   (glyphs.js has no equivalent; see the shader). */
                 uSharp: { value: 1.8 },
+                /* Spread above which a cell is an edge (glyphs.js EDGE). */
                 uEdge: { value: 0.5 },
                 /* How hard the scene's colour is lifted into ink. */
                 uInk: { value: 1 },
+                /* Brightness multiplier going into the density ramp. */
                 uRamp: { value: 1.7 },
                 /* Above 1, flat stretches thin out faster as they darken. */
                 uContrast: { value: 1 },
+                /* Seconds; drives water shuffle, clouds, stars, rain. */
                 uTime: { value: 0 },
+                /* Rain, stars, clouds and flash are 0 to 1 strengths. */
                 uRain: { value: 0 },
                 uRainColor: { value: new THREE.Color(0x9fb8d8) },
                 uStars: { value: 0 },
@@ -882,12 +1017,21 @@ export class AsciiPass {
                 uHorizon: { value: new THREE.Color(0x000000) },
                 uMoon: { value: 0 },
                 uFlash: { value: 0 },
+                /* How big a depth jump must be (as a fraction of the
+                   distance, or in the isometric view of a fixed scale) to
+                   draw an outline. Smaller outlines more. */
                 uOutline: { value: 0.035 },
+                /* One cell, in device pixels (set by setSize). */
                 uCellPx: { value: new THREE.Vector2(8, 14) },
                 /* Above 0, the joints of the paving are drawn. Needs the
                    camera matrices below. */
                 uJoints: { value: 0 },
+                /* The scene camera's inverse projection and world matrix,
+                   copied in by trackHistory(); they turn a depth sample back
+                   into a world position. */
                 uInvProj: { value: new THREE.Matrix4() },
+                /* The ghost target's depth (renderGhost), and whether to
+                   draw the see-through figure at all. */
                 tGhost: { value: null },
                 uGhost: { value: 0 },
                 uGhostColor: { value: new THREE.Color(0xbfe6ff) },
@@ -896,6 +1040,9 @@ export class AsciiPass {
                 uOrtho: { value: 0 },
                 /* Whole cells the camera has moved, from snapIsoCamera(). */
                 uCellShift: { value: new THREE.Vector2(0, 0) },
+                /* Last frame's pick target; uHistory is 1 only when it lines
+                   up (history.js), and uHistShift is how many cells to look
+                   along to find the same patch of world in it. */
                 tPrev: { value: null },
                 uHistory: { value: 0 },
                 uHistShift: { value: new THREE.Vector2(0, 0) },
@@ -917,11 +1064,21 @@ export class AsciiPass {
                 tColor: { value: null },
                 uCells: { value: new THREE.Vector2(1, 1) },
                 uCellPx: { value: new THREE.Vector2(8, 14) },
+                /* Where the grid's corner sits in the canvas, in device
+                   pixels: the centring margin, plus any slide from
+                   setShift(). */
                 uOffset: { value: new THREE.Vector2(0, 0) },
+                /* Columns in the atlas. */
                 uCount: { value: GLYPHS.length },
+                /* The colour behind everything, sRGB; callers set it from the
+                   scene's background. */
                 uBackground: { value: new THREE.Color(0x0b120d) },
+                /* How much of the scene's colour shows in the wash behind the
+                   type, 0 to 1 (bodies use at least 0.55). */
                 uFill: { value: 0.1 },
+                /* Strength of the light spill; 0 skips the glow pass. */
                 uGlow: { value: 0 },
+                /* 1 draws the scene as rendered, with no characters. */
                 uRaw: { value: 0 },
                 /* How much the wash darkens round each stroke, 0 to 1. */
                 uRim: { value: 0.55 },
@@ -946,11 +1103,17 @@ export class AsciiPass {
         });
         /* Both passes' uniforms by name, made once: the objects inside are
            the materials' own, so setting a value here sets it there. */
+        /* Where both materials have a uniform of the same name (uCells,
+           uCellPx, tColor, tDepth) the draw material's wins in this table,
+           but setSize() writes to each material directly, so they agree. */
         this.shared = { ...this.pickMaterial.uniforms, ...this.drawMaterial.uniforms };
         this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.pickMaterial);
         this.quad.frustumCulled = false;
         this.scene = new THREE.Scene();
         this.scene.add(this.quad);
+        /* All made by setSize(): `target` is what the caller renders the scene
+           into; `pick` and `pickPrev` the per-cell results; `glow` the light
+           spill; `ghost` the see-through figure's depth. */
         this.target = null;
         this.pick = null;
         this.atlas = null;
@@ -959,17 +1122,27 @@ export class AsciiPass {
         this.history = new HistoryTracker();
     }
 
-    /* A quality tier from glyphs.js ASCII_TIERS: "full", "lite" or "min". */
+    /* A quality tier from glyphs.js ASCII_TIERS: "full", "lite" or "min". A
+       tier without hold-steady drops last frame's cells at once. */
     setTier(name) {
         this.tier = tierFlags(name);
         if (!this.tier.stable) this.history.invalidate();
     }
 
-    /* Shared uniforms, by name, across both passes. */
+    /* Shared uniforms, by name, across the pick and draw passes (not the glow
+       pass, which the pass drives itself). Callers set .value on these. */
     get uniforms() {
         return this.shared;
     }
 
+    /*
+     * Fit the pass to a character grid, as AsciiWorld.resize() computes it:
+     * `cols` by `rows` cells of `cellW` by `cellH` device pixels, centred in
+     * the canvas by margins `offX`, `offY`. Rebuilds the atlas only if the
+     * cell size changed, and always rebuilds the render targets (disposing
+     * the old ones), so call it only when the grid really changed. Last
+     * frame's cells no longer exist afterwards, so history restarts.
+     */
     setSize({ cols, rows, cellW, cellH, offX, offY }) {
         if (!this.atlas || this.atlas.cellW !== cellW || this.atlas.cellH !== cellH) {
             if (this.atlas) this.atlas.texture.dispose();
@@ -984,6 +1157,7 @@ export class AsciiPass {
         }
         const w = cols * SAMPLE_X;
         const h = rows * SAMPLE_Y;
+        /* Linear, so the shader's region samples average four texels each. */
         this.target = new THREE.WebGLRenderTarget(w, h, {
             minFilter: THREE.LinearFilter,
             magFilter: THREE.LinearFilter,
@@ -994,8 +1168,12 @@ export class AsciiPass {
             this.ghost.depthTexture.dispose();
             this.ghost.dispose();
         }
+        /* Same size as the scene target so its depth lines up texel for
+           texel; only its depth texture is read. */
         this.ghost = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true });
         this.ghost.depthTexture = new THREE.DepthTexture(w, h);
+        /* One pixel per cell, Nearest so the packed glyph byte in alpha is
+           never blended with a neighbour's. */
         const cells = () =>
             new THREE.WebGLRenderTarget(cols, rows, {
                 minFilter: THREE.NearestFilter,
@@ -1033,13 +1211,17 @@ export class AsciiPass {
         this.offset = { x: offX, y: offY };
     }
 
-    /* Slide the finished picture by a few pixels, under the characters. */
+    /* Slide the finished picture by (x, y) device pixels from its centred
+       position, under the characters (AsciiWorld passes the sub-cell slide left
+       over from snapping the camera to whole cells). Does nothing before the first setSize(). */
     setShift(x, y) {
         if (this.offset) this.drawMaterial.uniforms.uOffset.value.set(this.offset.x + x, this.offset.y + y);
     }
 
     /* Draw only what is on `layer` (JR) into the ghost target, for the
-       outline that shows through walls. */
+       outline that shows through walls. Call after the main scene is drawn
+       and before render(); it leaves the renderer pointed at the ghost
+       target, which render() replaces. The camera's layer mask is put back. */
     renderGhost(renderer, scene, camera, layer) {
         const mask = camera.layers.mask;
         camera.layers.set(layer);
@@ -1073,15 +1255,21 @@ export class AsciiPass {
         p.uHistory.value = valid ? 1 : 0;
     }
 
-    /* `camera` is the one the scene in `target` was drawn with. Pass it:
-       without it the frame cannot be checked against the last, so it gets
-       no hold-steady history. */
+    /* Draw one frame to the canvas from the scene already rendered into
+       `target`. `camera` is the one the scene in `target` was drawn with.
+       Pass it: without it the frame cannot be checked against the last, so it
+       gets no hold-steady history. Leaves the renderer's target set to the
+       canvas (null). */
     render(renderer, camera = null) {
         this.trackHistory(renderer, camera);
-        /* Last frame's cells become the ones to compare against. */
+        /* Last frame's cells become the ones to compare against: swap, so
+           this frame writes into the buffer holding the frame before. */
         [this.pick, this.pickPrev] = [this.pickPrev, this.pick];
         this.pickMaterial.uniforms.tPrev.value = this.pickPrev.texture;
         this.drawMaterial.uniforms.tPick.value = this.pick.texture;
+        /* A tier turns features off by zeroing their uniform for this frame
+           only, and the caller's own values are put back afterwards, so the
+           governor can step back up without anyone resetting them. */
         const dither = this.pickMaterial.uniforms.uDither;
         const ditherWas = dither.value;
         if (!this.tier.dither) dither.value = 0;
@@ -1101,6 +1289,8 @@ export class AsciiPass {
         glow.value = glowWas;
     }
 
+    /* The three draws, in dependency order: glow (read by the draw pass), pick
+       (read by the draw pass and, next frame, by itself), then the canvas. */
     drawCells(renderer) {
         if (this.drawMaterial.uniforms.uGlow.value > 0) {
             this.quad.material = this.glowMaterial;
@@ -1115,6 +1305,7 @@ export class AsciiPass {
         renderer.render(this.scene, this.camera);
     }
 
+    /* Frees every GPU resource the pass made. Not the renderer. */
     dispose() {
         this.history.unwatch();
         this.shapes.dispose();
