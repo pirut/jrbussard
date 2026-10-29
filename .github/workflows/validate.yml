@@ -59,6 +59,10 @@ jobs:
           cache: npm
           cache-dependency-path: apps/commons/package-lock.json
       - run: npm ci --no-audit --no-fund
+      # The typecheck follows type imports into ../../convex, which resolves
+      # `convex/server` and friends from the repo root's node_modules.
+      - run: npm ci --no-audit --no-fund
+        working-directory: .
       - run: node ../../scripts/stub-convex-generated.cjs
       - run: npm run typecheck
       - run: npm test
