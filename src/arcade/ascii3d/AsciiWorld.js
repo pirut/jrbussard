@@ -1448,6 +1448,10 @@ export default class AsciiWorld {
     }
 
     dispose() {
+        /* Closing twice frees nothing twice, and gives back the material
+           hold only once. */
+        if (this.disposed) return;
+        this.disposed = true;
         cancelAnimationFrame(this.raf);
         CUT.uCutOn.value = 0;
         this.observer.disconnect();

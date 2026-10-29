@@ -243,6 +243,10 @@ export default class Diorama {
     }
 
     dispose() {
+        /* Closing twice frees nothing twice, and gives back the material
+           hold only once. */
+        if (this.disposed) return;
+        this.disposed = true;
         cancelAnimationFrame(this.raf);
         this.observer.disconnect();
         this.set.dispose();
