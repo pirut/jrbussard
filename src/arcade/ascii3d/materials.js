@@ -55,6 +55,39 @@ export function ownMaterial(color, set = "solid", options = {}) {
 }
 
 /*
+ * The material for a person's or creature's merged parts (figureGeometry.js):
+ * colour from the vertices, and the same faint glow from within that
+ * material() gives every plain model, so a figure in its own shadow still
+ * reads as a figure. Plain parts draw in the figure set; parts that chose a
+ * set keep it. Kept in the shared cache, so disposeMaterials() frees it.
+ */
+export function figureMaterial(set = "solid", unlit = false) {
+    const key = `figure|${set}|${unlit ? 1 : 0}`;
+    if (cache.has(key)) return cache.get(key);
+    const common = {
+        vertexColors: true,
+        blending: THREE.NoBlending,
+        transparent: false,
+        opacity: glyphCode(GLYPH_SETS[set === "solid" ? "figure" : set] ?? 0),
+    };
+    let made;
+    if (unlit) {
+        made = new THREE.MeshBasicMaterial(common);
+    } else {
+        made = new THREE.MeshLambertMaterial(common);
+        made.onBeforeCompile = (shader) => {
+            shader.fragmentShader = shader.fragmentShader.replace(
+                "#include <emissivemap_fragment>",
+                "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += vColor.rgb * 0.22;",
+            );
+        };
+        made.customProgramCacheKey = () => "commons-figure";
+    }
+    cache.set(key, made);
+    return made;
+}
+
+/*
  * Every plain part of a person or creature moves to the figure set, which the
  * ASCII pass draws brighter and rings with empty space. Parts that already
  * chose a set (a glowing eye, a timber spear) keep it.
@@ -86,7 +119,32 @@ export function hitFlash() {
     return flashMaterial;
 }
 
+/*
+ * Materials are shared by every scene open at once (the Commons, the main
+ * site, a page's diorama). A scene takes a hold with retainMaterials() once
+ * it is past the point it can fail to start, and gives it back with the
+ * hold's release() when it closes. Each hold counts once however often it
+ * is released, and the materials are freed when the last hold goes, so
+ * closing one scene (even twice) does not pull them out from under another.
+ * disposeMaterials() frees them only while no scene holds them.
+ */
+const holds = new Set();
+export function retainMaterials() {
+    const hold = {
+        release() {
+            if (!holds.delete(hold)) return;
+            if (holds.size === 0) freeMaterials();
+        },
+    };
+    holds.add(hold);
+    return hold;
+}
+
 export function disposeMaterials() {
+    if (holds.size === 0) freeMaterials();
+}
+
+function freeMaterials() {
     cache.forEach((m) => m.dispose());
     cache.clear();
     figures.forEach((m) => m.dispose());
