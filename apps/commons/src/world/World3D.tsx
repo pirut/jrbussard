@@ -12,37 +12,65 @@ import type { WorldScene } from './scene';
 export function World3D({ scene, onFrame }: { scene: WorldScene; onFrame: (dt: number) => void }) {
   const frameRef = useRef(onFrame);
   frameRef.current = onFrame;
-  const stopRef = useRef<() => void>(() => {});
+  /* The loop for the current GL context, if any. */
+  const stopRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => () => stopRef.current(), []);
+  useEffect(
+    () => () => {
+      stopRef.current?.();
+      stopRef.current = null;
+    },
+    [],
+  );
 
+  /* Called again when a lost context is restored (expo-gl's web GLView does
+     this): the old loop and renderer go first, so there is only ever one. */
   const onContextCreate = (gl: ExpoWebGLRenderingContext) => {
-    const width = gl.drawingBufferWidth;
-    const height = gl.drawingBufferHeight;
-    const renderer = createRenderer(gl, width, height);
-    scene.resize(width, height);
-
-    let raf = 0;
-    let last = 0;
-    let running = true;
-    const loop = (now: number) => {
-      if (!running) return;
-      const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60;
-      last = now;
-      frameRef.current(dt);
-      renderer.render(scene.scene, scene.camera);
-      gl.endFrameEXP();
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    stopRef.current = () => {
-      running = false;
-      cancelAnimationFrame(raf);
-      renderer.dispose();
-    };
+    stopRef.current?.();
+    stopRef.current = startLoop(gl, scene, (dt) => frameRef.current(dt));
   };
 
   return <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />;
+}
+
+/*
+ * Draw every frame until stopped. The drawing buffer changes size when the
+ * window or the device turns, so its size is checked each frame and the
+ * renderer, viewport and camera follow it.
+ */
+function startLoop(gl: ExpoWebGLRenderingContext, scene: WorldScene, onFrame: (dt: number) => void) {
+  let width = gl.drawingBufferWidth;
+  let height = gl.drawingBufferHeight;
+  const renderer = createRenderer(gl, width, height);
+  scene.resize(width, height);
+
+  let raf = 0;
+  let last = 0;
+  let running = true;
+  const loop = (now: number) => {
+    if (!running) return;
+    const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60;
+    last = now;
+    if (gl.drawingBufferWidth !== width || gl.drawingBufferHeight !== height) {
+      width = gl.drawingBufferWidth;
+      height = gl.drawingBufferHeight;
+      renderer.setSize(width, height, false);
+      renderer.setViewport(0, 0, width, height);
+      scene.resize(width, height);
+    }
+    onFrame(dt);
+    renderer.render(scene.scene, scene.camera);
+    gl.endFrameEXP();
+    raf = requestAnimationFrame(loop);
+  };
+  raf = requestAnimationFrame(loop);
+
+  return () => {
+    if (!running) return;
+    running = false;
+    cancelAnimationFrame(raf);
+    renderer.dispose();
+  };
 }
 
 function createRenderer(gl: ExpoWebGLRenderingContext, width: number, height: number) {
