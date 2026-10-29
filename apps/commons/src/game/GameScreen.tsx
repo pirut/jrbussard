@@ -181,6 +181,14 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
     <View style={styles.fill}>
       <World3D scene={scene} onFrame={onFrame} />
 
+      {/* On tvOS, Select only reaches JS from a focused view (the fork's
+          select recognizer lives on focusable views), so during play the
+          whole screen is one focusable that keeps focus. Its own onPress
+          does nothing: the TV event stream already carries the press. */}
+      {Platform.isTV && !paused ? (
+        <Pressable style={StyleSheet.absoluteFill} hasTVPreferredFocus isTVSelectable onPress={() => {}} accessibilityLabel="The world" />
+      ) : null}
+
       <View style={styles.hud} pointerEvents="none">
         {me ? (
           <>
