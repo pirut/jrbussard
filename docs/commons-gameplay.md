@@ -95,6 +95,10 @@ write the result.
   player (plus one project row), each behind a per-player limit from the
   `@convex-dev/rate-limiter` component (`convex/convex.config.ts`): one
   hand-in per 600 ms and one claim per 2 s, refused attempts included.
+  `convex/_generated` is not committed, so a checkout made before the
+  component existed has types without `components.rateLimiter`: run
+  `npx convex codegen` (or `npm run commons`) before `npx tsc -p convex`.
+  The next `convex deploy` installs the component.
 - The tick reads at most three project rows per beat and writes to players
   only when the phase changes (twice per twelve-minute day).
 - `game:projects` is its own query, so the three rows that rarely change are not
