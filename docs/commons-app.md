@@ -166,7 +166,11 @@ See the PR for the exact run log. In short:
 - `npm run build:web` exports. In Chromium the offline world renders in 3D
   (terrain, trees, rocks, structures, other players), walks with WASD, and the
   menu responds to the keyboard.
-- iOS simulator: see the PR. This doc only claims what was run there.
+- iOS: `expo prebuild --platform ios` generates the Xcode project
+  (`TheCommons.xcodeproj`). The simulator build did **not** complete: the
+  build machine ran out of disk (ENOSPC during `pod install` and the first
+  compile), so nothing native has run yet. First job on a machine with
+  ~10 GB free: `npm run prebuild:mobile && npm run ios`.
 - Root `npm run test:commons` (54 tests) and `npm run build:frontend` still pass.
 
 ## Known gaps and risks
