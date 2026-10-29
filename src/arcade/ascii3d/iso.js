@@ -66,10 +66,13 @@ export function placeIsoCamera(camera, focus, yaw, height, aspect) {
  */
 const snapRight = new THREE.Vector3();
 const snapUp = new THREE.Vector3();
-export function snapIsoCamera(camera, cols, rows, out = new THREE.Vector2()) {
+export function snapIsoCamera(camera, cols, rows, out = new THREE.Vector2(), slack = null) {
     const cw = (camera.right - camera.left) / cols;
     const ch = (camera.top - camera.bottom) / rows;
-    if (!(cw > 0 && ch > 0)) return out.set(0, 0);
+    if (!(cw > 0 && ch > 0)) {
+        if (slack) slack.set(0, 0);
+        return out.set(0, 0);
+    }
     const e = camera.matrixWorld.elements;
     snapRight.set(e[0], e[1], e[2]);
     snapUp.set(e[4], e[5], e[6]);
@@ -77,6 +80,10 @@ export function snapIsoCamera(camera, cols, rows, out = new THREE.Vector2()) {
     const sy = camera.position.dot(snapUp) / ch;
     const ix = Math.round(sx);
     const iy = Math.round(sy);
+    /* How far, in cells, the snap moved the picture: draw it that far back
+       the other way and the scene glides a pixel at a time while the
+       characters stay glued to the ground. */
+    if (slack) slack.set(ix - sx, iy - sy);
     camera.position.addScaledVector(snapRight, (ix - sx) * cw).addScaledVector(snapUp, (iy - sy) * ch);
     camera.updateMatrixWorld();
     const wrap = (n) => ((n % 4096) + 4096) % 4096;

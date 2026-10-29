@@ -1525,3 +1525,123 @@
     height: min(1.08em, calc((100dvh - 360px) / 29));
   }
 }
+
+/* The character screen: Character, Inventory, Profile. */
+.character-sheet .sheet-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 18px;
+  border-bottom: 1px solid #485c3c;
+}
+.character-sheet .sheet-tabs button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #9fb08c;
+  font: inherit;
+  letter-spacing: 0.08em;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.character-sheet .sheet-tabs button[aria-selected="true"] {
+  color: #f3e6bd;
+  border-bottom-color: #d9b45a;
+}
+.sheet-grid,
+.sheet-inventory {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.sheet-card {
+  border: 1px solid #485c3c;
+  background: #0c160e;
+  padding: 16px 18px;
+}
+.sheet-card h3 {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  color: #d9b45a;
+  text-transform: uppercase;
+}
+.sheet-card h3 small {
+  color: #9fb08c;
+  margin-left: 6px;
+}
+.sheet-portrait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.sheet-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 14px;
+  margin: 0;
+}
+.sheet-stats dt {
+  color: #9fb08c;
+}
+.sheet-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.sheet-gear,
+.sheet-journey,
+.sheet-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sheet-gear li {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px dotted #2d3d2b;
+}
+.sheet-gear span {
+  color: #9fb08c;
+}
+.sheet-journey li {
+  padding: 2px 0;
+  color: #9fb08c;
+}
+.sheet-journey li.is-done {
+  color: #cfe0b8;
+}
+.sheet-items li {
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px dotted #2d3d2b;
+}
+.sheet-items button {
+  font: inherit;
+  background: #1b2a1c;
+  color: #e4efd2;
+  border: 1px solid #70815d;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.sheet-items button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sheet-note {
+  color: #9fb08c;
+  font-size: 0.85rem;
+  margin: 8px 0 0;
+}
+.character-sheet form {
+  margin-top: 0;
+}
+@media (max-width: 700px) {
+  .sheet-grid,
+  .sheet-inventory {
+    grid-template-columns: 1fr;
+  }
+}

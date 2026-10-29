@@ -9,7 +9,7 @@
  * x - 0.5 to x + 0.5), so the tile you stand on is the rounded position.
  */
 
-export const WALK = 3.1;
+export const WALK = 4;
 export const RUN = 5.6;
 /* How quickly speed follows the keys, per second. */
 const ACCEL = 16;

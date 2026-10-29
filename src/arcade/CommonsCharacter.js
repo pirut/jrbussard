@@ -27,7 +27,7 @@ export function CharacterPortrait({ player, small = false }) {
     </div>
   );
 }
-export default function CharacterCreator({ me, onClose, onSave }) {
+export default function CharacterCreator({ me, onClose, onSave, embedded = false }) {
   const [appearance, setAppearance] = useState(() => appearanceOf(me));
   const [name, setName] = useState(me.name);
   const [saving, setSaving] = useState(false);
@@ -43,45 +43,15 @@ export default function CharacterCreator({ me, onClose, onSave }) {
     setError("");
     try {
       await onSave({ name, appearance });
-      onClose();
+      if (embedded) setSaving(false);
+      else onClose();
     } catch {
       setError("Could not save your character. Try again.");
       setSaving(false);
     }
   };
-  return (
-    <div
-      className="character-backdrop"
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Escape" && !saving) onClose();
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !saving) onClose();
-      }}
-    >
-      <section
-        className="character-creator"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="character-title"
-        tabIndex={-1}
-        ref={ref}
-      >
-        <header>
-          <div>
-            <span>MAKE YOURSELF KNOWN</span>
-            <h2 id="character-title">Your face in the wild.</h2>
-          </div>
-          <button
-            onClick={onClose}
-            disabled={saving}
-            aria-label="Close character creator"
-          >
-            ×
-          </button>
-        </header>
-        <form onSubmit={save}>
+  const form = (
+    <form onSubmit={save}>
           <div className="character-preview">
             <div className="portrait-frame">
               <CharacterPortrait player={preview} />
@@ -160,7 +130,42 @@ export default function CharacterCreator({ me, onClose, onSave }) {
               {saving ? "Saving…" : "Save character ↗"}
             </button>
           </footer>
-        </form>
+    </form>
+  );
+  if (embedded) return form;
+  return (
+    <div
+      className="character-backdrop"
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Escape" && !saving) onClose();
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose();
+      }}
+    >
+      <section
+        className="character-creator"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="character-title"
+        tabIndex={-1}
+        ref={ref}
+      >
+        <header>
+          <div>
+            <span>MAKE YOURSELF KNOWN</span>
+            <h2 id="character-title">Your face in the wild.</h2>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            aria-label="Close character creator"
+          >
+            ×
+          </button>
+        </header>
+        {form}
       </section>
     </div>
   );

@@ -66,7 +66,7 @@ function rgbHex(rgb) {
 }
 
 export default class SiteScene {
-    constructor(container, world, { cellWidth = 4, cellHeight = 7, reducedMotion = false, phase = "dusk" } = {}) {
+    constructor(container, world, { cellWidth = 3, cellHeight = 6, reducedMotion = false, phase = "dusk" } = {}) {
         this.container = container;
         this.world = world;
         this.reducedMotion = reducedMotion;
@@ -147,6 +147,9 @@ export default class SiteScene {
         this.scene.add(this.player);
         /* Where World.js says JR is this frame: walking is continuous now,
            so this is a position and a heading, not a tile to ease toward. */
+        this.shiftX = 0;
+        this.shiftY = 0;
+        this.slack = new THREE.Vector2();
         this.walker = { x: world.spawn.x, y: world.spawn.y, facing: Math.PI, speed: 0, running: false, yaw: Math.PI, stride: 0, moving: 0 };
         this.player.position.set(world.spawn.x, this.standHeight(world.spawn.x, world.spawn.y), world.spawn.y);
 
@@ -474,12 +477,12 @@ export default class SiteScene {
             label.shown = true;
             label.el.style.visibility = "visible";
             label.el.style.opacity = opacity.toFixed(2);
-            label.el.style.transform = `translate(${((g.offX + ((tmp.x + 1) / 2) * w) / g.dpr).toFixed(1)}px, ${((g.height - g.offY - ((tmp.y + 1) / 2) * h) / g.dpr).toFixed(1)}px)`;
+            label.el.style.transform = `translate(${((g.offX + this.shiftX + ((tmp.x + 1) / 2) * w) / g.dpr).toFixed(1)}px, ${((g.height - g.offY - this.shiftY - ((tmp.y + 1) / 2) * h) / g.dpr).toFixed(1)}px)`;
         });
         this.visitors.updateLabels((at) => {
             at.project(this.camera);
             if (at.z > 1 || Math.abs(at.x) > 1.05 || Math.abs(at.y) > 1.05) return null;
-            return { x: (g.offX + ((at.x + 1) / 2) * w) / g.dpr, y: (g.height - g.offY - ((at.y + 1) / 2) * h) / g.dpr };
+            return { x: (g.offX + this.shiftX + ((at.x + 1) / 2) * w) / g.dpr, y: (g.height - g.offY - this.shiftY - ((at.y + 1) / 2) * h) / g.dpr };
         }, !intro);
     }
 
@@ -606,7 +609,10 @@ export default class SiteScene {
         placeIsoCamera(this.camera, this.focus, this.yaw, this.distance, this.camera.userData.aspect || 1.6);
         /* Whole character cells only, so the city does not crawl as the
            camera follows (see iso.js). */
-        snapIsoCamera(this.camera, this.grid.cols, this.grid.rows, this.ascii.uniforms.uCellShift.value);
+        snapIsoCamera(this.camera, this.grid.cols, this.grid.rows, this.ascii.uniforms.uCellShift.value, this.slack);
+        this.shiftX = Math.round(this.slack.x * this.grid.cellW);
+        this.shiftY = Math.round(this.slack.y * this.grid.cellH);
+        this.ascii.setShift(this.shiftX, this.shiftY);
         /* Open up whatever stands between the camera and JR. */
         aimCutaway(this.camera, this.player.position, { on: !intro, width: 3.2 + this.distance * 0.1, height: 3 + this.distance * 0.08 });
         this.water.position.x = Math.round(this.focus.x);

@@ -4,6 +4,7 @@ export default function useDialogFocus(ref) {
     useEffect(() => {
         const previous = document.activeElement;
         const dialog = ref.current;
+        if (!dialog) return undefined;
         dialog?.focus();
         const trap = (event) => {
             if (event.key !== "Tab") return;

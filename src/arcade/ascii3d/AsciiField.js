@@ -5,8 +5,8 @@ import "./ascii3d.css";
 /* Character cell sizes, in CSS pixels, for the density toggle. */
 export const DENSITIES = {
     fine: [5, 8],
-    normal: [6, 10],
-    coarse: [8, 13],
+    normal: [4, 7],
+    coarse: [6, 10],
 };
 
 function prefersReducedMotion() {

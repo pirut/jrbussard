@@ -939,6 +939,12 @@ export class AsciiPass {
         d.uCells.value.set(cols, rows);
         d.uCellPx.value.set(cellW, cellH);
         d.uOffset.value.set(offX, offY);
+        this.offset = { x: offX, y: offY };
+    }
+
+    /* Slide the finished picture by a few pixels, under the characters. */
+    setShift(x, y) {
+        if (this.offset) this.drawMaterial.uniforms.uOffset.value.set(this.offset.x + x, this.offset.y + y);
     }
 
     /* Draw only what is on `layer` (JR) into the ghost target, for the
