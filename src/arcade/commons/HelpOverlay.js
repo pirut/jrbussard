@@ -41,6 +41,8 @@ const GROUPS = [
     rows: [
       [<><K>Tab</K> · <K>C</K></>, "craft"],
       [<><K>I</K> · <K>J</K></>, "pack · journal"],
+      [<K>P</K>, "first person: mouse looks, W goes where you look"],
+      [<K>K</K>, "you: character, inventory, profile"],
       [<K>M</K>, "map"],
       [<><K>Enter</K> · <K>T</K></>, "talk"],
       [<><K>F</K> · <K>V</K></>, "full screen · raw render"],

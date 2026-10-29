@@ -49,3 +49,10 @@ describe("stepBody", () => {
         expect(body.speed).toBe(0);
     });
 });
+
+describe("walking speed", () => {
+    it("keeps a tile crossing rate the server's 120ms step can follow", () => {
+        /* Diagonal on the map crosses a tile edge on each axis. */
+        expect(WALK * Math.SQRT1_2 * 2).toBeLessThan(1000 / 120);
+    });
+});

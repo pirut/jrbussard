@@ -16,7 +16,7 @@ import {
 import { withinReach } from "../lib/terrain";
 import { ITEMS, resourceAt, journeyOf, inventoryOf } from "../lib/survival";
 import { Fieldcraft } from "./CommonsPanels";
-import CharacterCreator from "./CommonsCharacter";
+import CharacterSheet from "./commons/CharacterSheet";
 import { describeTarget } from "./commons/target";
 import Nametags from "./commons/Nametags";
 import Vitals from "./commons/Vitals";
@@ -32,6 +32,7 @@ import { heldSwing } from "./commons/held";
 import HudWindow from "./commons/HudWindow";
 import AsciiField from "./ascii3d/AsciiField";
 import { octStep, stepTime } from "./ascii3d/controls";
+import { createBody, stepBody, tileOf } from "../world/motion";
 import { ISO_YAW, screenToMap } from "./ascii3d/iso";
 import { passability, findPath } from "./ascii3d/navigation";
 import { createDemo } from "./ascii3d/demo";
@@ -210,9 +211,9 @@ function Offline() {
   );
 }
 
-/* One step along the grid per this long while a movement key is held; a
-   diagonal takes √2 as long. The server allows one every 120ms and lets one
-   come a step early, so steps that bunch up on the way are not dropped. */
+/* How often a held key swings at a creature in the way; a diagonal takes √2
+   as long. Walking itself is continuous (see world/motion.js): the server
+   only hears which tile you moved onto, and allows one every 120ms. */
 const STEP_MS = 150;
 /* A blocked plan looks for a new way this many times before giving up. */
 const REPLANS = 3;
@@ -225,6 +226,12 @@ const HOLD_MS = 320;
 const STICK_REACH = 56;
 const STICK_DEAD = 12;
 const TWIST = Math.PI / 6;
+
+/* A direction as a unit vector, or still if there is none. */
+function unit(x, y) {
+  const length = Math.hypot(x, y);
+  return length < 1e-6 ? [0, 0] : [x / length, y / length];
+}
 
 const touchFirst = () => {
   try {
@@ -284,7 +291,14 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
   const [hover, setHoverState] = useState(null);
   const [chatting, setChatting] = useState(false);
   const [draft, setDraft] = useState("");
-  const [customizing, setCustomizing] = useState(false);
+  /* The character screen: null when shut, else the tab it is on. */
+  const [sheet, setSheet] = useState(null);
+  /* Seen through your own eyes: the mouse turns your head, and what you
+     aim at is whatever is in the middle of the view. */
+  const [firstPerson, setFirstPerson] = useState(false);
+  const firstPersonRef = useRef(false);
+  firstPersonRef.current = firstPerson;
+  const customizing = sheet !== null;
   const [inspected, setInspected] = useState(null);
   const [raw, setRaw] = useState(false);
   const [help, setHelp] = useState(false);
@@ -394,50 +408,60 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
   const downAtRef = useRef(0);
   const stepAtRef = useRef(0);
 
+  /* The body that walks: the same continuous motion as the site. The
+     server hears about the tiles it crosses; what you see is the body. */
+  const bodyRef = useRef(null);
+  const navRef = useRef({ state: null, nav: null });
+
+  /* Put the body on a tile, still, and show it there at once if asked. */
+  const placeBody = useCallback((at, snap = false) => {
+    const body = bodyRef.current;
+    if (!body || !at) return;
+    body.x = at.x;
+    body.y = at.y;
+    body.vx = 0;
+    body.vy = 0;
+    body.speed = 0;
+    fieldApi.current?.driveSelf(body, snap);
+  }, []);
+
   useEffect(() => {
     const walker = walkerRef.current;
     if (!me) return;
+    if (!bodyRef.current) {
+      bodyRef.current = createBody(me.x, me.y);
+      walker.reset(me);
+      placeBody(me, true);
+      return;
+    }
     if (me.hp <= 0) walker.reset(me);
     else if (!walker.sync(me)) return;
     const at = walker.position;
-    if (at) fieldApi.current?.predictSelf(at.x, at.y);
-  }, [me]);
+    const body = bodyRef.current;
+    /* Only a real correction or a move you didn't make (a respawn) puts the
+       body somewhere; being a step behind the server's word is just lag. */
+    if (at && Math.max(Math.abs(body.x - at.x), Math.abs(body.y - at.y)) > 0.9) {
+      placeBody(at, Math.hypot(body.x - at.x, body.y - at.y) > 2.5);
+    }
+  }, [me, placeBody]);
 
   const here = useCallback(
     () => walkerRef.current.position || stateRef.current.me,
     [],
   );
 
-  /* One step, in any of the eight directions. Returns whether you moved. */
-  const stepBy = useCallback(
-    (dx, dy) => {
-      const st = stateRef.current;
+  /* Tell the server about a step and keep the guess squared with its
+     answer. */
+  const sendStep = useCallback(
+    (dx, dy, moved) => {
       const walker = walkerRef.current;
-      if (!st.me || st.me.hp <= 0) return false;
-      const from = here();
-      const nx = from.x + dx;
-      const ny = from.y + dy;
-      const nav = passability(st);
-      facingRef.current = { dx, dy };
-      fieldApi.current?.faceSelf(dx, dy);
-      const now = performance.now();
-      stepAtRef.current = now;
-      /* Keep the beat while walking; start it afresh after a pause. */
-      const base = now - nextStepRef.current > 60 ? now : nextStepRef.current;
-      nextStepRef.current = base + stepTime(dx, dy, STEP_MS);
-      /* A bump or a swing is still sent: it turns you to face the thing,
-         and walking into a creature is an attack. */
-      const { creature, moved } = judgeStep(nav, from, dx, dy);
-      if (creature) fieldApi.current?.swingSelf();
       const ticket = walker.send(dx, dy, moved);
-      if (moved) {
-        fieldApi.current?.predictSelf(nx, ny, stepTime(dx, dy, STEP_MS) / 1000);
-      }
       const settle = (at) => {
         if (walker.ack(ticket, at) && walker.position) {
           /* The server saw it differently: go where it says. */
           const p = walker.position;
-          fieldApi.current?.predictSelf(p.x, p.y);
+          const body = bodyRef.current;
+          if (!body || Math.max(Math.abs(body.x - p.x), Math.abs(body.y - p.y)) > 0.9) placeBody(p);
         }
       };
       call("move", { dx, dy })
@@ -446,9 +470,36 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
           settle(null);
           flash("Movement interrupted. Reconnecting…");
         });
+    },
+    [call, flash, placeBody],
+  );
+
+  /* A swing at a creature one tile away, in any of the eight directions: a
+     step into it is an attack. Returns whether you moved (never, for a
+     creature). */
+  const stepBy = useCallback(
+    (dx, dy) => {
+      const st = stateRef.current;
+      const walker = walkerRef.current;
+      if (!st.me || st.me.hp <= 0) return false;
+      const from = here();
+      const nav = passability(st);
+      facingRef.current = { dx, dy };
+      fieldApi.current?.faceSelf(dx, dy);
+      const now = performance.now();
+      stepAtRef.current = now;
+      /* Keep the beat while swinging; start it afresh after a pause. */
+      const base = now - nextStepRef.current > 60 ? now : nextStepRef.current;
+      nextStepRef.current = base + stepTime(dx, dy, STEP_MS);
+      const { creature, moved } = judgeStep(nav, from, dx, dy);
+      if (creature) fieldApi.current?.swingSelf();
+      if (!walker.ready) return false;
+      sendStep(dx, dy, moved);
+      /* Not a swing after all, a plain step: the body goes with it. */
+      if (moved) placeBody({ x: from.x + dx, y: from.y + dy });
       return moved;
     },
-    [call, flash, here],
+    [sendStep, placeBody, here],
   );
 
   /* Walk to the nearest tile where `goal` holds, then do `then`. */
@@ -698,68 +749,125 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
     };
   }, [here]);
 
-  /* Steps, from held keys first and then any plan, on one clock. */
+  /* Walking: held keys first, then any plan, steering one body every
+     frame. The server is told each tile the body crosses. */
   useEffect(() => {
     let raf;
+    let last = performance.now();
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const now = performance.now();
-      if (now < nextStepRef.current) return;
-      /* Too far ahead of the server already: let it catch up. */
-      if (!walkerRef.current.ready) return;
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const body = bodyRef.current;
+      const st = stateRef.current;
+      const walker = walkerRef.current;
+      if (!body || !st.me) return;
+      if (navRef.current.state !== st) navRef.current = { state: st, nav: passability(st) };
+      const nav = navRef.current.nav;
+      const alive = st.me.hp > 0;
       const held = heldRef.current.length ? heldRef.current : tapRef.current;
       tapRef.current = null;
       /* Every key held counts, so W and D together walk up and to the
          right of the screen, which from the isometric corner is due north
          on the map. The thumbstick leans any way at all. */
-      const lean = held?.length
-        ? [
-            Math.sign(held.reduce((sum, k) => sum + MOVES[k][0], 0)),
-            Math.sign(held.reduce((sum, k) => sum + MOVES[k][1], 0)),
-          ]
-        : stickRef.current;
+      const lean = !alive
+        ? null
+        : held?.length
+          ? [
+              Math.sign(held.reduce((sum, k) => sum + MOVES[k][0], 0)),
+              Math.sign(held.reduce((sum, k) => sum + MOVES[k][1], 0)),
+            ]
+          : stickRef.current;
+      let want = [0, 0];
+      const plan = alive && !lean ? planRef.current : null;
       if (lean) {
         planRef.current = null;
-        const [sx, sy] = lean;
-        const dir = screenToMap(fieldApi.current?.heading() ?? ISO_YAW, sx, sy);
-        if (!dir[0] && !dir[1]) return;
-        const from = here();
-        const nav = passability(stateRef.current);
-        const [dx, dy] = octStep(
-          dir,
-          (x, y) => nav.free(from.x + x, from.y + y) || Boolean(nav.creatureAt(from.x + x, from.y + y)),
-          (x, y) => nav.open(from.x + x, from.y + y),
-        );
-        if (dx || dy) stepBy(dx, dy);
-        else {
-          /* Up against a wall: turn to it, but don't send anything. */
-          const [fx, fy] = [Math.round(dir[0]), Math.round(dir[1])];
-          if (fx || fy) {
-            facingRef.current = { dx: fx, dy: fy };
-            fieldApi.current?.faceSelf(fx, fy);
-          }
-        }
-        return;
-      }
-      const plan = planRef.current;
-      if (plan) {
+        stepAtRef.current = now;
+        want = screenToMap(fieldApi.current?.heading() ?? ISO_YAW, lean[0], lean[1]);
+      } else if (plan) {
+        /* Reached a tile on the way: on to the next. */
+        while (plan.steps.length && Math.hypot(plan.steps[0].x - body.x, plan.steps[0].y - body.y) < 0.3) plan.steps.shift();
         if (plan.steps.length) {
           const next = plan.steps[0];
           const from = here();
-          const dx = next.x - from.x;
-          const dy = next.y - from.y;
-          const nav = passability(stateRef.current);
-          if (Math.max(Math.abs(dx), Math.abs(dy)) === 1 && nav.free(next.x, next.y)) {
-            plan.steps.shift();
-            if (!stepBy(dx, dy)) planRef.current = null;
+          const near = Math.max(Math.abs(next.x - from.x), Math.abs(next.y - from.y)) <= 2;
+          plan.stall = body.speed < 0.3 ? (plan.stall || 0) + dt : 0;
+          if (near && nav.free(next.x, next.y) && plan.stall < 0.6) {
+            want = unit(next.x - body.x, next.y - body.y);
           } else if (plan.replans > 0) {
             /* Someone stepped into the way, or the guess was corrected:
                find a new way to the same place. */
             goThen(plan.goal, plan.then, plan.why, plan.replans - 1);
-          } else {
-            planRef.current = null;
-          }
-        } else {
+          } else planRef.current = null;
+        }
+      }
+      if (firstPersonRef.current) {
+        /* The middle of the view is what you aim at, and what you face. */
+        setHover(fieldApi.current?.pickCenter() || null);
+        if (!want[0] && !want[1]) {
+          const [fx, fy] = octStep(screenToMap(fieldApi.current?.heading() ?? ISO_YAW, 0, -1));
+          if (fx || fy) facingRef.current = { dx: fx, dy: fy };
+        }
+      }
+      /* Too far ahead of the server already: let it catch up. */
+      if (!walker.ready) want = [0, 0];
+      if (want[0] || want[1]) {
+        const [fx, fy] = octStep(want);
+        if (fx || fy) facingRef.current = { dx: fx, dy: fy };
+      }
+
+      /* People and creatures stop the body, except where it already
+         overlaps them, so one stepping up beside you cannot pin you. */
+      const solid = (x, y) => {
+        if (!nav.open(x, y)) return true;
+        if (nav.free(x, y)) return false;
+        return Math.abs(body.x - x) > 0.8 || Math.abs(body.y - y) > 0.8;
+      };
+      if (alive) stepBody(body, want, false, dt, solid);
+      else {
+        body.vx = 0;
+        body.vy = 0;
+        body.speed = 0;
+      }
+
+      /* A tile crossed is a step taken: say so, one at a time, never
+         cutting a corner. */
+      for (let guard = 0; alive && guard < 3 && walker.ready; guard += 1) {
+        const at = here();
+        const tile = tileOf(body);
+        let dx = Math.sign(tile.x - at.x);
+        let dy = Math.sign(tile.y - at.y);
+        if (!dx && !dy) break;
+        if (dx && dy && !(nav.open(at.x + dx, at.y) && nav.open(at.x, at.y + dy))) {
+          if (Math.abs(tile.x - at.x) >= Math.abs(tile.y - at.y)) dy = 0;
+          else dx = 0;
+        }
+        const { moved } = judgeStep(nav, at, dx, dy);
+        if (!moved) {
+          /* Not somewhere the server would let you: back onto your tile. */
+          placeBody(at);
+          break;
+        }
+        sendStep(dx, dy, true);
+      }
+      fieldApi.current?.driveSelf(body);
+
+      if (lean) {
+        /* Pushing on a creature is a swing at it, on the server's beat. */
+        const from = here();
+        if (now >= nextStepRef.current && walker.ready && alive) {
+          const [dx, dy] = octStep(
+            want,
+            (x, y) => nav.free(from.x + x, from.y + y) || Boolean(nav.creatureAt(from.x + x, from.y + y)),
+            (x, y) => nav.open(from.x + x, from.y + y),
+          );
+          if ((dx || dy) && nav.creatureAt(from.x + dx, from.y + dy)) stepBy(dx, dy);
+        }
+        return;
+      }
+      if (plan) {
+        if (!plan.steps.length && planRef.current === plan) {
           planRef.current = null;
           plan.then?.();
         }
@@ -788,7 +896,7 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [stepBy, primary, here, goThen, pumpBuild]);
+  }, [stepBy, sendStep, placeBody, primary, here, goThen, pumpBuild, setHover]);
 
   /* ── Feedback ─────────────────────────────────────────────────────── */
 
@@ -960,6 +1068,8 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
       else if (key === "i") setPanel((p) => (p === "Pack" ? null : "Pack"));
       else if (key === "j")
         setPanel((p) => (p === "Journal" ? null : "Journal"));
+      else if (key === "k" && me) setSheet("Character");
+      else if (key === "p") setFirstPerson((on) => !on);
       else if (key === "f") toggleFullscreen();
       else if (key === "m") setMapOpen((m) => !m);
       else if (key === "v") setRaw((r) => !r);
@@ -1020,6 +1130,21 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
   const dragRef = useRef(null);
   const pick = (event) =>
     fieldApi.current?.pick(event.clientX, event.clientY) || null;
+
+  useEffect(() => {
+    fieldApi.current?.setFirstPerson(firstPerson);
+    if (!firstPerson && document.pointerLockElement) document.exitPointerLock?.();
+  }, [firstPerson, playing]);
+
+  /* With the pointer locked to the view, the mouse is your head. */
+  useEffect(() => {
+    const onMove = (event) => {
+      if (!firstPersonRef.current || document.pointerLockElement !== stageRef.current) return;
+      fieldApi.current?.look(event.movementX * 0.0024, event.movementY * 0.0024);
+    };
+    document.addEventListener("mousemove", onMove);
+    return () => document.removeEventListener("mousemove", onMove);
+  }, []);
 
   /* The wheel needs a listener that may cancel scrolling the page. */
   useEffect(() => {
@@ -1189,7 +1314,10 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
       return;
     }
     if (event.button !== 0) return;
-    const spot = pick(event);
+    if (firstPersonRef.current && document.pointerLockElement !== stageRef.current) {
+      stageRef.current?.requestPointerLock?.();
+    }
+    const spot = firstPersonRef.current ? fieldApi.current?.pickCenter() || null : pick(event);
     setHover(spot);
     if (buildingRef.current && spot && me?.hp > 0) {
       /* Press, drag along a row, let go: the whole run goes up. */
@@ -1214,6 +1342,10 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
       drag.y = event.clientY;
       drag.moved += Math.abs(dx) + Math.abs(dy);
       if (drag.moved > 4 && !dragging) setDragging(true);
+      if (firstPersonRef.current) {
+        fieldApi.current?.look(dx * 0.005, dy * 0.005);
+        return;
+      }
       /* Dragging sideways swings the camera round, a quarter at a time. */
       drag.turn += dx;
       if (Math.abs(drag.turn) > 90) {
@@ -1222,6 +1354,7 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
       }
       return;
     }
+    if (firstPersonRef.current) return;
     const spot = pick(event);
     setHover(spot);
     const run = paintRef.current;
@@ -1379,7 +1512,7 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
               button.blur();
           }}
         >
-          <Vitals me={me} onCustomize={() => setCustomizing(true)} />
+          <Vitals me={me} onCustomize={() => setSheet("Character")} />
           <div className="hud-side">
             <WorldPanel
               state={state}
@@ -1390,6 +1523,8 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
               onHelp={() => setHelp((h) => !h)}
               onMap={() => setMapOpen((m) => !m)}
               onFullscreen={toggleFullscreen}
+              firstPerson={firstPerson}
+              onFirstPerson={() => setFirstPerson((on) => !on)}
               onTurn={(way) => fieldApi.current?.rotate(way * (Math.PI / 2))}
             />
             <Objective journey={journey} onOpen={() => setPanel("Journal")} />
@@ -1484,10 +1619,14 @@ function Game({ state: served, call, live, status = "", onSaveCharacter }) {
         <Inspect player={inspection} onClose={() => setInspected(null)} />
       )}
       {customizing && me && (
-        <CharacterCreator
+        <CharacterSheet
           me={me}
-          onClose={() => setCustomizing(false)}
+          state={state}
+          tab={sheet}
+          setTab={setSheet}
+          onClose={() => setSheet(null)}
           onSave={saveCharacter}
+          act={act}
         />
       )}
     </main>

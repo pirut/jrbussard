@@ -17,6 +17,8 @@ export default function WorldPanel({
   onHelp,
   onMap,
   onFullscreen,
+  firstPerson = false,
+  onFirstPerson,
   onTurn,
 }) {
   return (
@@ -45,6 +47,14 @@ export default function WorldPanel({
             aria-label="Turn the camera right"
           >
             <span aria-hidden="true">⟳</span>
+          </button>
+          <button
+            onClick={onFirstPerson}
+            aria-pressed={firstPerson}
+            title="First person (P)"
+            aria-label="First person view"
+          >
+            <span aria-hidden="true">◉</span>
           </button>
           <button
             onClick={onMap}

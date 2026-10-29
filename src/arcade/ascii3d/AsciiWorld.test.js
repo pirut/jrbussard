@@ -16,7 +16,7 @@ jest.mock("./mergeModel", () => ({ mergeModel: (model) => model, disposeMerged: 
 function stage(ground) {
     const proto = AsciiWorld.prototype;
     const world = { time: 0, ground, structures: new Map() };
-    ["bridged", "entityHeight", "moveEntity", "makeEntity", "updateEntity"].forEach((name) => {
+    ["bridged", "entityHeight", "moveEntity", "makeEntity", "updateEntity", "finishEntity"].forEach((name) => {
         world[name] = proto[name].bind(world);
     });
     world.scene = new THREE.Scene();

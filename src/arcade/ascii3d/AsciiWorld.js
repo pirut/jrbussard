@@ -136,6 +136,10 @@ export default class AsciiWorld {
         this.fires = [];
         this.lit = [];
         this.cellShift = new THREE.Vector2();
+        /* The picture's slide under the characters, in device pixels. */
+        this.shiftX = 0;
+        this.shiftY = 0;
+        this.slack = new THREE.Vector2();
         this.quality = { shadow: 1024, cell: 1 };
         /* Dug and piled ground, as last heard from the server. */
         this.ground = new GroundMap();
@@ -170,6 +174,12 @@ export default class AsciiWorld {
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x0b120d, 20, 40);
         this.camera = createIsoCamera();
+        this.isoCamera = this.camera;
+        /* Seen from behind your own eyes: a perspective camera, looking
+           where yawGoal and pitch say. */
+        this.fpCamera = new THREE.PerspectiveCamera(72, 1.6, 0.1, 140);
+        this.firstPerson = false;
+        this.pitch = 0;
 
         this.hemi = new THREE.HemisphereLight(0xd3e6ff, 0x4a5a3a, 1);
         this.scene.add(this.hemi);
@@ -256,6 +266,9 @@ export default class AsciiWorld {
 
         this.ascii.setSize(this.grid);
         this.camera.userData.aspect = (cols * cellW) / (rows * cellH);
+        this.isoCamera.userData.aspect = this.camera.userData.aspect;
+        this.fpCamera.aspect = this.camera.userData.aspect;
+        this.fpCamera.updateProjectionMatrix();
     }
 
     /* A step of the governor: shadow detail, then cell size. */
@@ -336,6 +349,36 @@ export default class AsciiWorld {
         this.distanceGoal = Math.max(NEAREST, Math.min(FARTHEST, this.distanceGoal * factor));
     }
 
+    /* Step into your own eyes, or back out to the isometric view. */
+    setFirstPerson(on) {
+        if (on === this.firstPerson) return;
+        this.firstPerson = on;
+        this.camera = on ? this.fpCamera : this.isoCamera;
+        this.pitch = 0;
+        if (!on) {
+            /* Back to the nearest of the four isometric corners. */
+            const q = Math.round((this.yawGoal - ISO_YAW) / (Math.PI / 2));
+            this.yawGoal = ISO_YAW + q * (Math.PI / 2);
+            this.shiftX = 0;
+            this.shiftY = 0;
+            this.ascii.setShift(0, 0);
+            if (this.self) this.self.model.visible = true;
+        }
+    }
+
+    /* Turn your head: `dx` to the right and `dy` down, in radians. */
+    look(dx, dy) {
+        if (!this.firstPerson) return;
+        this.yawGoal -= dx;
+        this.pitch = Math.max(-1.1, Math.min(1.1, this.pitch - dy));
+    }
+
+    /* The world tile at the middle of the view, for aiming. */
+    pickCenter() {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        return this.pick(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
+
     /* The camera's turn, for turning keys into directions on the map
        (see iso.js). The goal, not the swing, so a held key keeps its way. */
     heading() {
@@ -350,6 +393,23 @@ export default class AsciiWorld {
         if (!self) return;
         this.selfDriven = true;
         this.moveEntity(self, x, y, duration);
+    }
+
+    /* Put yourself wherever the body is, every frame: the same continuous
+       walking as the site (see world/motion.js). The server only ever hears
+       which tile you are on; what is drawn is the body itself. `snap` jumps
+       there instead of walking. */
+    driveSelf({ x, y, speed, facing }, snap = false) {
+        const self = this.selfEntity();
+        if (!self) return;
+        this.selfDriven = true;
+        self.driven = { x, y, speed, facing };
+        self.from = { x, y };
+        self.to = { x, y };
+        if (snap) {
+            self.pos.set(x, this.entityHeight(Math.round(x), Math.round(y)), y);
+            this.focus.set(x, self.pos.y, y);
+        }
     }
 
     selfEntity() {
@@ -400,8 +460,8 @@ export default class AsciiWorld {
     pick(clientX, clientY) {
         const rect = this.renderer.domElement.getBoundingClientRect();
         const g = this.grid;
-        const px = (clientX - rect.left) * g.dpr - g.offX;
-        const py = g.height - (clientY - rect.top) * g.dpr - g.offY;
+        const px = (clientX - rect.left) * g.dpr - g.offX - this.shiftX;
+        const py = g.height - (clientY - rect.top) * g.dpr - g.offY - this.shiftY;
         const w = g.cols * g.cellW;
         const h = g.rows * g.cellH;
         if (px < 0 || py < 0 || px > w || py > h) return null;
@@ -745,7 +805,7 @@ export default class AsciiWorld {
                 return;
             }
             e.bar.style.visibility = "visible";
-            e.bar.style.transform = `translate(${((g.offX + ((tmp.x + 1) / 2) * w) / g.dpr).toFixed(1)}px, ${((g.height - g.offY - ((tmp.y + 1) / 2) * h) / g.dpr).toFixed(1)}px)`;
+            e.bar.style.transform = `translate(${((g.offX + this.shiftX + ((tmp.x + 1) / 2) * w) / g.dpr).toFixed(1)}px, ${((g.height - g.offY - this.shiftY - ((tmp.y + 1) / 2) * h) / g.dpr).toFixed(1)}px)`;
         });
     }
 
@@ -760,8 +820,8 @@ export default class AsciiWorld {
                 return false;
             }
             tmp.set(f.x, f.y + t * 0.9, f.z).project(this.camera);
-            const left = (g.offX + ((tmp.x + 1) / 2) * w) / g.dpr;
-            const top = (g.height - g.offY - ((tmp.y + 1) / 2) * h) / g.dpr;
+            const left = (g.offX + this.shiftX + ((tmp.x + 1) / 2) * w) / g.dpr;
+            const top = (g.height - g.offY - this.shiftY - ((tmp.y + 1) / 2) * h) / g.dpr;
             f.el.style.opacity = String(t < 0.7 ? 1 : 1 - (t - 0.7) / 0.4);
             f.el.style.transform = `translate(${left.toFixed(1)}px, ${top.toFixed(1)}px) scale(${t < 0.1 ? 1 + (0.1 - t) * 6 : 1})`;
             return true;
@@ -935,7 +995,26 @@ export default class AsciiWorld {
         u.uSkyShift.value = (-this.yaw / 1.4) * this.grid.cols;
     }
 
+    /* Someone walking under their own steam: the body decides where they
+       are, and the figure follows it exactly, a hand's height up and down
+       the terraces. Returns how far they moved and whether they walk. */
+    followBody(entity, dt) {
+        const b = entity.driven;
+        const moved = Math.hypot(b.x - entity.pos.x, b.y - entity.pos.z);
+        const ground = this.entityHeight(Math.round(b.x), Math.round(b.y));
+        const h = entity.pos.y + (ground - entity.pos.y) * Math.min(1, dt * 18);
+        entity.pos.set(b.x, h, b.y);
+        if (b.facing !== undefined && b.speed > 0.3) entity.facing = b.facing;
+        if (b.speed > 0.3) entity.lastStep = this.time;
+        return { moved, walking: b.speed > 0.4 };
+    }
+
     updateEntity(entity, dt) {
+        if (entity.driven) {
+            const { moved, walking } = this.followBody(entity, dt);
+            this.finishEntity(entity, dt, moved, walking);
+            return;
+        }
         const t = entity.duration > 0 ? Math.min(1, (this.time - entity.start) / entity.duration) : 1;
         const x = entity.from.x + (entity.to.x - entity.from.x) * t;
         const z = entity.from.y + (entity.to.y - entity.from.y) * t;
@@ -972,6 +1051,12 @@ export default class AsciiWorld {
             entity.pos.set(gx, climb ? lift(along) : h, gz);
         } else entity.pos.set(x, h, z);
         const walking = this.time - entity.lastStep < (entity.duration > 0.3 ? 0.55 : 0.28);
+        this.finishEntity(entity, dt, moved, walking);
+    }
+
+    /* What every figure does each frame, however it got where it is: stride,
+       turning, hurt, falling and rising, the pop-in, the pose. */
+    finishEntity(entity, dt, moved, walking) {
         entity.moving += ((walking ? 1 : 0) - entity.moving) * Math.min(1, dt * 12);
         entity.stride += moved * 4.6;
         entity.yaw = lerpAngle(entity.yaw, entity.facing, Math.min(1, dt * 14));
@@ -1164,8 +1249,36 @@ export default class AsciiWorld {
         });
     }
 
+    /* Looking out of your own eyes. */
+    updateFirstPerson(self) {
+        const cam = this.fpCamera;
+        this.yaw = this.yawGoal;
+        this.distance = this.distanceGoal;
+        const eye = self.pos.y + 1.55 * (self.baseScale || 1);
+        cam.position.set(self.pos.x, eye, self.pos.z);
+        const flat = Math.cos(this.pitch);
+        cam.lookAt(self.pos.x - Math.sin(this.yaw) * flat, eye + Math.sin(this.pitch), self.pos.z - Math.cos(this.yaw) * flat);
+        cam.updateMatrixWorld();
+        this.focus.copy(self.pos);
+        self.model.visible = false;
+        this.shiftX = 0;
+        this.shiftY = 0;
+        this.ascii.setShift(0, 0);
+        aimCutaway(cam, self.pos, { on: false });
+        this.water.position.x = Math.round(this.focus.x);
+        this.water.position.z = Math.round(this.focus.z);
+    }
+
     updateCamera(dt) {
         const self = this.self;
+        if (this.firstPerson && self && !this.orbit) {
+            if (this.selfFacing !== null) {
+                self.facing = this.selfFacing;
+                this.selfFacing = null;
+            }
+            this.updateFirstPerson(self);
+            return;
+        }
         let goal;
         if (self) goal = self.pos;
         else if (this.state?.view) {
@@ -1199,7 +1312,10 @@ export default class AsciiWorld {
 
         placeIsoCamera(this.camera, this.focus, this.yaw, this.distance, this.camera.userData.aspect || 1.6);
         /* Whole cells only, so the picture does not crawl as it follows. */
-        snapIsoCamera(this.camera, this.grid.cols, this.grid.rows, this.cellShift);
+        snapIsoCamera(this.camera, this.grid.cols, this.grid.rows, this.cellShift, this.slack);
+        this.shiftX = Math.round(this.slack.x * this.grid.cellW);
+        this.shiftY = Math.round(this.slack.y * this.grid.cellH);
+        this.ascii.setShift(this.shiftX, this.shiftY);
         this.ascii.uniforms.uCellShift.value.copy(this.cellShift);
         if (this.shake > 0 && !this.reducedMotion) {
             this.shake = Math.max(0, this.shake - dt);
@@ -1246,8 +1362,8 @@ export default class AsciiWorld {
                 el.style.visibility = "hidden";
                 return;
             }
-            const left = (g.offX + ((tmp.x + 1) / 2) * w) / g.dpr;
-            const top = (g.height - g.offY - ((tmp.y + 1) / 2) * h) / g.dpr;
+            const left = (g.offX + this.shiftX + ((tmp.x + 1) / 2) * w) / g.dpr;
+            const top = (g.height - g.offY - this.shiftY - ((tmp.y + 1) / 2) * h) / g.dpr;
             el.style.visibility = "visible";
             el.style.transform = `translate(${left.toFixed(1)}px, ${top.toFixed(1)}px)`;
         });
@@ -1300,7 +1416,7 @@ export default class AsciiWorld {
         this.renderer.setRenderTarget(this.ascii.target);
         this.renderer.render(this.scene, this.camera);
         this.ascii.uniforms.uFlash.value = this.flash > 0.2 ? 1 : 0;
-        this.ascii.uniforms.uOrtho.value = 1;
+        this.ascii.uniforms.uOrtho.value = this.camera.isOrthographicCamera ? 1 : 0;
         this.ascii.uniforms.uInvProj.value.copy(this.camera.projectionMatrixInverse);
         this.ascii.uniforms.uCamToWorld.value.copy(this.camera.matrixWorld);
         this.ascii.render(this.renderer);
