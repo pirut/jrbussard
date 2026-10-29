@@ -75,7 +75,7 @@ row.forEach((entry, i) => {
 });
 
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 100);
-const far = view === "world" ? 15 : 8.5;
+const far = Number(params.get("far")) || (view === "world" ? 15 : 8.5);
 camera.position.set(0, far * 0.45, far);
 camera.lookAt(0, view === "world" ? 0.8 : 0.85, 0);
 

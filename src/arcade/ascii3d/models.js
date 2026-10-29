@@ -1,14 +1,19 @@
 import * as THREE from "three";
 import { material, ownMaterial, asFigure, hitFlash } from "./materials";
+import { glyphCode, GLYPH_SETS } from "./asciiPass";
+import { humanoidSpec, quadrupedSpec, koboldSpec, trollSpec, QUADRUPEDS, seedOf } from "./figureKit";
+import { buildFigure } from "./figureGeometry";
 import { PALETTES, appearanceOf } from "../../lib/appearance";
 
 /*
  * The people, creatures and buildings of the Commons, as real low-poly models.
  *
  * Everything is built from boxes, cones and spheres at load. Each figure is a
- * hierarchy of pivots — hips, knees, shoulders, elbows, neck — so walking is a
- * matter of bending limbs about their joints, not swapping sprites. Proportions are
- * chunky on purpose: at a few characters per limb, a thin arm vanishes.
+ * hierarchy of pivots — hips, knees, ankles, shoulders, elbows, wrists, neck,
+ * jaw, tail — so walking is a matter of bending limbs about their joints, not
+ * swapping sprites. People and animals are recipes in figureKit.js, built by
+ * figureGeometry.js into one vertex-coloured mesh per pivot and glyph set;
+ * this file supplies the materials, the registry of kinds and the posing.
  *
  * Coordinates: one tile is one unit, x runs east, z runs south, y is up.
  * A model faces +z (south, toward the default camera) at rotation 0.
@@ -33,53 +38,18 @@ function box(w, h, d, color, set, x, y, z, options) {
     return part(boxGeo(w, h, d), material(color, set, options), x, y, z);
 }
 
-/* Rounded parts, so a figure shades in smooth ramps of characters instead
-   of flat slabs. Geometry is cached: a crowd shares one of each. */
-const capsuleGeo = (r, len) => geo(`cap${r},${len}`, () => new THREE.CapsuleGeometry(r, len, 3, 10));
+/* Rounded parts for things added to a figure after it is built (a club, a
+   shade's eyes). Geometry is cached: a crowd shares one of each. */
 const sphereGeo = (r, sx = 1, sy = 1, sz = 1) =>
-    geo(`sph${r},${sx},${sy},${sz}`, () => new THREE.SphereGeometry(r, 14, 10).scale(sx, sy, sz));
+    geo(`sph${r},${sx},${sy},${sz}`, () => new THREE.SphereGeometry(r, 10, 7).scale(sx, sy, sz));
 const taperGeo = (rt, rb, h, seg = 10, sz = 1) =>
     geo(`tap${rt},${rb},${h},${seg},${sz}`, () => new THREE.CylinderGeometry(rt, rb, h, seg).scale(1, 1, sz));
-/* The top half of a sphere: caps of hair, hoods, pauldrons. */
-const domeGeo = (r, sx = 1, sy = 1, sz = 1, cut = 0.55) =>
-    geo(`dome${r},${sx},${sy},${sz},${cut}`, () =>
-        new THREE.SphereGeometry(r, 14, 8, 0, Math.PI * 2, 0, Math.PI * cut).scale(sx, sy, sz),
-    );
 const coneGeo = (r, h, seg = 8) => geo(`cone${r},${h},${seg}`, () => new THREE.ConeGeometry(r, h, seg));
-/* A cape: a slab that flares toward the hem. */
-const capeGeo = () =>
-    geo("cape", () => {
-        const g = new THREE.BoxGeometry(0.46, 0.8, 0.04, 2, 4, 1);
-        const p = g.attributes.position;
-        for (let i = 0; i < p.count; i += 1) {
-            const y = p.getY(i);
-            const flare = 1 + (0.4 - y) * 0.45;
-            p.setX(i, p.getX(i) * flare);
-            p.setZ(i, p.getZ(i) - (0.4 - y) * (0.4 - y) * 0.12);
-        }
-        g.computeVertexNormals();
-        return g;
-    });
 
 function add(parent, geometry, color, x, y, z, set = "solid", options) {
     const mesh = part(geometry, material(color, set, options), x, y, z);
     parent.add(mesh);
     return mesh;
-}
-
-/* A two-part limb: the upper half hangs from the hip or shoulder, the lower
-   from the knee or elbow, so a stride can lift a foot instead of swinging a
-   stilt. Capsules overlap at the joint, so a bent knee stays whole. */
-function jointed(parent, x, y, z, r, upper, lower, color, lowerColor = color, lowerR = r * 0.88) {
-    const top = new THREE.Group();
-    top.position.set(x, y, z);
-    add(top, capsuleGeo(r, upper), color, 0, -upper / 2, 0);
-    const joint = new THREE.Group();
-    joint.position.y = -upper;
-    add(joint, capsuleGeo(lowerR, lower), lowerColor, 0, -lower / 2, 0);
-    top.add(joint);
-    parent.add(top);
-    return { top, joint };
 }
 
 /* People and creatures draw in the figure set; see asciiPass.js. */
@@ -90,161 +60,72 @@ function figurize(root) {
     return root;
 }
 
-function darker(hex, amount = 0.72) {
-    return new THREE.Color(hex).multiplyScalar(amount).getHex();
+/*
+ * The material for a figure's merged parts: colour from the vertices, and
+ * the same faint glow from within that every plain model has (see
+ * materials.js), so a figure in its own shadow still reads as a figure.
+ * Plain parts draw in the figure set; parts that chose a set keep it.
+ */
+const figureMaterials = new Map();
+function figureMaterial({ set, unlit }) {
+    const key = `${set}|${unlit ? 1 : 0}`;
+    let made = figureMaterials.get(key);
+    if (made) return made;
+    const common = {
+        vertexColors: true,
+        blending: THREE.NoBlending,
+        transparent: false,
+        opacity: glyphCode(GLYPH_SETS[set === "solid" ? "figure" : set] ?? 0),
+    };
+    if (unlit) {
+        made = new THREE.MeshBasicMaterial(common);
+    } else {
+        made = new THREE.MeshLambertMaterial(common);
+        made.onBeforeCompile = (shader) => {
+            shader.fragmentShader = shader.fragmentShader.replace(
+                "#include <emissivemap_fragment>",
+                "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += vColor.rgb * 0.22;",
+            );
+        };
+        made.customProgramCacheKey = () => "commons-figure";
+    }
+    figureMaterials.set(key, made);
+    return made;
 }
 
 /* ── People ─────────────────────────────────────────────────────────────── */
 
 /*
  * A survivor, about 1.7 tiles tall with a slightly large head, so a face
- * still reads when the whole figure is a dozen characters high.
+ * still reads when the whole figure is a dozen characters high. The recipe
+ * is humanoidSpec(); the rig keeps the names posing has always used.
  */
+function humanoidModel(spec) {
+    const { root: body, pivots: p } = buildFigure(spec, figureMaterial);
+    const model = new THREE.Group();
+    model.add(body);
+    const limb = (top, joint, end) => ({ top: p[top], joint: p[joint], end: p[end] });
+    model.userData.rig = {
+        body,
+        torso: p.torso,
+        legL: limb("hipL", "kneeL", "ankleL"),
+        legR: limb("hipR", "kneeR", "ankleR"),
+        armL: limb("shoulderL", "elbowL", "handL"),
+        armR: limb("shoulderR", "elbowR", "handR"),
+        neck: p.neck,
+        head: p.head,
+        eyes: p.eyes,
+        tail: p.tail,
+        tailTip: p.tailTip,
+    };
+    if (p.cape) model.userData.cape = p.cape;
+    /* Where in its blink cycle this figure is, so a crowd does not blink as one. */
+    model.userData.seed = seedOf(spec.parts.map((p) => p.color).join());
+    return model;
+}
+
 function buildHumanoid(look) {
-    const root = new THREE.Group();
-    const body = new THREE.Group();
-    root.add(body);
-    const bulk = look.bulk || 1;
-
-    /* Legs from the hip, with a boot that has a toe. */
-    const legL = jointed(body, -0.1, 0.66, 0, 0.075 * bulk, 0.3, 0.28, look.legs);
-    const legR = jointed(body, 0.1, 0.66, 0, 0.075 * bulk, 0.3, 0.28, look.legs);
-    [legL, legR].forEach((leg) => {
-        add(leg.joint, taperGeo(0.085, 0.095, 0.16, 8), look.boots, 0, -0.22, 0);
-        add(leg.joint, sphereGeo(0.09, 1, 0.6, 1.5), look.boots, 0, -0.3, 0.05);
-    });
-
-    const torso = new THREE.Group();
-    torso.position.y = 0.66;
-    body.add(torso);
-    /* Pelvis, a chest that narrows to the waist, and a belt between. */
-    add(torso, taperGeo(0.17 * bulk, 0.16 * bulk, 0.14, 10, 0.7), look.legs, 0, 0.0, 0);
-    add(torso, taperGeo(0.23 * bulk, 0.17 * bulk, 0.42, 10, 0.68), look.torso, 0, 0.27, 0);
-    add(torso, taperGeo(0.175 * bulk, 0.175 * bulk, 0.06, 10, 0.72), look.belt, 0, 0.07, 0);
-    add(torso, sphereGeo(0.03), "#c9b27a", 0, 0.07, 0.125 * bulk);
-    if (look.armor >= 2) {
-        /* Plate: a breastplate and rounded pauldrons. */
-        add(torso, taperGeo(0.24 * bulk, 0.19 * bulk, 0.3, 10, 0.72), look.plate, 0, 0.33, 0);
-        add(torso, domeGeo(0.12, 1, 0.8, 1), look.plate, -0.25 * bulk, 0.44, 0);
-        add(torso, domeGeo(0.12, 1, 0.8, 1), look.plate, 0.25 * bulk, 0.44, 0);
-    } else if (look.armor === 1) {
-        /* A padded coat that flares into a short skirt. */
-        add(torso, taperGeo(0.24 * bulk, 0.19 * bulk, 0.34, 10, 0.72), look.coat, 0, 0.3, 0, "grass");
-        add(torso, taperGeo(0.19 * bulk, 0.25 * bulk, 0.22, 10, 0.78), look.coat, 0, -0.05, 0, "grass");
-    }
-
-    const shoulder = 0.24 * bulk;
-    const armR0 = 0.062 * bulk;
-    const armL = jointed(torso, -shoulder, 0.44, 0, armR0, 0.22, 0.2, look.sleeves);
-    const armR = jointed(torso, shoulder, 0.44, 0, armR0, 0.22, 0.2, look.sleeves);
-    [armL, armR].forEach((arm) => {
-        add(arm.top, sphereGeo(0.08 * bulk), look.sleeves, 0, 0, 0);
-        add(arm.joint, sphereGeo(0.062 * bulk, 1, 1.1, 1), look.skin, 0, -0.27, 0.01);
-    });
-
-    if (look.cloak) {
-        const cape = new THREE.Group();
-        cape.position.set(0, 0.47, -0.12);
-        add(cape, capeGeo(), look.cloak, 0, -0.4, 0);
-        add(cape, taperGeo(0.15, 0.2, 0.05, 10, 0.75), look.cloak, 0, -0.005, 0.1);
-        torso.add(cape);
-        root.userData.cape = cape;
-    }
-
-    const neck = new THREE.Group();
-    neck.position.y = 0.48;
-    torso.add(neck);
-    add(neck, taperGeo(0.06, 0.07, 0.1, 8), look.skin, 0, 0.03, 0);
-    const head = new THREE.Group();
-    head.position.y = 0.2;
-    neck.add(head);
-    add(head, sphereGeo(0.19, 0.95, 1.05, 1), look.skin, 0, 0, 0);
-    /* A face: eyes, brows and a nose catch the light and give the head a
-       front, which is most of what makes a lump of characters a person. */
-    add(head, sphereGeo(0.032, 1, 1.2, 0.6), "#1b1a1f", -0.068, 0.015, 0.165);
-    add(head, sphereGeo(0.032, 1, 1.2, 0.6), "#1b1a1f", 0.068, 0.015, 0.165);
-    add(head, boxGeo(0.07, 0.018, 0.02), darker(look.hair, 0.8), -0.07, 0.07, 0.17);
-    add(head, boxGeo(0.07, 0.018, 0.02), darker(look.hair, 0.8), 0.07, 0.07, 0.17);
-    add(head, coneGeo(0.03, 0.08, 6), darker(look.skin, 0.92), 0, -0.03, 0.19).rotation.x = Math.PI / 2;
-    add(head, boxGeo(0.07, 0.014, 0.02), darker(look.skin, 0.6), 0, -0.095, 0.165);
-    add(head, sphereGeo(0.04, 0.6, 1, 1), look.skin, -0.185, 0, 0);
-    add(head, sphereGeo(0.04, 0.6, 1, 1), look.skin, 0.185, 0, 0);
-    addHair(head, look);
-    addHeadwear(head, look);
-
-    if (look.weapon) {
-        const held = new THREE.Group();
-        held.position.set(0, -0.27, 0.03);
-        held.rotation.x = Math.PI / 2.4;
-        if (look.weapon >= 2) {
-            add(held, taperGeo(0.025, 0.025, 0.14, 6), "#5a4632", 0, 0, 0);
-            add(held, sphereGeo(0.035), "#c9b27a", 0, -0.08, 0);
-            add(held, boxGeo(0.24, 0.04, 0.06), "#9c7a4d", 0, 0.08, 0);
-            const blade = add(held, boxGeo(0.07, 0.6, 0.02), "#dfe4de", 0, 0.4, 0);
-            blade.scale.set(1, 1, 1);
-            add(held, coneGeo(0.05, 0.1, 4), "#dfe4de", 0, 0.75, 0).scale.set(1, 1, 0.3);
-        } else {
-            add(held, taperGeo(0.024, 0.028, 1.1, 6), "#9c7a4d", 0, 0.3, 0, "timber");
-            add(held, coneGeo(0.055, 0.2, 4), "#b0b9b2", 0, 0.94, 0, "rock");
-        }
-        armR.joint.add(held);
-    }
-
-    root.userData.rig = { body, torso, legL, legR, armL, armR, neck, head };
-    return root;
-}
-
-function addHair(head, look) {
-    const hair = look.hair;
-    if (look.headwear === "hood") return;
-    switch (look.hairstyle) {
-        case "long":
-            add(head, domeGeo(0.205, 1, 1.05, 1.05), hair, 0, 0.01, -0.01);
-            add(head, taperGeo(0.17, 0.15, 0.38, 10, 0.55), hair, 0, -0.13, -0.09);
-            break;
-        case "braids":
-            add(head, domeGeo(0.205, 1, 1.05, 1.05), hair, 0, 0.01, -0.01);
-            [-1, 1].forEach((side) => {
-                add(head, capsuleGeo(0.04, 0.3), hair, side * 0.16, -0.2, -0.05);
-                add(head, sphereGeo(0.035), "#c9b27a", side * 0.16, -0.39, -0.05);
-            });
-            break;
-        case "shaved":
-            add(head, domeGeo(0.196, 1, 1.02, 1.02, 0.4), hair, 0, 0.02, -0.005);
-            break;
-        default:
-            /* Cropped, with a fringe that sweeps to one side. */
-            add(head, domeGeo(0.205, 1, 1.05, 1.05), hair, 0, 0.01, -0.01);
-            add(head, sphereGeo(0.09, 1.6, 0.6, 0.7), hair, 0.05, 0.13, 0.12).rotation.z = -0.3;
-    }
-}
-
-function addHeadwear(head, look) {
-    const cloth = look.cloak || look.torso;
-    switch (look.headwear) {
-        case "hood":
-            add(head, sphereGeo(0.235, 1, 1.05, 1.05), cloth, 0, 0.02, -0.04);
-            add(head, coneGeo(0.12, 0.2, 8), cloth, 0, 0.05, -0.22).rotation.x = -1.9;
-            /* The face shows through the opening. */
-            add(head, sphereGeo(0.15, 1, 1.1, 0.5), darker(cloth, 0.45), 0, 0, 0.11);
-            add(head, sphereGeo(0.03, 1, 1.2, 0.6), "#e8e2cf", -0.06, 0.01, 0.17);
-            add(head, sphereGeo(0.03, 1, 1.2, 0.6), "#e8e2cf", 0.06, 0.01, 0.17);
-            break;
-        case "brim":
-            add(head, taperGeo(0.34, 0.34, 0.03, 16), "#6e5b43", 0, 0.14, 0);
-            add(head, taperGeo(0.15, 0.19, 0.17, 12), "#6e5b43", 0, 0.24, 0);
-            add(head, taperGeo(0.192, 0.192, 0.035, 12), "#3f3326", 0, 0.17, 0);
-            break;
-        case "crown":
-            add(head, taperGeo(0.2, 0.19, 0.08, 10), "#e3c25f", 0, 0.17, 0, "fire");
-            for (let i = 0; i < 5; i += 1) {
-                const a = (i / 5) * Math.PI * 2;
-                add(head, coneGeo(0.04, 0.12, 4), "#e3c25f", Math.sin(a) * 0.18, 0.26, Math.cos(a) * 0.18, "fire");
-            }
-            add(head, sphereGeo(0.03), "#d6455f", 0, 0.18, 0.2, "fire");
-            break;
-        default:
-    }
+    return humanoidModel(humanoidSpec(look));
 }
 
 /* The look of a survivor, from what they chose and what they have earned. */
@@ -283,149 +164,51 @@ export function buildSurvivor(player) {
 
 /* ── Creatures ──────────────────────────────────────────────────────────── */
 
-/*
- * Four-legged animals from one recipe: a barrel of a body with a deeper
- * chest, a neck pivot carrying the head and muzzle, and a tail.
- */
-function buildQuadruped({ length, height, color, belly, head, tail, ears, snout = 1 }) {
-    const root = new THREE.Group();
-    const body = new THREE.Group();
-    root.add(body);
-    const legH = height * 0.5;
-    const r = height * 0.2;
-    const trunk = add(body, capsuleGeo(r, length * 0.62), color, 0, legH + r * 0.9, -length * 0.02);
-    trunk.rotation.x = Math.PI / 2;
-    add(body, sphereGeo(r * 1.18, 1, 1.05, 1.1), color, 0, legH + r * 1.0, length * 0.24);
-    add(body, sphereGeo(r * 0.95, 1.05, 0.7, 1.6), belly, 0, legH + r * 0.45, length * 0.05);
-
-    const legs = [];
-    const lx = r * 0.62;
-    const lz = length * 0.33;
-    const thick = Math.max(0.035, length * 0.055);
-    /* Front left, front right, back left, back right. */
-    [[-lx, lz], [lx, lz], [-lx, -lz], [lx, -lz]].forEach(([x, z]) => {
-        const leg = jointed(body, x, legH + r * 0.4, z, thick, legH * 0.5, legH * 0.42, darker(color, 0.85), darker(color, 0.65));
-        add(leg.joint, sphereGeo(thick * 1.25, 1, 0.6, 1.5), darker(color, 0.5), 0, -legH * 0.45, thick * 0.6);
-        legs.push(leg);
-    });
-
-    const neck = new THREE.Group();
-    neck.position.set(0, legH + r * 1.5, length * 0.38);
-    body.add(neck);
-    add(neck, taperGeo(r * 0.7, r * 0.95, r * 1.6, 10), color, 0, r * 0.2, r * 0.3).rotation.x = 0.9;
-    add(neck, sphereGeo(head * 0.5, 0.95, 0.85, 1.05), color, 0, head * 0.38, head * 0.5);
-    const muzzle = add(neck, taperGeo(head * 0.17, head * 0.3, head * 0.62 * snout, 8), belly, 0, head * 0.28, head * (0.95 + 0.2 * snout));
-    muzzle.rotation.x = Math.PI / 2;
-    add(neck, sphereGeo(head * 0.09), "#1b1a1f", 0, head * 0.3, head * (1.25 + 0.35 * snout));
-    /* Eyes glow, so a pack in the dark is a pair of sparks before it is a
-       shape. */
-    add(neck, sphereGeo(head * 0.075), "#ffe9a8", -head * 0.2, head * 0.5, head * 0.9, "fire", { unlit: true });
-    add(neck, sphereGeo(head * 0.075), "#ffe9a8", head * 0.2, head * 0.5, head * 0.9, "fire", { unlit: true });
-    if (ears === "pointed") {
-        [-1, 1].forEach((side) => {
-            add(neck, coneGeo(head * 0.14, head * 0.38, 4), color, side * head * 0.24, head * 0.82, head * 0.38).rotation.z = -side * 0.2;
-        });
-    } else if (ears === "round") {
-        [-1, 1].forEach((side) => {
-            const ear = add(neck, taperGeo(head * 0.2, head * 0.2, head * 0.05, 10), "#d39a96", side * head * 0.3, head * 0.75, head * 0.35);
-            ear.rotation.x = Math.PI / 2;
-        });
-    }
-
-    const tailPivot = new THREE.Group();
-    tailPivot.position.set(0, legH + r * 1.3, -length * 0.42);
-    tailPivot.rotation.x = -0.9;
-    if (tail.bushy) {
-        add(tailPivot, sphereGeo(tail.w, 1, tail.l / tail.w / 2, 1), tail.color ?? color, 0, -tail.l / 2, 0);
-        add(tailPivot, coneGeo(tail.w * 0.8, tail.l * 0.3, 8), belly, 0, -tail.l * 0.95, 0).rotation.x = Math.PI;
-    } else {
-        add(tailPivot, taperGeo(tail.w * 0.4, tail.w, tail.l, 6), tail.color ?? color, 0, -tail.l / 2, 0);
-    }
-    body.add(tailPivot);
-    root.userData.rig = { body, legs, neck, tail: tailPivot, quad: true };
-    return root;
+/* Four-legged animals; the recipe is quadrupedSpec(). */
+function buildQuadruped(options) {
+    const spec = quadrupedSpec(options);
+    const { root: body, pivots: p } = buildFigure(spec, figureMaterial);
+    const model = new THREE.Group();
+    model.add(body);
+    model.userData.rig = {
+        body,
+        legs: spec.legs.map((name) => ({ top: p[`leg${name}`], joint: p[`knee${name}`] })),
+        neck: p.neck,
+        jaw: p.jaw,
+        tail: p.tail,
+        tailTip: p.tailTip,
+        quad: true,
+    };
+    model.userData.seed = seedOf(JSON.stringify(options));
+    return model;
 }
 
 const CREATURES = {
-    rat: () =>
-        buildQuadruped({
-            length: 0.66,
-            height: 0.36,
-            color: "#9c8a5f",
-            belly: "#c9b78e",
-            head: 0.26,
-            tail: { w: 0.035, l: 0.55, color: "#d39a96" },
-            ears: "round",
-            snout: 1.3,
-        }),
-    wolf: () =>
-        buildQuadruped({
-            length: 1.1,
-            height: 0.78,
-            color: "#8e9bb8",
-            belly: "#c8d1e0",
-            head: 0.38,
-            tail: { w: 0.1, l: 0.52, bushy: true },
-            ears: "pointed",
-            snout: 1.2,
-        }),
+    rat: () => buildQuadruped(QUADRUPEDS.rat),
+    wolf: () => buildQuadruped(QUADRUPEDS.wolf),
     kobold: () => {
-        const model = buildHumanoid({
-            skin: "#d0705a",
-            hair: "#7a3b2e",
-            hairstyle: "shaved",
-            headwear: "none",
-            cloak: null,
-            torso: "#8c5a3c",
-            sleeves: "#d0705a",
-            legs: "#d0705a",
-            boots: "#6c3a2b",
-            belt: "#4d3221",
-            armor: 0,
-            weapon: 1,
-        });
+        const model = humanoidModel(koboldSpec());
         model.scale.setScalar(0.74);
-        const { head, torso } = model.userData.rig;
-        /* A lizard's snout, horns and a tail. */
-        add(head, taperGeo(0.07, 0.13, 0.2, 8), "#e07a5f", 0, -0.04, 0.2).rotation.x = Math.PI / 2;
-        add(head, sphereGeo(0.03), "#ffd27a", -0.08, 0.05, 0.17, "fire", { unlit: true });
-        add(head, sphereGeo(0.03), "#ffd27a", 0.08, 0.05, 0.17, "fire", { unlit: true });
-        add(head, coneGeo(0.05, 0.2, 5), "#efe2c0", -0.12, 0.2, -0.04).rotation.x = -0.5;
-        add(head, coneGeo(0.05, 0.2, 5), "#efe2c0", 0.12, 0.2, -0.04).rotation.x = -0.5;
-        add(torso, taperGeo(0.02, 0.09, 0.55, 6), "#d0705a", 0, -0.08, -0.32).rotation.x = -1.1;
         return model;
     },
     troll: () => {
-        const model = buildHumanoid({
-            skin: "#8f6fc2",
-            hair: "#4b3a66",
-            hairstyle: "long",
-            headwear: "none",
-            cloak: null,
-            torso: "#5d4c74",
-            sleeves: "#8f6fc2",
-            legs: "#5d4c74",
-            boots: "#3b2f4a",
-            belt: "#6b5b3c",
-            armor: 0,
-            weapon: 0,
-            bulk: 1.35,
-        });
+        const model = humanoidModel(trollSpec());
         model.scale.setScalar(1.4);
-        const { armR, armL, head } = model.userData.rig;
+        const { armR, armL } = model.userData.rig;
         model.userData.hunch = 0.3;
-        /* Long arms, a heavy brow, tusks and a club. */
+        /* Long arms, and a club studded with bone. */
         armL.top.scale.setScalar(1.2);
         armR.top.scale.setScalar(1.2);
-        add(head, boxGeo(0.3, 0.06, 0.08), "#6f55a0", 0, 0.08, 0.15);
-        add(head, sphereGeo(0.07, 1, 0.8, 1), "#a68ad1", 0, -0.03, 0.18);
-        add(head, coneGeo(0.025, 0.09, 4), "#efe2c0", -0.06, -0.1, 0.16);
-        add(head, coneGeo(0.025, 0.09, 4), "#efe2c0", 0.06, -0.1, 0.16);
         const club = new THREE.Group();
         club.position.set(0, -0.27, 0.04);
         club.rotation.x = Math.PI / 2.6;
         add(club, taperGeo(0.035, 0.05, 0.55, 6), 0x7b5a3a, 0, 0.2, 0, "timber");
         add(club, sphereGeo(0.13, 1, 1.4, 1), 0x8a6a46, 0, 0.55, 0, "timber");
+        for (let i = 0; i < 6; i += 1) {
+            const a = (i / 6) * Math.PI * 2;
+            const y = 0.5 + (i % 2) * 0.12;
+            add(club, coneGeo(0.03, 0.1, 4), "#efe2c0", Math.cos(a) * 0.13, y, Math.sin(a) * 0.13).rotation.set(Math.sin(a) * 1.4, 0, -Math.cos(a) * 1.4);
+        }
         armR.joint.add(club);
         return model;
     },
@@ -528,6 +311,23 @@ function poseHumanoid(model, rig, { stride, moving: a, t, attack, hurt }) {
 
     const cape = model.userData.cape;
     if (cape) cape.rotation.x = 0.12 + a * 0.4 + Math.abs(s) * 0.1 * a + Math.sin(t * 3) * 0.04 + hurt * 0.3;
+
+    /* Feet stay near level through the stride and push off at the toe. */
+    [rig.legL, rig.legR].forEach((leg) => {
+        if (leg.end) leg.end.rotation.x = -(leg.top.rotation.x + leg.joint.rotation.x) * 0.75;
+    });
+    /* A blink every few seconds, each figure on its own beat. */
+    if (rig.eyes) rig.eyes.scale.y = blinking(t, model.userData.seed) ? 0.15 : 1;
+    /* A tail swings against the hips and follows through at the tip. */
+    if (rig.tail) {
+        rig.tail.rotation.z = s * 0.35 * a + Math.sin(t * 1.3) * 0.15 * idle;
+        if (rig.tailTip) rig.tailTip.rotation.z = Math.sin(stride - 0.8) * 0.4 * a + Math.sin(t * 1.3 - 0.7) * 0.2 * idle;
+    }
+}
+
+function blinking(t, seed = 0) {
+    const cycle = 3.7 + seed * 2.2;
+    return (t + seed * 10) % cycle < 0.13;
 }
 
 function poseQuadruped(rig, { stride, moving: a, t, attack, hurt }) {
@@ -577,6 +377,17 @@ function poseQuadruped(rig, { stride, moving: a, t, attack, hurt }) {
     rig.neck.rotation.y = neckY;
     rig.tail.rotation.x = -0.9 - 0.35 * a;
     rig.tail.rotation.z = a > 0.5 ? Math.sin(t * 13) * 0.3 : Math.sin(t * 3) * 0.35;
+    if (rig.tailTip) {
+        /* The tip lags the root, so the tail curls instead of swinging stiff. */
+        rig.tailTip.rotation.x = 0.25 + 0.2 * a;
+        rig.tailTip.rotation.z = a > 0.5 ? Math.sin(t * 13 - 1) * 0.35 : Math.sin(t * 3 - 1) * 0.4;
+    }
+    if (rig.jaw) {
+        /* Panting at a run, a slow breath at rest, and jaws wide for the bite. */
+        let open = a * (0.12 + Math.sin(t * 9) * 0.06) + idle * (0.04 + Math.sin(t * 1.6) * 0.03);
+        if (beats) open = mix(open, mix(0.15, 0.7, beats.wind) * (1 - beats.strike), beats.weight);
+        rig.jaw.rotation.x = Math.max(0, open) + hurt * 0.3;
+    }
 }
 
 /*
