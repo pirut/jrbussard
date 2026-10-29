@@ -12,3 +12,58 @@ index 58ad4ac..e002766 100644
    }
    s.source          = { git: 'https://github.com/expo/expo-gl.git' }
    s.static_framework = true
+diff --git a/node_modules/expo-gl/ios/EXGLCameraObject.mm b/node_modules/expo-gl/ios/EXGLCameraObject.mm
+index 0a089f7..2af7ce6 100644
+--- a/node_modules/expo-gl/ios/EXGLCameraObject.mm
++++ b/node_modules/expo-gl/ios/EXGLCameraObject.mm
+@@ -29,6 +29,8 @@
+     _eaglCtx = [glContext createSharedEAGLContext];
+     _camera = camera;
+ 
++#if !TARGET_OS_TV
++    // tvOS has no camera session to read from (patched in apps/commons).
+     dispatch_async(camera.sessionQueue, ^{
+       AVCaptureVideoDataOutput *videoOutput = [[AVCaptureVideoDataOutput alloc] init];
+ 
+@@ -40,21 +42,26 @@
+         self->_cameraOutput = videoOutput;
+       }
+     });
++#endif
+   }
+   return self;
+ }
+ 
+ - (void)dealloc
+ {
++#if !TARGET_OS_TV
+   if (_cameraOutput) {
+     [_camera.session removeOutput:_cameraOutput];
+     [_cameraOutput setSampleBufferDelegate:nil queue:nil];
+   }
++#endif
+ }
+ 
+ - (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection
+ {
++#if !TARGET_OS_TV
+   [connection setVideoOrientation:AVCaptureVideoOrientationPortrait];
++#endif
+   [connection setVideoMirrored:YES];
+ 
+   CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+diff --git a/node_modules/expo-gl/ios/EXGLObjectManager.mm b/node_modules/expo-gl/ios/EXGLObjectManager.mm
+index 4f57d8d..68a283e 100644
+--- a/node_modules/expo-gl/ios/EXGLObjectManager.mm
++++ b/node_modules/expo-gl/ios/EXGLObjectManager.mm
+@@ -114,6 +114,10 @@
+     return;
+   }
+ 
++#if TARGET_OS_TV
++  reject(@"E_GL_NO_CAMERA", nil, RCTErrorWithMessage(@"ExponentGLObjectManager.createCameraTextureAsync: tvOS has no camera"));
++  return;
++#endif
+   EXGLCameraObject *cameraTexture = [[EXGLCameraObject alloc] initWithContext:glContext andCamera:cameraView];
+ 
+   self->_objects[@(cameraTexture.exglObjId)] = cameraTexture;

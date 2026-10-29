@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Linking, Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GameScreen } from './game/GameScreen';
 import { createGamepad } from './input/gamepad';
@@ -14,7 +14,9 @@ type Screen = 'title' | 'controls' | 'play';
 
 export default function App() {
   const hub = useMemo(() => new InputHub(), []);
-  const [screen, setScreen] = useState<Screen>('title');
+  /* EXPO_PUBLIC_AUTOPLAY=1 skips the title screen in development builds,
+     for driving simulators that have no remote or keyboard attached. */
+  const [screen, setScreen] = useState<Screen>(() => (__DEV__ && process.env.EXPO_PUBLIC_AUTOPLAY === '1' ? 'play' : 'title'));
 
   useEffect(() => {
     const offKeys = hub.use(keyboard);
@@ -24,6 +26,17 @@ export default function App() {
       offPad();
     };
   }, [hub]);
+
+  /* commons://play goes straight into the world: for links (a Top Shelf
+     item later) and for driving simulators, which have no remote. */
+  useEffect(() => {
+    const open = (url: string | null | undefined) => {
+      if (url && /^commons:\/\/play\b/.test(url)) setScreen('play');
+    };
+    Linking.getInitialURL().then(open).catch(() => {});
+    const sub = Linking.addEventListener('url', ({ url }) => open(url));
+    return () => sub.remove();
+  }, []);
 
   return (
     <View style={styles.root}>
