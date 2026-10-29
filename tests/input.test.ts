@@ -261,3 +261,15 @@ describe("tutorial", () => {
     expect(loadTutorial(storage)).toEqual(["move"]);
   });
 });
+
+describe("hint wording", () => {
+  it("swaps the keys in a hint for the player's own controls", async () => {
+    const { relabelHint } = await import("../src/arcade/commons/input/phrases");
+    const pad = (a: string) => ({ build: "X", remove: "Y", eat: "↑", drink: "↓", shovel: "LT", craft: "Y" })[a] || "";
+    expect(relabelHint("click to walk · B to build", pad, "A")).toBe("A to walk · X to build");
+    expect(relabelHint("Tab opens crafting here", pad)).toBe("Y opens crafting here");
+    expect(relabelHint("wounded · Q drinks a potion", pad)).toBe("wounded · ↓ drinks a potion");
+    expect(relabelHint("click to read · X removes", pad, "A")).toBe("A to read · Y removes");
+    expect(relabelHint("Building a wall", pad)).toBe("Building a wall");
+  });
+});
