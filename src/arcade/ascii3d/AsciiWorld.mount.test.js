@@ -1,4 +1,5 @@
 import AsciiWorld from "./AsciiWorld";
+import { QUALITY } from "./perf";
 import { CHUNK } from "../../lib/terrain";
 
 /* No GPU under Jest: a renderer that takes calls and draws nothing, and an
@@ -23,12 +24,20 @@ jest.mock("three", () => {
 });
 jest.mock("./asciiPass", () => {
     const actual = jest.requireActual("./asciiPass");
+    /* Everything AsciiWorld calls on the pass; the tier is kept so a test
+       can see which one the world asked for. */
     class AsciiPass {
         constructor() {
             this.uniforms = {};
+            this.target = null;
+            this.tier = null;
+        }
+        setTier(name) {
+            this.tier = name;
         }
         setSize() {}
         setShift() {}
+        render() {}
         dispose() {}
     }
     return { ...actual, AsciiPass };
@@ -73,6 +82,9 @@ describe("quality memory across visits", () => {
         for (let i = 0; i < 4; i += 1) {
             const { world, unmount } = mount();
             starts.push(world.governor.level);
+            /* The step it starts on is the one drawn with. */
+            expect(world.quality).toBe(QUALITY[3]);
+            expect(world.ascii.tier).toBe(QUALITY[3].ascii);
             unmount();
         }
         expect(starts).toEqual([3, 3, 3, 3]);
@@ -86,6 +98,7 @@ describe("quality memory across visits", () => {
         /* Three seconds of 25 fps: a step down. */
         for (let i = 0; i < 75; i += 1) world.governor.sample(40);
         expect(world.governor.level).toBe(2);
+        expect(world.ascii.tier).toBe(QUALITY[2].ascii);
         expect(window.localStorage.getItem("ascii3d:quality")).toBe("2");
         unmount();
     });
