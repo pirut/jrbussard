@@ -140,7 +140,7 @@ export default class AsciiWorld {
         this.shiftX = 0;
         this.shiftY = 0;
         this.slack = new THREE.Vector2();
-        this.quality = { shadow: 1024, cell: 1 };
+        this.quality = { shadow: 1024, cell: 1, dpr: 3, ascii: "full" };
         /* Dug and piled ground, as last heard from the server. */
         this.ground = new GroundMap();
         this.flames = [];
@@ -243,7 +243,7 @@ export default class AsciiWorld {
 
     resize() {
         const box = this.container.getBoundingClientRect();
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = Math.min(window.devicePixelRatio || 1, this.quality.dpr ?? 2);
         const width = Math.max(1, Math.floor(box.width * dpr));
         const height = Math.max(1, Math.floor(box.height * dpr));
         const scale = this.quality.cell;
@@ -273,7 +273,8 @@ export default class AsciiWorld {
 
     /* A step of the governor: shadow detail, then cell size. */
     applyQuality(quality) {
-        const resize = quality.cell !== this.quality.cell;
+        const resize = quality.cell !== this.quality.cell || quality.dpr !== this.quality.dpr;
+        this.ascii.setTier(quality.ascii);
         this.quality = quality;
         const shadows = quality.shadow > 0;
         /* three.js sees the change in lights and recompiles what it must. */

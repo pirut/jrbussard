@@ -59,13 +59,21 @@ export const SAMPLE_Y = REGIONS_Y * 2;
 
 const FONT = `"JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Courier New", monospace`;
 
-function drawGlyph(ctx, ch, x, cellW, cellH) {
-    ctx.fillText(ch, x + cellW / 2, cellH * 0.55, cellW);
+/* On whole pixels, so a stroke one pixel wide lands on one column of the
+   screen instead of smearing grey across two. */
+function drawGlyph(ctx, ch, x, cellW, cellH, stroke = false) {
+    const cx = Math.round(x + cellW / 2);
+    const cy = Math.round(cellH * 0.55);
+    if (stroke) ctx.strokeText(ch, cx, cy, cellW);
+    ctx.fillText(ch, cx, cy, cellW);
 }
 
 /*
  * The atlas the second pass stamps from: one row, one cell per character,
- * drawn at the size the screen uses.
+ * drawn at the size the screen uses. Red is the character itself. Green is
+ * the character grown by a pixel or so all round: the second pass darkens
+ * the wash under that rim, so a stroke stands clear of the painted colour
+ * behind it however close the two are in brightness.
  */
 export function buildAtlas(cellW, cellH) {
     const canvas = document.createElement("canvas");
@@ -74,10 +82,16 @@ export function buildAtlas(cellW, cellH) {
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `500 ${Math.round(cellH * 0.9)}px ${FONT}`;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "#0f0";
+    ctx.strokeStyle = "#0f0";
+    ctx.lineWidth = Math.max(1.5, cellH / 7);
+    ctx.lineJoin = "round";
+    Array.from(GLYPHS).forEach((ch, i) => drawGlyph(ctx, ch, i * cellW, cellW, cellH, true));
+    ctx.fillStyle = "#f00";
     Array.from(GLYPHS).forEach((ch, i) => drawGlyph(ctx, ch, i * cellW, cellW, cellH));
     const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.NearestFilter;
@@ -739,6 +753,7 @@ const drawShader = /* glsl */ `
     uniform float uFill;
     uniform float uGlow;
     uniform float uRaw;
+    uniform float uRim;
     uniform sampler2D tDepth;
     uniform float uWash;
     uniform sampler2D tGlow;
@@ -761,7 +776,8 @@ const drawShader = /* glsl */ `
         float glyph = code - body * 128.0;
         vec2 local = fract(frag / uCellPx);
         vec2 at = vec2((glyph + local.x) / uCount, local.y);
-        float mask = texture(tGlyphs, at).r;
+        vec2 ink = texture(tGlyphs, at).rg;
+        float mask = ink.r;
         vec3 glow = uGlow > 0.0 ? texelFetch(tGlow, ivec2(cell), 0).rgb * uGlow : vec3(0.0);
         /* The wash behind the type is the scene itself, read at the
            pixel and smoothed, so a wall is a soft painted mass with
@@ -770,6 +786,9 @@ const drawShader = /* glsl */ `
         vec2 suv = frag / (uCells * uCellPx);
         vec3 scene = texture(tDepth, suv).r < 0.99999 ? pow(max(texture(tColor, suv).rgb, 0.0), vec3(1.0 / 2.2)) * uWash : pick.rgb * 0.5;
         vec3 base = mix(uBackground, scene, max(uFill, body * 0.55)) + glow * 0.55;
+        /* The rim round each stroke, darkened, so the type reads crisply
+           over a wash of much the same colour. */
+        base *= 1.0 - clamp(ink.g - mask, 0.0, 1.0) * uRim;
         gl_FragColor = vec4(mix(base, min(pick.rgb + glow * 0.35, 1.0), mask), 1.0);
     }
 `;
@@ -834,7 +853,7 @@ export class AsciiPass {
                 uHistShift: { value: new THREE.Vector2(0, 0) },
                 /* How far ordered dithering may push a flat cell across a
                    level, 0 to 1. */
-                uDither: { value: 0.6 },
+                uDither: { value: 0.4 },
             },
         });
         this.drawMaterial = new THREE.ShaderMaterial({
@@ -854,6 +873,8 @@ export class AsciiPass {
                 uFill: { value: 0.1 },
                 uGlow: { value: 0 },
                 uRaw: { value: 0 },
+                /* How much the wash darkens round each stroke, 0 to 1. */
+                uRim: { value: 0.55 },
                 tDepth: { value: null },
                 /* How bright the scene is in the wash behind the type. */
                 uWash: { value: 0.9 },
