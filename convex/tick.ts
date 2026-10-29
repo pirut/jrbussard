@@ -10,6 +10,7 @@ import {
   creatureStep,
   biteFor,
   flees,
+  sidesteps,
   pickSpawn,
 } from "../src/lib/game/creatures.js";
 import { bumpStats } from "../src/lib/game/stats.js";
@@ -271,6 +272,17 @@ export const run = internalMutation({
       return lightCache.get(key)!;
     };
 
+    /* Whether a creature may step onto a tile. */
+    const canEnter = async (x: number, y: number) => {
+      if (occupied.has(`${x},${y}`)) return false;
+      /* The crossroads is a truce, and torchlight holds them off. */
+      if (inSafeZone(x, y)) return false;
+      /* Something built there decides; otherwise the ground does. */
+      const overlay = await cellAt(x, y);
+      if (overlay ? solidCell(overlay) : await solidGround(x, y)) return false;
+      return !(await nearLight(x, y));
+    };
+
     let population = 0;
 
     for (const monster of monsters) {
@@ -352,19 +364,21 @@ export const run = internalMutation({
       });
 
       if (dx === 0 && dy === 0) continue;
-      const nx = monster.x + dx;
-      const ny = monster.y + dy;
-      if (occupied.has(`${nx},${ny}`)) continue;
-      /* The crossroads is a truce, and torchlight holds them off. */
-      if (inSafeZone(nx, ny)) continue;
-      /* Something built there decides; otherwise the ground does. */
-      const overlay = await cellAt(nx, ny);
-      if (overlay ? solidCell(overlay) : await solidGround(nx, ny)) continue;
-      if (await nearLight(nx, ny)) continue;
-
-      occupied.delete(`${monster.x},${monster.y}`);
-      occupied.add(`${nx},${ny}`);
-      await ctx.db.patch("monsters", monster._id, { x: nx, y: ny });
+      /* Something running for it tries either side if the way straight
+         back is blocked. */
+      const options = [
+        { dx, dy },
+        ...(flees(monster) ? sidesteps({ dx, dy }, Math.random) : []),
+      ];
+      for (const step of options) {
+        const nx = monster.x + step.dx;
+        const ny = monster.y + step.dy;
+        if (!(await canEnter(nx, ny))) continue;
+        occupied.delete(`${monster.x},${monster.y}`);
+        occupied.add(`${nx},${ny}`);
+        await ctx.db.patch("monsters", monster._id, { x: nx, y: ny });
+        break;
+      }
     }
 
     /* Restock around each player rather than across the whole map. */

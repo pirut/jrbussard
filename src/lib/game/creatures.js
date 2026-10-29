@@ -79,6 +79,21 @@ export function creatureStep({ kind, hp, maxHp, x, y, target, distance, night, r
 }
 
 /**
+ * The ways to either side of a one-axis step, in a random order: where a
+ * fleeing creature goes when the way straight back is blocked.
+ * @param {{ dx: number, dy: number }} step
+ * @param {() => number} rng
+ * @returns {{ dx: number, dy: number }[]}
+ */
+export function sidesteps({ dx, dy }, rng) {
+  const sides = [
+    { dx: Math.abs(dy), dy: Math.abs(dx) },
+    { dx: 0 - Math.abs(dy), dy: 0 - Math.abs(dx) },
+  ];
+  return rng() < 0.5 ? sides : sides.reverse();
+}
+
+/**
  * How hard a creature bites a player. Night bites harder, the first couple
  * of levels bite less, armor and level take some off, and a lantern halves
  * a shade's. `soften` is the world's own discount (see projects.js).

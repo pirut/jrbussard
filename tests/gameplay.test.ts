@@ -4,7 +4,7 @@ import rateLimiter from "@convex-dev/rate-limiter/test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
 import { resourceAt } from "../src/lib/survival";
-import { inSafeZone, isSolid } from "../src/lib/terrain";
+import { chunkKey, inSafeZone, isSolid } from "../src/lib/terrain";
 import { PROJECTS } from "../src/lib/game";
 
 const modules = Object.fromEntries(
@@ -290,6 +290,38 @@ describe("creatures in the tick", () => {
     vi.mocked(Math.random).mockRestore();
     expect((await get(t, id)).hp).toBe(36);
     expect(await get(t, rat)).toMatchObject({ x: at.x + 2, y: at.y });
+  });
+
+  it("sidesteps when the way straight back is walled off", async () => {
+    const t = make();
+    const open = (x: number, y: number) => !isSolid(x, y) && !inSafeZone(x, y) && !resourceAt(x, y);
+    let at = null as { x: number; y: number } | null;
+    for (let x = 20; x < 200 && !at; x++)
+      for (let y = 20; y < 200 && !at; y++)
+        if (open(x, y) && open(x + 1, y) && open(x + 2, y) && open(x + 1, y - 1) && open(x + 1, y + 1))
+          at = { x, y };
+    if (!at) throw new Error("No open patch");
+    const id = await seed(t, "alice", at);
+    const rat = await t.run(async (ctx) => {
+      await ctx.db.insert("cells", {
+        x: at!.x + 2,
+        y: at!.y,
+        chunk: chunkKey(at!.x + 2, at!.y),
+        kind: "wall",
+        owner: "bob",
+        ownerName: "bob",
+        text: "",
+        regrowAt: 0,
+      });
+      return ctx.db.insert("monsters", { kind: "rat", x: at!.x + 1, y: at!.y, hp: 3, maxHp: 8 });
+    });
+    vi.spyOn(Math, "random").mockReturnValue(0.9);
+    await t.mutation(internal.tick.run, {});
+    vi.mocked(Math.random).mockRestore();
+    expect((await get(t, id)).hp).toBe(36);
+    const moved = await get(t, rat);
+    expect(moved.x).toBe(at.x + 1);
+    expect(Math.abs(moved.y - at.y)).toBe(1);
   });
 });
 

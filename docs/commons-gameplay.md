@@ -44,7 +44,7 @@ temper per kind:
 
 | Creature | Temper | Behaviour |
 | --- | --- | --- |
-| field rat | skittish | flees once badly hurt |
+| field rat | skittish | flees once badly hurt, and sidesteps if the way back is blocked |
 | kobold | chaser | the old behaviour |
 | grey wolf | pack | notices you from further off |
 | moss troll | brute | slow: moves on about half the ticks |

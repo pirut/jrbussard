@@ -11,6 +11,7 @@ import {
   DAY_ORDER,
   creatureStep,
   flees,
+  sidesteps,
   biteFor,
   pickSpawn,
   lootFor,
@@ -160,6 +161,11 @@ describe("creatures", () => {
     expect(flees({ kind: "rat", hp: 3, maxHp: 8 })).toBe(true);
     expect(flees({ kind: "rat", hp: 4, maxHp: 8 })).toBe(false);
     expect(flees({ kind: "kobold", hp: 1, maxHp: 18 })).toBe(false);
+  });
+
+  it("offers both sides of a blocked retreat", () => {
+    expect(sidesteps({ dx: 1, dy: 0 }, rolls(0.1))).toEqual([{ dx: 0, dy: 1 }, { dx: 0, dy: -1 }]);
+    expect(sidesteps({ dx: 0, dy: -1 }, rolls(0.9))).toEqual([{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }]);
   });
 
   it("is slow when it is a troll", () => {
