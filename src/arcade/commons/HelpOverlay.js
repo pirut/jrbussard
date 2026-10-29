@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import HudWindow from "./HudWindow";
 import { Glyph, useInput } from "./input/InputContext";
 import { BUTTON_GLYPHS, PAD_LAYOUT } from "./input/gamepad";
+import { tabListKeys } from "./input/focus";
 
 const K = ({ children }) => <kbd>{children}</kbd>;
 /* The player's own key for an action, remapped or not. */
@@ -142,7 +143,7 @@ export default function HelpOverlay({ onClose }) {
   return (
     <HudWindow label="Controls" className="hud-help" onClose={onClose}>
       <h2>Controls</h2>
-      <div className="settings-tabs" role="tablist" aria-label="Controls for">
+      <div className="settings-tabs" role="tablist" aria-label="Controls for" onKeyDown={tabListKeys}>
         {VIEWS.map(([id, name]) => (
           <button
             key={id}

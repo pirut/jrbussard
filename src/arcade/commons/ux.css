@@ -151,6 +151,12 @@
 .game-overlay {
   z-index: 3;
 }
+/* Settings or the controls list opened from the menu cover it: hide the
+   menu underneath so its text does not show through, and so Tab and the
+   d-pad cannot reach it. */
+.game-overlay > .hud-window:not(:last-child) {
+  visibility: hidden;
+}
 .hud-menu {
   width: min(380px, calc(100% - 24px));
 }

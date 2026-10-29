@@ -93,3 +93,11 @@ export function stepTabs(root, way) {
   next.focus();
   return true;
 }
+
+/* A tab list's keydown: left and right step through the tabs. */
+export function tabListKeys(event) {
+  const way = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+  if (!way) return;
+  event.preventDefault();
+  stepTabs(event.currentTarget.parentElement, way);
+}

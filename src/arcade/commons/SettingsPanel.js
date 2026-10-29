@@ -12,6 +12,7 @@ import {
   resolveBindings,
 } from "./input/actions";
 import { BUTTON_GLYPHS, PAD_LAYOUT } from "./input/gamepad";
+import { tabListKeys } from "./input/focus";
 
 const TABS = ["Controls", "Display", "Sound", "Keys"];
 
@@ -278,7 +279,12 @@ export default function SettingsPanel({ onClose, onReplayTutorial }) {
   return (
     <HudWindow label="Settings" className="hud-settings" onClose={onClose}>
       <h2>Settings</h2>
-      <div className="settings-tabs" role="tablist" aria-label="Settings">
+      <div
+        className="settings-tabs"
+        role="tablist"
+        aria-label="Settings"
+        onKeyDown={tabListKeys}
+      >
         <span className="settings-tabs__bumper" aria-hidden="true">
           <Glyph action="prevTab" />
         </span>
