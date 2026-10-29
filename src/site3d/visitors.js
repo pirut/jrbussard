@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildSurvivor, pose } from "../arcade/ascii3d/models";
+import { buildSurvivor, disposeModel, pose } from "../arcade/ascii3d/models";
 import { PALETTES, APPEARANCE_OPTIONS } from "../lib/appearance";
 
 /*
@@ -99,6 +99,7 @@ export class Visitors {
         const p = this.people.get(id);
         if (!p) return;
         this.scene.remove(p.model);
+        disposeModel(p.model);
         p.label.remove();
         this.people.delete(id);
     }
