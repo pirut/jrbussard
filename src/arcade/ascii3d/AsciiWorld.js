@@ -222,7 +222,7 @@ export default class AsciiWorld {
         this.sparks = this.createSparks();
         this.scene.add(this.sparks);
         this.scene.add(this.embers);
-        this.puffs = new Puffs(this.scene);
+        this.puffs = new Puffs(this.scene, { still: reducedMotion });
         /* Who hears about what happens here: blows, felled trees, digging,
            footsteps (see on() and commons/sound.js). */
         this.listeners = new Set();

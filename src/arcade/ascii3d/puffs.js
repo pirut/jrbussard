@@ -69,7 +69,9 @@ const m4 = new THREE.Matrix4();
 const colour = new THREE.Color();
 
 export class Puffs {
-    constructor(scene, capacity = 160) {
+    /* `still` (reduced motion) throws nothing: the bits are only for show. */
+    constructor(scene, { capacity = 160, still = false } = {}) {
+        this.still = still;
         this.seeds = new Array(capacity).fill(null);
         this.next = 0;
         this.live = 0;
@@ -96,6 +98,7 @@ export class Puffs {
 
     /* Throw a puff of `kind` from the point `at`. */
     add(kind, at, time) {
+        if (this.still) return;
         throwPuff(kind, at, time).forEach((seed) => {
             const i = this.next;
             this.next = (i + 1) % this.seeds.length;

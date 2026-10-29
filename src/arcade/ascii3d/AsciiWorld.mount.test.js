@@ -90,3 +90,46 @@ describe("quality memory across visits", () => {
         unmount();
     });
 });
+
+describe("puffs and reduced motion", () => {
+    /* A stump and a dug tile appear, a wall goes up, then the wall comes
+       down: one of each kind of work, all beside the view's middle. */
+    function work(world) {
+        const chunk = `${Math.floor(3 / CHUNK)}:${Math.floor(3 / CHUNK)}`;
+        world.setState(snapshot({ cells: [{ x: 2, y: 3, kind: "wall" }] }));
+        world.setState(
+            snapshot({
+                cells: [
+                    { x: 2, y: 3, kind: "wall" },
+                    { x: 3, y: 3, kind: "wall" },
+                    { x: 4, y: 4, kind: "stump" },
+                ],
+                ground: [{ x: 3, y: 2, edit: -1 }],
+                groundChunks: [chunk],
+            }),
+        );
+        world.setState(snapshot({ cells: [{ x: 4, y: 4, kind: "stump" }], ground: [{ x: 3, y: 2, edit: -1 }], groundChunks: [chunk] }));
+    }
+
+    function watch(options) {
+        const { world, unmount } = mount(options);
+        const events = [];
+        world.on((type) => events.push(type));
+        work(world);
+        const puffs = world.puffs.seeds.filter(Boolean).length;
+        unmount();
+        return { puffs, events };
+    }
+
+    it("throws puffs for work normally", () => {
+        const { puffs, events } = watch();
+        expect(puffs).toBeGreaterThan(0);
+        expect(events).toEqual(expect.arrayContaining(["harvest", "dig", "build", "demolish"]));
+    });
+
+    it("throws none with reduced motion on, but still says what happened", () => {
+        const { puffs, events } = watch({ reducedMotion: true });
+        expect(puffs).toBe(0);
+        expect(events).toEqual(expect.arrayContaining(["harvest", "dig", "build", "demolish"]));
+    });
+});
