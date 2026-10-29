@@ -223,7 +223,7 @@ export default class Diorama {
         this.ascii.uniforms.uTime.value = t;
         this.renderer.setRenderTarget(this.ascii.target);
         this.renderer.render(this.scene, this.camera);
-        this.ascii.render(this.renderer);
+        this.ascii.render(this.renderer, this.camera);
     }
 
     dispose() {
