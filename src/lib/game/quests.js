@@ -93,7 +93,8 @@ export const QUESTS = [
     id: "commons",
     chapter: 2,
     title: "For the commons",
-    detail: "Carry supplies to the crossroads and give them to the project being built there.",
+    detail:
+      "Carry supplies to the crossroads and give them to the project being built there. Once every project is finished, the crossroads stores take wood, stone and fiber.",
     objectives: [{ label: "Supplies given", stat: "contribute", count: 30 }],
     reward: { xp: 80, gold: 30 },
   },

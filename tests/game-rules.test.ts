@@ -122,6 +122,11 @@ describe("quests", () => {
     expect(planClaim({ hp: 5, quest: QUESTS.length }).error).toMatch(/every task is done/);
   });
 
+  it("points the commons task at the stores for when building is done", () => {
+    const commons = QUESTS.find((q) => q.id === "commons");
+    expect(commons?.detail).toMatch(/crossroads stores take wood, stone and fiber/);
+  });
+
   it("labels rewards", () => {
     expect(rewardLabel({ xp: 5, gold: 2, potions: 2, items: { meal: 1 } })).toBe(
       "+5 xp · +2 gold · +2 potions · +1 meal",
