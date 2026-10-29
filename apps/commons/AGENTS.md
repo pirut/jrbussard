@@ -23,11 +23,14 @@ npx expo install --fix      # fix incompatible package versions
 
 Run lint and typecheck before declaring any task done.
 
-## Navigation & Routing
+## This app
 
-- Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
-- Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
-- Docs: https://docs.expo.dev/router/introduction.md
+The Commons app: Expo + react-native-tvos (iOS, Android, tvOS, Android TV, web). Read `../../docs/commons-app.md` first.
+
+- No Expo Router: one `src/App.tsx` switches between a few screens. Add a router only when there are real routes.
+- Game rules, terrain and prediction live in the repo root (`src/lib`, `src/world`, `src/arcade/ascii3d`) and are imported through `src/shared.ts` (`@site/*` alias). Never copy them into this app.
+- Install packages with `npm install` here (this folder has its own `.npmrc` with `legacy-peer-deps`, because react-native-tvos versions are prereleases). `npx expo install` also works.
+- Never upload builds to TestFlight or the stores unless the user asks.
 
 ## Building with EAS
 
