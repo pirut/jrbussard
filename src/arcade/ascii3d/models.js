@@ -468,11 +468,23 @@ const STRUCTURE_BUILDERS = {
     wall: () => {
         const g = new THREE.Group();
         g.add(box(1, 0.3, 1, STONE, "rock", 0, 0.15, 0));
+        g.add(box(1.02, 0.035, 1.02, "#727a72", "rock", 0, 0.16, 0));
         g.add(box(0.9, 1.6, 0.9, "#e4dfd2", "solid", 0, 1.1, 0));
         [-0.44, 0.44].forEach((x) => [-0.44, 0.44].forEach((z) => g.add(box(0.12, 1.6, 0.12, TIMBER_DARK, "timber", x, 1.1, z))));
         g.add(box(1.0, 0.12, 1.0, TIMBER_DARK, "timber", 0, 1.1, 0));
         g.add(box(1.0, 0.12, 1.0, TIMBER_DARK, "timber", 0, 1.9, 0));
+        /* A brace across each panel, crossing the other way on the upper
+           storey, on every face. */
+        [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach((turn) => {
+            [[0.7, 0.62], [1.5, -0.62]].forEach(([y, lean]) => {
+                const brace = box(0.08, 0.9, 0.03, TIMBER_DARK, "timber", Math.sin(turn) * 0.455, y, Math.cos(turn) * 0.455);
+                brace.rotation.set(0, turn, lean);
+                g.add(brace);
+            });
+        });
         g.add(part(geo("wallRidge", () => new THREE.ConeGeometry(0.72, 0.55, 4).rotateY(Math.PI / 4)), material("#9c4b3c", "rock"), 0, 2.23, 0));
+        g.add(part(geo("wallEave", () => new THREE.ConeGeometry(0.76, 0.1, 4).rotateY(Math.PI / 4)), material("#7c3a2f", "rock"), 0, 2.0, 0));
+        g.add(part(geo("finial", () => new THREE.OctahedronGeometry(0.06)), material("#c9b27a", "fire"), 0, 2.53, 0));
         return g;
     },
     floor: (cell, ctx) => {
@@ -495,8 +507,10 @@ const STRUCTURE_BUILDERS = {
         g.add(part(geo("gateRoof", () => new THREE.ConeGeometry(0.62, 0.7, 4).rotateY(Math.PI / 4)), material("#9c4b3c", "rock"), 0, 2.47, 0));
         const hinge = new THREE.Group();
         hinge.position.set(-0.34, 0, 0);
-        hinge.add(box(0.68, 1.72, 0.08, "#dec091", "timber", 0.34, 0.88, 0));
-        hinge.add(box(0.06, 0.06, 0.06, "#3a3a3a", "solid", 0.6, 0.9, 0.06));
+        /* Three boards, two iron straps and a ring to pull. */
+        ["#dec091", "#d2b384", "#e3c99c"].forEach((c, i) => hinge.add(box(0.22, 1.72, 0.08, c, "timber", 0.12 + i * 0.225, 0.88, 0)));
+        [0.4, 1.4].forEach((y) => hinge.add(box(0.66, 0.06, 0.1, "#4a4a48", "solid", 0.34, y, 0)));
+        hinge.add(part(geo("doorRing", () => new THREE.TorusGeometry(0.05, 0.014, 4, 10)), material("#3a3a3a", "solid"), 0.58, 0.9, 0.06));
         g.add(hinge);
         g.userData.hinge = hinge;
         g.userData.open = cell.open ? 1 : 0;
@@ -504,8 +518,9 @@ const STRUCTURE_BUILDERS = {
     },
     torch: () => {
         const g = new THREE.Group();
-        g.add(box(0.1, 0.95, 0.1, TIMBER_DARK, "timber", 0, 0.47, 0));
-        g.add(box(0.16, 0.12, 0.16, "#5a4632", "timber", 0, 0.98, 0));
+        g.add(cyl(0.05, 0.065, 0.95, 6, TIMBER_DARK, "timber", 0, 0.47, 0));
+        g.add(cyl(0.1, 0.07, 0.16, 6, "#5a4632", "timber", 0, 0.98, 0));
+        [0.86, 0.3].forEach((y) => g.add(cyl(0.075, 0.075, 0.035, 6, "#4a4a48", "solid", 0, y, 0)));
         const f = flame(0.7);
         f.position.y = 1.02;
         g.add(f);
@@ -526,11 +541,13 @@ const STRUCTURE_BUILDERS = {
             const a = (i / 7) * Math.PI * 2;
             g.add(part(geo("pebble", () => new THREE.DodecahedronGeometry(0.11)), material(STONE, "rock"), Math.cos(a) * 0.36, 0.07, Math.sin(a) * 0.36));
         }
-        const logA = box(0.12, 0.12, 0.6, TIMBER_DARK, "timber", 0, 0.1, 0);
-        logA.rotation.y = 0.7;
-        const logB = box(0.12, 0.12, 0.6, TIMBER_DARK, "timber", 0, 0.14, 0);
-        logB.rotation.y = -0.7;
-        g.add(logA, logB);
+        /* Logs leaned into a cone, charred where they meet. */
+        for (let i = 0; i < 4; i += 1) {
+            const a = (i / 4) * Math.PI * 2 + 0.4;
+            const log = cyl(0.045, 0.055, 0.5, 6, i % 2 ? TIMBER_DARK : "#6a4c33", "timber", Math.cos(a) * 0.13, 0.17, Math.sin(a) * 0.13);
+            log.rotation.set(Math.sin(a) * 0.75, 0, -Math.cos(a) * 0.75);
+            g.add(log);
+        }
         if (ctx.lit) {
             const f = flame(1.25);
             f.position.y = 0.1;
@@ -545,8 +562,17 @@ const STRUCTURE_BUILDERS = {
         const g = new THREE.Group();
         g.add(box(0.96, 0.12, 0.66, "#c7ac82", "timber", 0, 0.72, 0));
         [[-0.4, -0.25], [0.4, -0.25], [-0.4, 0.25], [0.4, 0.25]].forEach(([x, z]) => g.add(box(0.1, 0.66, 0.1, TIMBER_DARK, "timber", x, 0.33, z)));
-        g.add(box(0.3, 0.06, 0.06, "#9aa3a0", "solid", 0.15, 0.81, 0.1));
-        g.add(box(0.12, 0.12, 0.12, "#7b6a55", "solid", -0.25, 0.84, -0.1));
+        g.add(box(0.86, 0.06, 0.06, TIMBER_DARK, "timber", 0, 0.2, 0.25));
+        g.add(box(0.86, 0.06, 0.06, TIMBER_DARK, "timber", 0, 0.2, -0.25));
+        /* A saw, a mallet, a vise at the corner and a plank waiting. */
+        g.add(box(0.34, 0.012, 0.1, "#9aa3a0", "solid", 0.12, 0.79, 0.12));
+        g.add(box(0.08, 0.04, 0.06, "#5a4632", "timber", 0.32, 0.8, 0.12));
+        g.add(box(0.14, 0.1, 0.1, "#7b6a55", "solid", -0.26, 0.84, -0.12));
+        const handle = cyl(0.015, 0.015, 0.2, 5, "#5a4632", "timber", -0.16, 0.8, -0.12);
+        handle.rotation.z = Math.PI / 2;
+        g.add(handle);
+        g.add(box(0.16, 0.12, 0.12, "#5d6066", "solid", 0.4, 0.84, -0.26));
+        g.add(box(0.6, 0.04, 0.14, "#dcc39a", "timber", -0.05, 0.8, -0.2));
         return g;
     },
     furnace: () => {
@@ -554,7 +580,13 @@ const STRUCTURE_BUILDERS = {
         g.add(box(0.9, 0.8, 0.9, "#8a8178", "rock", 0, 0.4, 0));
         g.add(cyl(0.3, 0.42, 0.4, 8, "#8a8178", "rock", 0, 1.0, 0));
         g.add(box(0.2, 0.5, 0.2, "#6f675f", "rock", 0.24, 1.3, -0.2));
+        [0.27, 0.55].forEach((y) => g.add(box(0.92, 0.03, 0.92, "#6f675f", "rock", 0, y, 0)));
+        g.add(box(0.46, 0.38, 0.03, "#4d4640", "rock", 0, 0.32, 0.455));
         g.add(box(0.4, 0.3, 0.04, "#ff9a4d", "fire", 0, 0.3, 0.46, { unlit: true }));
+        const arch = cyl(0.2, 0.2, 0.04, 8, "#4d4640", "rock", 0, 0.49, 0.46);
+        arch.rotation.x = Math.PI / 2;
+        g.add(arch);
+        g.add(box(0.26, 0.06, 0.26, "#5d5650", "rock", 0.24, 1.58, -0.2));
         g.userData.light = { y: 0.5, range: 3, color: 0xff8a3d };
         return g;
     },
@@ -563,13 +595,20 @@ const STRUCTURE_BUILDERS = {
         g.add(box(0.6, 0.12, 0.9, "#b1ba85", "grass", 0, 0.06, 0.02));
         g.add(box(0.62, 0.14, 0.24, "#8c9468", "grass", 0, 0.08, -0.32));
         g.add(box(0.36, 0.12, 0.2, "#e6dcc0", "solid", 0, 0.16, -0.34));
+        [0.12, 0.34].forEach((z) => g.add(box(0.62, 0.125, 0.06, "#8c5a4a", "grass", 0, 0.065, z)));
         return g;
     },
     chest: () => {
         const g = new THREE.Group();
         g.add(box(0.76, 0.46, 0.5, "#b0874f", "timber", 0, 0.23, 0));
-        g.add(box(0.8, 0.16, 0.54, "#d1b889", "timber", 0, 0.54, 0));
+        g.add(box(0.8, 0.1, 0.54, "#d1b889", "timber", 0, 0.51, 0));
+        /* A rounded lid, iron straps over it and a brass lock. */
+        const lid = cyl(0.27, 0.27, 0.8, 10, "#c4a979", "timber", 0, 0.56, 0);
+        lid.rotation.z = Math.PI / 2;
+        lid.scale.set(1, 1, 0.42);
+        g.add(lid);
         g.add(box(0.8, 0.06, 0.55, "#7a7a72", "solid", 0, 0.36, 0));
+        [-0.28, 0.28].forEach((x) => g.add(box(0.05, 0.62, 0.56, "#6a6a62", "solid", x, 0.33, 0)));
         g.add(box(0.1, 0.12, 0.04, "#e3c25f", "fire", 0, 0.4, 0.27));
         return g;
     },
@@ -577,11 +616,18 @@ const STRUCTURE_BUILDERS = {
         const g = new THREE.Group();
         g.add(cyl(0.2, 0.26, 0.24, 7, TIMBER_DARK, "timber", 0, 0.12, 0));
         g.add(cyl(0.19, 0.19, 0.02, 7, "#c9a77b", "timber", 0, 0.25, 0));
+        g.add(cyl(0.1, 0.1, 0.025, 7, "#a8865c", "timber", 0, 0.255, 0));
+        for (let i = 0; i < 3; i += 1) {
+            const a = (i / 3) * Math.PI * 2 + 0.5;
+            const root = cyl(0.02, 0.07, 0.24, 5, TIMBER_DARK, "timber", Math.cos(a) * 0.24, 0.04, Math.sin(a) * 0.24);
+            root.rotation.set(Math.sin(a) * 1.2, 0, -Math.cos(a) * 1.2);
+            g.add(root);
+        }
         return g;
     },
     rubble: () => {
         const g = new THREE.Group();
-        [[0.15, 0.1, 0.12], [-0.18, -0.1, 0.1], [0.02, 0.2, 0.08]].forEach(([x, z, r]) =>
+        [[0.15, 0.1, 0.12], [-0.18, -0.1, 0.1], [0.02, 0.2, 0.08], [-0.05, -0.22, 0.06], [0.24, -0.16, 0.05]].forEach(([x, z, r]) =>
             g.add(part(geo(`rubble${r}`, () => new THREE.DodecahedronGeometry(r)), material(STONE, "rock"), x, r * 0.6, z)),
         );
         return g;
