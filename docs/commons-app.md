@@ -116,8 +116,24 @@ hub.
 | --- | --- | --- |
 | Keyboard (web) | `keyboard.ts` | WASD/arrows, Shift run, E gather, F dig, B wall, Esc pause, Enter confirm |
 | Gamepad (web) | `gamepad.ts` | Gamepad API standard mapping. Left stick or d-pad walks; A gather/confirm, B dig, X wall, Start pause, RT/L3 run |
-| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` | react-native-tvos TV events with key-down/up. Select gather, play/pause dig, long select wall, menu pause. The menu key is claimed only during play, so it still exits from the title screen |
+| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select gathers, play/pause digs, a long select builds a wall, menu pauses. The menu key is claimed only during play, so it still exits from the title screen |
 | Touch (phones, tablets) | `TouchStick.tsx` + buttons in `GameScreen` | Drag-anywhere thumbstick, Gather/Dig/Wall buttons, II pause |
+
+TV events differ by platform, and `tvEvents.ts` handles each case
+(`tvRemote.test.ts` replays the real sequences):
+
+- **tvOS short presses** (arrows, Select, Play/Pause, Menu) come from tap
+  recognizers. Each sends one key-up and no key-down, so a lone key-up counts
+  as a whole tap: an arrow is held for 250 ms (about one tile), and a button
+  presses once.
+- **tvOS holds** come from long-press recognizers (`longUp`, `longSelect`, …),
+  which fire after about 0.5 s and send key-down, then key-up when released.
+  They're held for as long as they last.
+- **Android TV** sends a key-down/key-up pair for every key.
+- **Swipes** on the Siri Remote touch surface carry no key action and count as
+  taps.
+- **Select** on tvOS only reaches JS from a focused view, so during play the game
+  screen keeps one full-screen focusable.
 
 Menus (`ui/Menu.tsx`): on TV every item is a native focusable, so the platform
 focus engine handles the d-pad and select. On web and phones, items respond to
@@ -128,7 +144,8 @@ touch and click, and the hub moves the highlight for keyboards and gamepads.
 Requires Node 24. Run everything from `apps/commons/`.
 
 ```sh
-npm ci                      # .npmrc sets legacy-peer-deps
+npm ci                      # .npmrc sets legacy-peer-deps; postinstall applies patches/
+npm test                    # vitest: input adapters and the render loop lifecycle
 npm run typecheck           # tsc; needs ../../convex/_generated (npx convex dev at root)
 npx expo-doctor
 
@@ -147,9 +164,40 @@ EXPO_TV=1 npx expo run:ios --device "Apple TV"
 EXPO_TV=1 npx expo run:android   # with an Android TV emulator running
 ```
 
+On a simulator with no remote or keyboard attached, start Metro with
+`EXPO_PUBLIC_AUTOPLAY=1` (development builds only) to skip the title screen.
+`commons://play` opens the world too, but iOS and tvOS first ask "Open in
+The Commons?", which needs a press.
+
+CI (`.github/workflows/validate.yml`, job `commons-app`) runs `npm ci`,
+`npm test` and the web export. The typecheck isn't in CI because it needs
+`convex/_generated`, which only a linked deployment can write.
+
 `ios/` and `android/` are generated (continuous native generation) and
 gitignored. Configure native behaviour in `app.json` and config plugins.
 Switching between phone and TV needs a fresh `prebuild --clean`.
+
+### The expo-gl patch (Apple TV)
+
+`expo-gl` 58 declares only iOS, so CocoaPods won't install it into a tvOS
+target. Its renderer only uses OpenGL ES 3 and EAGL. tvOS still ships both,
+though deprecated. `patches/expo-gl+58.0.3.patch` (applied by
+`patch-package` on install) does two things:
+
+- adds `:tvos => '16.4'` to `ExpoGL.podspec`;
+- compiles out the camera-texture feature on tvOS, because `AVCapture` session
+  properties and video orientation don't exist there. On tvOS,
+  `createCameraTextureAsync` now rejects. The game never uses camera textures.
+
+When `expo-gl` is upgraded, `patch-package` fails loudly if the patch no longer
+applies. Re-create it, or drop it if upstream adds tvOS.
+
+Risk: Apple deprecated OpenGL ES in 2018 and could remove it from a future
+tvOS or iOS SDK. Moving off GL entirely would mean three's `WebGPURenderer`
+through `react-native-wgpu` (Metal on Apple, Vulkan on Android). That keeps
+`world/scene.ts` and the shared modules, and replaces `World3D.tsx`'s context
+setup. It's a larger change, with less mature tvOS support in
+`react-native-wgpu`, and isn't needed while GL ships.
 
 ### Installing
 
@@ -162,27 +210,33 @@ almost every React Native library. `apps/commons/.npmrc` sets
 
 See the PR for the exact run log. In short:
 
-- `npm run typecheck` and `npx expo-doctor` (20/20) pass.
+- `npm test` (17 tests: TV event sequences, gamepad disconnect, render loop
+  resize and context restore), `npm run typecheck`, and `npx expo-doctor`
+  (20/20) pass.
+- **Apple TV:** with the expo-gl patch, `EXPO_TV=1` prebuild, `pod install`
+  and an `appletvsimulator` Debug build succeed. On the Apple TV 4K simulator
+  (tvOS 27.0), the title menu shows with native focus on Play, and the three.js
+  world renders and animates (two screenshots 15 s apart differ). Remote input
+  in the world has **not** been exercised: the simulator here had no remote or
+  keyboard, so walking and actions on tvOS are covered only by the
+  event-replay tests.
+- Browser resize: going from 1280×800 to 800×1000 changes the GL viewport from
+  1280×800 to 800×1000, following the drawing buffer.
 - `npm run build:web` exports. In Chromium the offline world renders in 3D
   (terrain, trees, rocks, structures, other players), walks with WASD, and the
   menu responds to the keyboard.
-- iOS: `expo prebuild --platform ios` generates the Xcode project
-  (`TheCommons.xcodeproj`). The simulator build did **not** complete: the
-  build machine ran out of disk (ENOSPC during `pod install` and the first
-  compile), so nothing native has run yet. First job on a machine with
-  ~10 GB free: `npm run prebuild:mobile && npm run ios`.
-- Root `npm run test:commons` (54 tests) and `npm run build:frontend` still pass.
+- **iOS:** phone prebuild and an `iphonesimulator` Debug build succeed. On the
+  iPhone 17 simulator, the three.js world renders through expo-gl with the HUD,
+  the touch stick and the Gather/Dig/Wall buttons. Touch input wasn't
+  exercised: a headless simulator has no touches.
+- Root `npm run test:commons` (118 tests), `CI=true npm test` (135), and
+  `CI=true npm run build:frontend` still pass.
 
 ## Known gaps and risks
 
-- **Apple TV 3D.** `expo-gl` 58 declares only iOS in its podspec, not tvOS.
-  The TV prebuild and the menus should work, but the GL view can't link on
-  tvOS as is. Options, in order of preference: (1) a small config plugin or
-  patch that adds `:tvos` to `ExpoGL.podspec`, if its OpenGL ES code compiles
-  for tvOS (OpenGL ES still ships on tvOS, deprecated); (2) a Metal or WebGPU
-  path through `react-native-wgpu` and three's WebGPU renderer, which also
-  removes the deprecated-GL dependency on iOS; (3) React Native Skia, which
-  supports tvOS, as a 2.5D fallback. Not tried yet.
+- **Apple TV on hardware.** Runs on the simulator through the expo-gl patch
+  (above). Still untested on a real Apple TV: frame rate, the Siri Remote,
+  and a paired controller.
 - **Analog sticks on native.** On TV, controllers arrive as d-pad and button
   events through react-native-tvos, so walking is 8-way digital. Phones with a
   paired controller get nothing yet. Both need a native GameController
@@ -194,9 +248,8 @@ See the PR for the exact run log. In short:
 - **Identity.** Sessions are anonymous per install, as in the browser. Moving a
   character between devices needs accounts (Convex Auth, with Sign in with
   Apple required on iOS if any third-party login is offered).
-- **No automated tests in the app yet.** The shared modules are tested at the
-  root. The app needs Jest (`jest-expo`) for the input hub and the
-  walker/server-step glue.
+- **Tests are thin.** Vitest covers the input adapters and the render loop
+  lifecycle. The walker/server-step glue in `GameScreen` has no tests yet.
 
 ## Release prerequisites
 
@@ -227,7 +280,8 @@ Nothing has been uploaded. Before any store build:
 
 ## What comes next
 
-1. Apple TV GL (see above), then screenshots on tvOS and Android TV emulators.
+1. Play-test on a real Apple TV with the Siri Remote and a controller, then
+   run Android and Android TV emulators.
 2. Native controller module and analog movement.
 3. Fold in the shared game-rules and input action map once they merge.
 4. Port the HUD panels (inventory, crafting, build menu, chat) as native UI,
