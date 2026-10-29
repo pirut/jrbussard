@@ -85,8 +85,9 @@ write the result.
 ## Cost
 
 - Quest claims and contributions are single-document mutations on the
-  player (plus one project row), behind the existing per-player action
-  cooldown.
+  player (plus one project row), each behind a per-player limit from the
+  `@convex-dev/rate-limiter` component (`convex/convex.config.ts`): one
+  hand-in per 600 ms and one claim per 2 s, refused attempts included.
 - The tick reads at most three project rows per beat and writes to players
   only when the phase changes (twice per twelve-minute day).
 - `game:projects` is its own query, so the three rows that rarely change are not

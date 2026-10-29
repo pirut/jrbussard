@@ -1,4 +1,6 @@
 import { query, mutation } from "./_generated/server";
+import { components } from "./_generated/api";
+import { RateLimiter } from "@convex-dev/rate-limiter";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { inventoryOf } from "../src/lib/survival.js";
@@ -18,8 +20,13 @@ import { inSafeZone } from "./field";
  * decided.
  */
 
-/* Shares the beat of gathering and crafting (see world.ts). */
-const ACTION_COOLDOWN_MS = 600;
+/* Per player: a hand-in on the beat of gathering and crafting (see
+   world.ts), and a quest claim every couple of seconds. A refused attempt
+   spends its turn too. */
+const limiter = new RateLimiter(components.rateLimiter, {
+  contribute: { kind: "token bucket", rate: 1, period: 600, capacity: 1 },
+  claimQuest: { kind: "token bucket", rate: 1, period: 2000, capacity: 1 },
+});
 
 async function playerBySession(ctx: MutationCtx | QueryCtx, session: string) {
   return await ctx.db
@@ -76,8 +83,9 @@ export const contribute = mutation({
   handler: async (ctx, args) => {
     const player = await playerBySession(ctx, args.session);
     if (!player || player.hp <= 0) return "wake up first";
+    const { ok } = await limiter.limit(ctx, "contribute", { key: player._id });
+    if (!ok) return "wait";
     const now = Date.now();
-    if (now - player.lastBuild < ACTION_COOLDOWN_MS) return "wait";
 
     const rows = await projectRows(ctx);
     const project = activeProject(rows);
@@ -109,7 +117,6 @@ export const contribute = mutation({
         contribute: plan.amount,
         [`contribute:${project!.key}`]: plan.amount,
       }),
-      lastBuild: now,
       lastSeen: now,
     });
     if (plan.done)
@@ -129,6 +136,10 @@ export const claimQuest = mutation({
   returns: v.string(),
   handler: async (ctx, args) => {
     const player = await playerBySession(ctx, args.session);
+    if (player) {
+      const { ok } = await limiter.limit(ctx, "claimQuest", { key: player._id });
+      if (!ok) return "wait";
+    }
     const plan = planClaim(player);
     if (plan.error !== undefined) return plan.error;
     const me = player!;

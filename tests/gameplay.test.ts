@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
+import rateLimiter from "@convex-dev/rate-limiter/test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
 import { resourceAt } from "../src/lib/survival";
@@ -12,7 +13,11 @@ const modules = Object.fromEntries(
     value,
   ]),
 );
-const make = () => convexTest({ schema, modules, transactionLimits: true });
+const make = () => {
+  const t = convexTest({ schema, modules, transactionLimits: true });
+  rateLimiter.register(t);
+  return t;
+};
 type T = ReturnType<typeof make>;
 
 const DAY_MS = 12 * 60 * 1000;
@@ -66,6 +71,8 @@ async function seed(
 }
 const get = (t: T, id: any) => t.run((ctx) => ctx.db.get(id)) as Promise<any>;
 const ready = (t: T, id: any) => t.run((ctx) => ctx.db.patch(id, { lastBuild: 0 }));
+/* Step the frozen clock forward, past a cooldown. */
+const later = (ms: number) => vi.setSystemTime(Date.now() + ms);
 
 /* Open ground out in the wild with open ground to its east. */
 function openPatch() {
@@ -109,8 +116,10 @@ describe("the quest chain", () => {
     const t = make();
     const id = await seed(t, "alice", { stats: { "gather:wood": 12, "gather:stone": 2 } });
     expect(await t.mutation(api.game.claimQuest, { session: "alice" })).toBe("not yet: stone 2/6");
+    later(2000);
     await t.run((ctx) => ctx.db.patch(id, { stats: { "gather:wood": 12, "gather:stone": 6 } }));
     expect(await t.mutation(api.game.claimQuest, { session: "alice" })).toMatch(/^Kindling complete/);
+    later(2000);
     const me = await get(t, id);
     expect(me.quest).toBe(1);
     expect(me.xp).toBe(20);
@@ -151,6 +160,22 @@ describe("the quest chain", () => {
     });
   });
 
+  it("throttles claims, paid or refused", async () => {
+    const t = make();
+    const id = await seed(t, "alice", {
+      stats: { "gather:wood": 12, "gather:stone": 6 },
+      tools: { axe: 1, pick: 1 },
+    });
+    expect(await t.mutation(api.game.claimQuest, { session: "alice" })).toMatch(/^Kindling complete/);
+    expect(await t.mutation(api.game.claimQuest, { session: "alice" })).toBe("wait");
+    expect((await get(t, id)).quest).toBe(1);
+    later(2000);
+    expect(await t.mutation(api.game.claimQuest, { session: "alice" })).toMatch(/^Tools of the trade complete/);
+    later(2000);
+    expect(await t.mutation(api.game.claimQuest, { session: "alice" })).toMatch(/^not yet/);
+    expect(await t.mutation(api.game.claimQuest, { session: "alice" })).toBe("wait");
+  });
+
   it("refuses a sleeper", async () => {
     const t = make();
     await seed(t, "alice", { hp: 0, stats: { "gather:wood": 99, "gather:stone": 99 } });
@@ -167,7 +192,7 @@ describe("crossroads projects", () => {
     expect(await t.mutation(api.game.contribute, { session: "bob", item: "wood" })).toBe("bring it to the crossroads");
     expect(await t.mutation(api.game.contribute, { session: "alice", item: "wood" })).toMatch(/gave 10 wood/);
     expect(await t.mutation(api.game.contribute, { session: "alice", item: "wood" })).toBe("wait");
-    await ready(t, id);
+    later(1000);
     expect(await t.mutation(api.game.contribute, { session: "alice", item: "crystal" })).toMatch(/needs no crystal/);
     const me = await get(t, id);
     expect(me.wood).toBe(90);
