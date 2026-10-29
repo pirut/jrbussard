@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { releaseFigure } from "./figureGeometry";
 
 /*
  * Fewer draw calls for a posed figure.
@@ -47,6 +48,8 @@ export function mergeModel(model) {
         parent.children.forEach((child) => {
             if (!child.isMesh || child.isInstancedMesh || !child.visible || child.children.length || keep.has(child)) return;
             if (Array.isArray(child.material) || child.userData.flame || child.material.userData?.own) return;
+            /* Figure parts are already merged, and share their geometry. */
+            if (child.userData.figureKey) return;
             const key = signature(child);
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(child);
@@ -71,9 +74,12 @@ export function mergeModel(model) {
     return model;
 }
 
-/* Free what mergeModel() made. Shared prototype geometry is left alone. */
+/* Free what mergeModel() made, and give back the figure geometry the model
+   shares with others (figureGeometry.js), which is freed with its last user.
+   Shared prototype geometry is left alone. */
 export function disposeMerged(model) {
     model.traverse((node) => {
         if (node.userData.merged) node.geometry.dispose();
     });
+    releaseFigure(model);
 }

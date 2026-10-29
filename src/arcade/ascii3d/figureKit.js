@@ -65,6 +65,11 @@ function recipe() {
     };
 }
 
+/* What a recipe hands out: its data only, safe to clone, store or send. */
+function finished({ pivots, parts, legs }) {
+    return legs ? { pivots, parts, legs } : { pivots, parts };
+}
+
 const GOLD = "#c9b27a";
 const INK = "#1b1a1f";
 const BONE = "#efe2c0";
@@ -80,6 +85,10 @@ const BONE = "#efe2c0";
  * bulk, which widens everything for a troll.
  */
 export function humanoidSpec(look) {
+    return finished(humanoidRecipe(look));
+}
+
+function humanoidRecipe(look) {
     const r = recipe();
     const { part, pivot } = r;
     const b = look.bulk || 1;
@@ -391,7 +400,7 @@ export function quadrupedSpec({ length, height, color, belly, head: h, tail, ear
         part("tailTip", ["taper", tail.w * 0.35, tail.w * 0.75, rest, 6], tailColor, [0, -rest / 2, 0]);
     }
     r.legs = legs;
-    return r;
+    return finished(r);
 }
 
 /* ── The bestiary ───────────────────────────────────────────────────────── */
@@ -426,7 +435,7 @@ const KOBOLD_SCALE = "#a8503d";
 /* A kobold: a small lizard-person with a snout, horns, a crest of spines
    down head and back, a pale belly, claws and a tail in two pieces. */
 export function koboldSpec() {
-    const r = humanoidSpec({
+    const r = humanoidRecipe({
         skin: "#d0705a",
         hair: "#7a3b2e",
         hairstyle: "shaved",
@@ -460,14 +469,14 @@ export function koboldSpec() {
     pivot("tailTip", "tail", [0, -0.3, 0]);
     part("tail", ["taper", 0.09, 0.055, 0.32, 6], "#d0705a", [0, -0.15, 0]);
     part("tailTip", ["taper", 0.055, 0.012, 0.32, 6], "#d0705a", [0, -0.15, 0]);
-    return r;
+    return finished(r);
 }
 
 /* A troll: hunched, pot-bellied, mossy at the shoulders, with a heavy brow,
    an underbite and tusks. */
 export function trollSpec() {
     const skin = "#8f6fc2";
-    const r = humanoidSpec({
+    const r = humanoidRecipe({
         skin,
         hair: "#4b3a66",
         hairstyle: "long",
@@ -492,7 +501,7 @@ export function trollSpec() {
     part("torso", ["sphere", 0.2, 1.05, 0.95, 0.9], shade(skin, 1.08), [0, 0.12, 0.07]);
     part("torso", ["box", 0.3, 0.22, 0.03], "#6b5b3c", [0, -0.14, 0.13]);
     [-1, 1].forEach((sx) => part("torso", ["dome", 0.1, 1.2, 0.7, 1], "#5f7a3a", [sx * 0.3, 0.52, -0.02], { set: "grass" }));
-    return r;
+    return finished(r);
 }
 
 /* ── Detail ─────────────────────────────────────────────────────────────── */

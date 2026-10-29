@@ -1,8 +1,7 @@
 import * as THREE from "three";
-import { material, ownMaterial, asFigure, hitFlash } from "./materials";
-import { glyphCode, GLYPH_SETS } from "./asciiPass";
+import { material, ownMaterial, asFigure, hitFlash, figureMaterial as figureVertexMaterial } from "./materials";
 import { humanoidSpec, quadrupedSpec, koboldSpec, trollSpec, QUADRUPEDS, seedOf } from "./figureKit";
-import { buildFigure } from "./figureGeometry";
+import { buildFigure, releaseFigure } from "./figureGeometry";
 import { PALETTES, appearanceOf } from "../../lib/appearance";
 
 /*
@@ -60,37 +59,10 @@ function figurize(root) {
     return root;
 }
 
-/*
- * The material for a figure's merged parts: colour from the vertices, and
- * the same faint glow from within that every plain model has (see
- * materials.js), so a figure in its own shadow still reads as a figure.
- * Plain parts draw in the figure set; parts that chose a set keep it.
- */
-const figureMaterials = new Map();
+/* Merged figure parts draw with figureMaterial() (materials.js), which
+   disposeMaterials() frees with the rest. */
 function figureMaterial({ set, unlit }) {
-    const key = `${set}|${unlit ? 1 : 0}`;
-    let made = figureMaterials.get(key);
-    if (made) return made;
-    const common = {
-        vertexColors: true,
-        blending: THREE.NoBlending,
-        transparent: false,
-        opacity: glyphCode(GLYPH_SETS[set === "solid" ? "figure" : set] ?? 0),
-    };
-    if (unlit) {
-        made = new THREE.MeshBasicMaterial(common);
-    } else {
-        made = new THREE.MeshLambertMaterial(common);
-        made.onBeforeCompile = (shader) => {
-            shader.fragmentShader = shader.fragmentShader.replace(
-                "#include <emissivemap_fragment>",
-                "#include <emissivemap_fragment>\n\ttotalEmissiveRadiance += vColor.rgb * 0.22;",
-            );
-        };
-        made.customProgramCacheKey = () => "commons-figure";
-    }
-    figureMaterials.set(key, made);
-    return made;
+    return figureVertexMaterial(set, unlit);
 }
 
 /* ── People ─────────────────────────────────────────────────────────────── */
@@ -219,6 +191,11 @@ export function buildCreature(kind) {
     const model = figurize(make());
     model.userData.kind = kind;
     return model;
+}
+
+/* Every creature the registry can build, for tools that show them all. */
+export function creatureKinds() {
+    return Object.keys(CREATURES);
 }
 
 /* ── Animation ──────────────────────────────────────────────────────────── */
@@ -429,10 +406,13 @@ export function flashModel(model, on) {
     });
 }
 
+/* Free a model's own materials and give back the figure geometry it shares;
+   call it when a model leaves the scene for good. */
 export function disposeModel(model) {
     model.traverse((node) => {
         if (node.material && node.material.userData?.own) node.material.dispose();
     });
+    releaseFigure(model);
 }
 
 /* ── Things people build ───────────────────────────────────────────────── */

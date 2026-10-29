@@ -9,7 +9,7 @@ import {
   shade,
   mixColor,
 } from "../src/arcade/ascii3d/figureKit";
-import { buildFigure, figureStats } from "../src/arcade/ascii3d/figureGeometry";
+import { buildFigure, figureStats, releaseFigure, liveFigureGeometries } from "../src/arcade/ascii3d/figureGeometry";
 
 const LOOK = {
   skin: "#b78056",
@@ -82,6 +82,10 @@ describe("figure recipes", () => {
     Object.values(CREATURE_SPECS).forEach((make) => expect(JSON.stringify(make())).toBe(JSON.stringify(make())));
   });
 
+  it("survive a structured clone, so they can cross to a worker or another app", () => {
+    [humanoidSpec(LOOK), koboldSpec(), trollSpec(), quadrupedSpec(QUADRUPEDS.rat)].forEach((spec) => expect(structuredClone(spec)).toEqual(spec));
+  });
+
   it("keep the rig posing needs", () => {
     const names = humanoidSpec({ ...LOOK, weapon: 1 }).pivots.map((p) => p.name);
     ["body", "torso", "hipL", "kneeL", "ankleL", "shoulderR", "elbowR", "handR", "neck", "head", "eyes", "cape", "held"].forEach((n) =>
@@ -124,15 +128,27 @@ describe("built figures", () => {
     expect(a).toBe(b);
   });
 
-  it("build the same vertices every time", () => {
-    const positions = (spec) => {
+  it("build the same vertices every time, down to the last float", () => {
+    const snapshot = (spec) => {
+      const { root } = buildFigure(spec, materialFor);
       const out = [];
-      buildFigure(spec, materialFor).root.traverse((n) => {
-        if (n.isMesh) out.push(Array.from(n.geometry.attributes.position.array.slice(0, 30)));
+      root.traverse((n) => {
+        if (!n.isMesh) return;
+        const g = n.geometry;
+        out.push([n.parent.name, ...["position", "normal", "color"].map((a) => Array.from(g.attributes[a].array)), Array.from(g.index.array)]);
       });
-      return out;
+      return { root, out };
     };
-    expect(positions(trollSpec())).toEqual(positions(trollSpec()));
+    [trollSpec(), quadrupedSpec(QUADRUPEDS.wolf), humanoidSpec({ ...LOOK, armor: 2, weapon: 2, headwear: "brim" })].forEach((spec) => {
+      const live = liveFigureGeometries();
+      const first = snapshot(spec);
+      releaseFigure(first.root);
+      expect(liveFigureGeometries()).toBe(live);
+      /* Built again from nothing, not handed the cached copy. */
+      const second = snapshot(JSON.parse(JSON.stringify(spec)));
+      expect(second.out).toEqual(first.out);
+      releaseFigure(second.root);
+    });
   });
 
   it("write a colour for every vertex", () => {

@@ -114,23 +114,47 @@ function mergeIndexed(pieces) {
 }
 
 /*
- * Merged geometry is kept by what went into it, so every survivor with the
- * same look shares one copy. Looks come from small palettes, so this stays
- * small; it is never freed.
+ * Merged geometry is kept by what went into it, so every figure with the
+ * same look shares one copy while any of them is alive. Each built mesh
+ * holds one use; releaseFigure() gives it back, and the geometry is freed
+ * when its last user goes. A changed look or a closed world therefore
+ * leaves nothing behind.
  */
 const merged = new Map();
-function mergedGeometry(parts) {
+function acquireGeometry(parts) {
     const key = JSON.stringify(parts.map((p) => [p.shape, p.color, p.at, p.rot, p.scale]));
-    let g = merged.get(key);
-    if (!g) {
+    let entry = merged.get(key);
+    if (!entry) {
         const pieces = parts.map(placed);
-        g = mergeIndexed(pieces);
+        const geometry = mergeIndexed(pieces);
         pieces.forEach((piece) => piece.dispose());
-        g.computeBoundingSphere();
-        g.userData.shared = true;
-        merged.set(key, g);
+        geometry.computeBoundingSphere();
+        entry = { geometry, users: 0 };
+        merged.set(key, entry);
     }
-    return g;
+    entry.users += 1;
+    return { key, geometry: entry.geometry };
+}
+
+/* Give back every use a built figure holds. Safe to call more than once. */
+export function releaseFigure(object) {
+    object.traverse((node) => {
+        const key = node.userData.figureKey;
+        if (!key || node.userData.figureReleased) return;
+        node.userData.figureReleased = true;
+        const entry = merged.get(key);
+        if (!entry || entry.geometry !== node.geometry) return;
+        entry.users -= 1;
+        if (entry.users <= 0) {
+            entry.geometry.dispose();
+            merged.delete(key);
+        }
+    });
+}
+
+/* How many merged geometries are alive, for tests and leak checks. */
+export function liveFigureGeometries() {
+    return merged.size;
 }
 
 /* ── Building ───────────────────────────────────────────────────────────── */
@@ -138,7 +162,8 @@ function mergedGeometry(parts) {
 /*
  * `materialFor({ set, unlit })` returns the material for parts of a glyph set
  * (solid parts arrive as set "solid"); it must draw vertex colours.
- * Returns the root group and the pivots by name.
+ * Returns the root group and the pivots by name. The figure holds shared
+ * geometry until releaseFigure() is called on it.
  */
 export function buildFigure(spec, materialFor) {
     const pivots = {};
@@ -162,11 +187,12 @@ export function buildFigure(spec, materialFor) {
     });
     groups.forEach((parts, key) => {
         const [on, set, unlit] = key.split("|");
-        const mesh = new THREE.Mesh(mergedGeometry(parts), materialFor({ set, unlit: unlit === "1" }));
+        const { key: figureKey, geometry } = acquireGeometry(parts);
+        const mesh = new THREE.Mesh(geometry, materialFor({ set, unlit: unlit === "1" }));
+        mesh.userData.figureKey = figureKey;
         /* Glowing bits light nothing and cast nothing. */
         mesh.castShadow = unlit !== "1";
         mesh.receiveShadow = true;
-        mesh.userData.figurePart = true;
         pivots[on].add(mesh);
     });
     return { root, pivots };

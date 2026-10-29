@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildSurvivor, buildCreature, buildStructure, pose } from "../../src/arcade/ascii3d/models";
+import { buildSurvivor, buildCreature, buildStructure, creatureKinds, pose } from "../../src/arcade/ascii3d/models";
 import { mergeModel } from "../../src/arcade/ascii3d/mergeModel";
 import { Batch, addTree, addRock } from "../../src/arcade/ascii3d/terrainMesh";
 
@@ -10,13 +10,13 @@ import { Batch, addTree, addRock } from "../../src/arcade/ascii3d/terrainMesh";
  *   npx vite scripts/model-gallery
  */
 
-const params = new URLSearchParams(location.search);
+const params = new URLSearchParams(window.location.search);
 const view = params.get("view") || "figures";
 const t = Number(params.get("t") || 0.6);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
-renderer.setSize(innerWidth, innerHeight);
+renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
@@ -50,7 +50,7 @@ if (view === "figures") {
         row.push({ model: buildSurvivor({ appearance, tools: { armor: i % 3, weapon: i % 3 } }), animate: true, i });
     });
 } else if (view === "creatures") {
-    ["rat", "wolf", "kobold", "troll", "shade"].forEach((kind, i) => row.push({ model: buildCreature(kind), animate: true, i }));
+    creatureKinds().forEach((kind, i) => row.push({ model: buildCreature(kind), animate: true, i }));
 } else {
     ["wall", "door", "torch", "campfire", "workbench", "furnace", "chest", "bedroll"].forEach((kind) =>
         row.push({ model: buildStructure({ kind, open: false }, { lit: true }) }),
@@ -74,7 +74,7 @@ row.forEach((entry, i) => {
     scene.add(entry.model);
 });
 
-const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 100);
 const far = Number(params.get("far")) || (view === "world" ? 15 : 8.5);
 camera.position.set(0, far * 0.45, far);
 camera.lookAt(0, view === "world" ? 0.8 : 0.85, 0);
