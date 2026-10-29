@@ -923,13 +923,13 @@ function Game({ state: served, call, live, online = true, status = "", onSaveCha
         return Math.abs(body.x - x) > 0.8 || Math.abs(body.y - y) > 0.8;
       };
       if (alive) stepBody(body, want, false, dt, solid);
-      /* However they got there, walking ticks off the first card. */
-      if (body.speed > 0.5 && tutorialStep(tutorialRef.current)?.id === "move") teach("move");
       else {
         body.vx = 0;
         body.vy = 0;
         body.speed = 0;
       }
+      /* However they got there, walking ticks off the first card. */
+      if (body.speed > 0.5 && tutorialStep(tutorialRef.current)?.id === "move") teach("move");
 
       /* A tile crossed is a step taken: say so, one at a time, never
          cutting a corner. */
