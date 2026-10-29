@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { sphereSegments } from "./figureKit";
 
 /*
@@ -87,6 +86,33 @@ function placed(p) {
     return g;
 }
 
+/* Concatenate indexed pieces that carry position, normal and colour. Done
+   here rather than with three's addons, which ship as modules Jest cannot
+   load. */
+function mergeIndexed(pieces) {
+    let vertices = 0;
+    let indices = 0;
+    pieces.forEach((g) => {
+        vertices += g.attributes.position.count;
+        indices += g.index ? g.index.count : g.attributes.position.count;
+    });
+    const out = { position: new Float32Array(vertices * 3), normal: new Float32Array(vertices * 3), color: new Float32Array(vertices * 3) };
+    const index = new (vertices > 65535 ? Uint32Array : Uint16Array)(indices);
+    let v = 0;
+    let i = 0;
+    pieces.forEach((g) => {
+        Object.keys(out).forEach((name) => out[name].set(g.attributes[name].array, v * 3));
+        const n = g.attributes.position.count;
+        if (g.index) g.index.array.forEach((k) => (index[i++] = k + v));
+        else for (let k = 0; k < n; k += 1) index[i++] = k + v;
+        v += n;
+    });
+    const merged = new THREE.BufferGeometry();
+    Object.entries(out).forEach(([name, array]) => merged.setAttribute(name, new THREE.BufferAttribute(array, 3)));
+    merged.setIndex(new THREE.BufferAttribute(index, 1));
+    return merged;
+}
+
 /*
  * Merged geometry is kept by what went into it, so every survivor with the
  * same look shares one copy. Looks come from small palettes, so this stays
@@ -98,7 +124,7 @@ function mergedGeometry(parts) {
     let g = merged.get(key);
     if (!g) {
         const pieces = parts.map(placed);
-        g = mergeGeometries(pieces, false);
+        g = mergeIndexed(pieces);
         pieces.forEach((piece) => piece.dispose());
         g.computeBoundingSphere();
         g.userData.shared = true;
