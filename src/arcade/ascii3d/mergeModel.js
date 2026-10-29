@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { releaseFigure } from "./figureGeometry";
+import { isFigureGeometry, releaseFigure } from "./figureGeometry";
 
 /*
  * Fewer draw calls for a posed figure.
@@ -49,7 +49,7 @@ export function mergeModel(model) {
             if (!child.isMesh || child.isInstancedMesh || !child.visible || child.children.length || keep.has(child)) return;
             if (Array.isArray(child.material) || child.userData.flame || child.material.userData?.own) return;
             /* Figure parts are already merged, and share their geometry. */
-            if (child.userData.figureKey) return;
+            if (isFigureGeometry(child.geometry)) return;
             const key = signature(child);
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(child);

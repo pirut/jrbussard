@@ -115,12 +115,24 @@ function mergeIndexed(pieces) {
 
 /*
  * Merged geometry is kept by what went into it, so every figure with the
- * same look shares one copy while any of them is alive. Each built mesh
- * holds one use; releaseFigure() gives it back, and the geometry is freed
- * when its last user goes. A changed look or a closed world therefore
- * leaves nothing behind.
+ * same look shares one copy while any of them is alive.
+ *
+ * Ownership is by object, not by anything copied with it: `holders` maps
+ * each mesh that took a share to the entry it took it from. A clone of a
+ * figure (Object3D.clone copies userData) holds nothing until
+ * retainFigure() gives it a share of its own, so releasing a clone cannot
+ * free geometry the original is still drawing. releaseFigure() gives each
+ * held share back once, and the geometry is freed with its last holder.
  */
 const merged = new Map();
+const entries = new WeakMap();
+const holders = new WeakMap();
+
+function hold(mesh, entry) {
+    entry.users += 1;
+    holders.set(mesh, entry);
+}
+
 function acquireGeometry(parts) {
     const key = JSON.stringify(parts.map((p) => [p.shape, p.color, p.at, p.rot, p.scale]));
     let entry = merged.get(key);
@@ -129,25 +141,41 @@ function acquireGeometry(parts) {
         const geometry = mergeIndexed(pieces);
         pieces.forEach((piece) => piece.dispose());
         geometry.computeBoundingSphere();
-        entry = { geometry, users: 0 };
+        entry = { key, geometry, users: 0 };
         merged.set(key, entry);
+        entries.set(geometry, entry);
     }
-    entry.users += 1;
-    return { key, geometry: entry.geometry };
+    return entry;
 }
 
-/* Give back every use a built figure holds. Safe to call more than once. */
+/* Whether a geometry is one of the shared figure geometries. */
+export function isFigureGeometry(geometry) {
+    return entries.has(geometry);
+}
+
+/* Take a share for every mesh under `object` that draws shared figure
+   geometry and does not hold one yet: call it on a clone that will live
+   on its own. Geometry already freed is not brought back. */
+export function retainFigure(object) {
+    object.traverse((node) => {
+        if (!node.isMesh || holders.has(node)) return;
+        const entry = entries.get(node.geometry);
+        if (entry && merged.get(entry.key) === entry) hold(node, entry);
+    });
+    return object;
+}
+
+/* Give back every share held under `object`. Meshes that never took one,
+   such as clones, are left alone; calling it twice does nothing more. */
 export function releaseFigure(object) {
     object.traverse((node) => {
-        const key = node.userData.figureKey;
-        if (!key || node.userData.figureReleased) return;
-        node.userData.figureReleased = true;
-        const entry = merged.get(key);
-        if (!entry || entry.geometry !== node.geometry) return;
+        const entry = holders.get(node);
+        if (!entry) return;
+        holders.delete(node);
         entry.users -= 1;
-        if (entry.users <= 0) {
+        if (entry.users <= 0 && merged.get(entry.key) === entry) {
+            merged.delete(entry.key);
             entry.geometry.dispose();
-            merged.delete(key);
         }
     });
 }
@@ -187,9 +215,9 @@ export function buildFigure(spec, materialFor) {
     });
     groups.forEach((parts, key) => {
         const [on, set, unlit] = key.split("|");
-        const { key: figureKey, geometry } = acquireGeometry(parts);
-        const mesh = new THREE.Mesh(geometry, materialFor({ set, unlit: unlit === "1" }));
-        mesh.userData.figureKey = figureKey;
+        const entry = acquireGeometry(parts);
+        const mesh = new THREE.Mesh(entry.geometry, materialFor({ set, unlit: unlit === "1" }));
+        hold(mesh, entry);
         /* Glowing bits light nothing and cast nothing. */
         mesh.castShadow = unlit !== "1";
         mesh.receiveShadow = true;

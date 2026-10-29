@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
   humanoidSpec,
@@ -9,7 +9,17 @@ import {
   shade,
   mixColor,
 } from "../src/arcade/ascii3d/figureKit";
-import { buildFigure, figureStats, releaseFigure, liveFigureGeometries } from "../src/arcade/ascii3d/figureGeometry";
+import { buildFigure as buildShared, figureStats, releaseFigure, liveFigureGeometries } from "../src/arcade/ascii3d/figureGeometry";
+
+/* Every figure a test builds is given back after it, so no test is handed
+   geometry cached by an earlier one. */
+const built = [];
+const buildFigure = (spec, materialFor) => {
+  const figure = buildShared(spec, materialFor);
+  built.push(figure.root);
+  return figure;
+};
+afterEach(() => built.splice(0).forEach(releaseFigure));
 
 const LOOK = {
   skin: "#b78056",
@@ -129,23 +139,26 @@ describe("built figures", () => {
   });
 
   it("build the same vertices every time, down to the last float", () => {
+    expect(liveFigureGeometries(), "earlier tests left geometry cached").toBe(0);
     const snapshot = (spec) => {
       const { root } = buildFigure(spec, materialFor);
+      const geometries = [];
       const out = [];
       root.traverse((n) => {
         if (!n.isMesh) return;
         const g = n.geometry;
+        geometries.push(g);
         out.push([n.parent.name, ...["position", "normal", "color"].map((a) => Array.from(g.attributes[a].array)), Array.from(g.index.array)]);
       });
-      return { root, out };
+      return { root, geometries, out };
     };
     [trollSpec(), quadrupedSpec(QUADRUPEDS.wolf), humanoidSpec({ ...LOOK, armor: 2, weapon: 2, headwear: "brim" })].forEach((spec) => {
-      const live = liveFigureGeometries();
       const first = snapshot(spec);
       releaseFigure(first.root);
-      expect(liveFigureGeometries()).toBe(live);
-      /* Built again from nothing, not handed the cached copy. */
+      expect(liveFigureGeometries()).toBe(0);
+      /* Built again from nothing: every geometry a new object. */
       const second = snapshot(JSON.parse(JSON.stringify(spec)));
+      second.geometries.forEach((g) => expect(first.geometries).not.toContain(g));
       expect(second.out).toEqual(first.out);
       releaseFigure(second.root);
     });

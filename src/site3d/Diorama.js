@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { AsciiPass, glyphCode } from "../arcade/ascii3d/asciiPass";
-import { disposeMaterials, material } from "../arcade/ascii3d/materials";
-import { buildSurvivor, pose } from "../arcade/ascii3d/models";
+import { disposeMaterials, material, retainMaterials } from "../arcade/ascii3d/materials";
+import { buildSurvivor, disposeModel, pose } from "../arcade/ascii3d/models";
+import { releaseFigure } from "../arcade/ascii3d/figureGeometry";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
 import { Batch, tint, hash, addTree, addBlades, wind } from "../arcade/ascii3d/terrainMesh";
 import { KIND } from "../world/tiles";
@@ -139,6 +140,7 @@ function lost(scene) {
         },
         dispose() {
             disposeProps(sign.group);
+            disposeModel(wanderer);
             mark.geometry.dispose();
             ground.forEach((m) => m.geometry.dispose());
         },
@@ -156,6 +158,8 @@ export default class Diorama {
         this.clock = new THREE.Clock();
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "low-power" });
+        /* Past the point a missing WebGL throws: from here dispose() runs. */
+        retainMaterials();
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         const canvas = this.renderer.domElement;
@@ -230,6 +234,8 @@ export default class Diorama {
         cancelAnimationFrame(this.raf);
         this.observer.disconnect();
         this.set.dispose();
+        /* Any figure the set left holding shared geometry gives it back. */
+        releaseFigure(this.scene);
         this.ascii.dispose();
         disposeMaterials();
         this.renderer.dispose();

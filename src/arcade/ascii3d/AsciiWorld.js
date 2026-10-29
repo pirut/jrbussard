@@ -16,7 +16,7 @@ import {
     flashModel,
     disposeModel,
 } from "./models";
-import { disposeMaterials } from "./materials";
+import { disposeMaterials, retainMaterials } from "./materials";
 import { disposeMerged, mergeModel } from "./mergeModel";
 import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera, snapIsoCamera } from "./iso";
 import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality } from "./perf";
@@ -153,6 +153,8 @@ export default class AsciiWorld {
         this.nextFlash = 4;
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
+        /* Past the point a missing WebGL throws: from here dispose() runs. */
+        retainMaterials();
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap;

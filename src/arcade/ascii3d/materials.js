@@ -119,7 +119,21 @@ export function hitFlash() {
     return flashMaterial;
 }
 
+/*
+ * Materials are shared by every scene open at once (the Commons, the main
+ * site, a page's diorama). A scene calls retainMaterials() when it opens and
+ * disposeMaterials() when it closes; the materials are freed only when the
+ * last scene that retained them closes, so closing one does not pull them
+ * out from under another. A caller that never retained frees at once.
+ */
+let materialUsers = 0;
+export function retainMaterials() {
+    materialUsers += 1;
+}
+
 export function disposeMaterials() {
+    if (materialUsers > 0) materialUsers -= 1;
+    if (materialUsers > 0) return;
     cache.forEach((m) => m.dispose());
     cache.clear();
     figures.forEach((m) => m.dispose());

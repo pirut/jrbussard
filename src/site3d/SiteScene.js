@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { AsciiPass, glyphCode } from "../arcade/ascii3d/asciiPass";
-import { disposeMaterials } from "../arcade/ascii3d/materials";
-import { buildSurvivor, buildCursor, pose } from "../arcade/ascii3d/models";
+import { disposeMaterials, retainMaterials } from "../arcade/ascii3d/materials";
+import { buildSurvivor, buildCursor, disposeModel, pose } from "../arcade/ascii3d/models";
+import { releaseFigure } from "../arcade/ascii3d/figureGeometry";
 import { Batch, P, place, tint, hash, createWater, rippleWater, wind, WATER_LEVEL } from "../arcade/ascii3d/terrainMesh";
 import { streetlamp } from "../arcade/ascii3d/architecture";
 import { PHASES } from "../arcade/ascii3d/AsciiWorld";
@@ -87,6 +88,8 @@ export default class SiteScene {
         this.labels = [];
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
+        /* Past the point a missing WebGL throws: from here dispose() runs. */
+        retainMaterials();
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -769,8 +772,12 @@ export default class SiteScene {
         this.compound.forEach((m) => m.geometry.dispose());
         this.citizens.dispose();
         this.visitors.dispose();
+        disposeModel(this.player);
         this.props.forEach((prop) => disposeProps(prop.group));
         this.torches.forEach((t) => disposeProps(t.group));
+        /* Anything else in the scene still holding shared figure geometry
+           gives it back too, so nothing outlives the page. */
+        releaseFigure(this.scene);
         this.ascii.dispose();
         this.labelLayer.remove();
         if (this.perf) this.perf.dispose();
