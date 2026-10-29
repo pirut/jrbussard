@@ -38,13 +38,24 @@ import { ISO_YAW, screenToMap } from "./ascii3d/iso";
 import { passability, findPath } from "./ascii3d/navigation";
 import { createDemo } from "./ascii3d/demo";
 import { createWalker, judgeStep } from "./ascii3d/prediction";
-import DigControl, { digTargetInfo } from "./commons/DigControl";
+import DigControl, { digTargetInfo, nextMode } from "./commons/DigControl";
 import { withPending, ghostsFor, buildContext, judgeTile } from "./commons/building";
 import { linePath, ORIENTED, BUILD_COOLDOWN_MS } from "../lib/building";
 import "./arcade.css";
 import "./commons.css";
 import "./game.css";
 import "./commons/touch.css";
+import PauseMenu from "./commons/PauseMenu";
+import SettingsPanel from "./commons/SettingsPanel";
+import Coach from "./commons/Coach";
+import { ConnectionBanner, LoadingScreen, useOnline } from "./commons/ConnectionNotice";
+import { InputContext } from "./commons/input/InputContext";
+import { MOVE_VECTORS, actionsForKey, createKeymap, resolveBindings } from "./commons/input/actions";
+import useGamepad, { menuStep } from "./commons/input/useGamepad";
+import { settingsStore, useCommonsSettings } from "./commons/input/useSettings";
+import { resolveReducedMotion, resolveUiScale } from "./commons/input/settings";
+import { advanceTutorial, loadTutorial, saveTutorial, skipTutorial, tutorialStep } from "./commons/input/tutorial";
+import "./commons/ux.css";
 
 /*
  * THE COMMONS — a shared world, modelled in 3D and drawn in characters.
@@ -56,15 +67,25 @@ import "./commons/touch.css";
  * a pass that turns every patch of the picture into a character.
  */
 
-const MOVES = {
-  ArrowUp: [0, -1],
-  ArrowDown: [0, 1],
-  ArrowLeft: [-1, 0],
-  ArrowRight: [1, 0],
-  w: [0, -1],
-  s: [0, 1],
-  a: [-1, 0],
-  d: [1, 0],
+/* Arrow keys step through an open menu instead of walking. */
+const ARROWS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+/* Controls that use the arrow keys themselves. */
+const ownsArrows = (el) =>
+  el && (el.type === "range" || ["tab", "slider"].includes(el.getAttribute?.("role")));
+
+const FAMILY_NAME = {
+  xbox: "Xbox",
+  playstation: "PlayStation",
+  nintendo: "Nintendo",
+  generic: "controller",
+};
+
+const localStore = () => {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 };
 
 /*
@@ -103,6 +124,9 @@ function Online() {
   const mutationsRef = useRef(mutations);
   mutationsRef.current = mutations;
   const [lost, setLost] = useState("");
+  const online = useOnline();
+  /* Bumped by "try again" to ask to join once more. */
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     document.title = "The Commons · a shared survival world";
@@ -110,7 +134,7 @@ function Online() {
 
   useEffect(() => {
     join({ session, name }).catch(() =>
-      setLost("Could not join. Check your connection."),
+      setLost("Could not join the world. Check your connection and try again."),
     );
     const timer = window.setInterval(() => {
       heartbeat({ session })
@@ -118,7 +142,7 @@ function Online() {
         .catch(() => setLost("Connection interrupted. Reconnecting…"));
     }, 15000);
     return () => window.clearInterval(timer);
-  }, [join, heartbeat, session, name]);
+  }, [join, heartbeat, session, name, attempt]);
 
   const call = useCallback(
     (kind, args = {}) => mutationsRef.current[kind]({ session, ...args }),
@@ -136,12 +160,18 @@ function Online() {
 
   if (!state) {
     return (
-      <main className="commons-game commons-game--loading">
-        <p className="game-loading">
-          <span>THE COMMONS</span>
-          {lost || "walking out to the field…"}
-        </p>
-      </main>
+      <LoadingScreen
+        problem={lost}
+        online={online}
+        onRetry={() => {
+          /* A failed join can be asked again; a world that never answered
+             needs a fresh connection. */
+          if (lost) {
+            setLost("");
+            setAttempt((n) => n + 1);
+          } else window.location.reload();
+        }}
+      />
     );
   }
   return (
@@ -150,6 +180,7 @@ function Online() {
       projects={projects}
       call={call}
       live
+      online={online}
       status={lost}
       onSaveCharacter={saveCharacter}
     />
@@ -288,6 +319,7 @@ function Game({
   projects = null,
   call,
   live,
+  online = true,
   status = "",
   onSaveCharacter,
 }) {
@@ -296,6 +328,81 @@ function Game({
   const fieldApi = useRef(null);
   const chatRef = useRef(null);
   const [muted, toggleSound] = useCommonsSound(fieldApi);
+
+  /* ── Input: settings, the device in hand, and what it calls things ─── */
+
+  const settings = useCommonsSettings();
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const bindings = useMemo(() => resolveBindings(settings.keys), [settings.keys]);
+  const keymap = useMemo(() => createKeymap(bindings), [bindings]);
+  const keymapRef = useRef(keymap);
+  keymapRef.current = keymap;
+  /* What the player last touched: "keyboard" (and mouse), "touch" or
+     "gamepad". Hints, glyphs and the HUD's size follow it. */
+  const [device, setDevice] = useState(() => (touchFirst() ? "touch" : "keyboard"));
+  const deviceRef = useRef(device);
+  deviceRef.current = device;
+  const [family, setFamily] = useState("generic");
+  const input = useMemo(() => ({ device, family, bindings }), [device, family, bindings]);
+  useEffect(() => {
+    const onKey = (event) => {
+      /* The phone's own keyboard typing a chat line is still touch. */
+      if (!event.isTrusted || ["INPUT", "TEXTAREA"].includes(event.target?.tagName)) return;
+      setDevice("keyboard");
+    };
+    const onPointer = (event) => {
+      if (event.isTrusted) setDevice(event.pointerType === "touch" ? "touch" : "keyboard");
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onPointer, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onPointer, true);
+    };
+  }, []);
+
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const uiScale = resolveUiScale(settings.uiScale, { device, width });
+  const [systemCalm] = useState(() => {
+    try {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      return false;
+    }
+  });
+  const reducedMotion = resolveReducedMotion(settings.reducedMotion, systemCalm);
+  useEffect(() => {
+    if (fieldApi.current) fieldApi.current.reducedMotion = reducedMotion;
+  }, [reducedMotion]);
+
+  /* Draw under a phone's notch and home bar while the game is up; the HUD
+     keeps clear of them itself (see commons/ux.css). */
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return undefined;
+    const before = meta.getAttribute("content") || "";
+    if (!before.includes("viewport-fit")) meta.setAttribute("content", `${before}, viewport-fit=cover`);
+    return () => meta.setAttribute("content", before);
+  }, []);
+
+  /* The tutorial: which of its cards are done (see input/tutorial.js). */
+  const [tutorial, setTutorial] = useState(() => loadTutorial(localStore()));
+  const tutorialRef = useRef(tutorial);
+  tutorialRef.current = tutorial;
+  useEffect(() => saveTutorial(localStore(), tutorial), [tutorial]);
+  const teach = useCallback(
+    (event) => setTutorial((done) => advanceTutorial(done, event)),
+    [],
+  );
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [notice, setNotice] = useState("");
   const [panel, setPanel] = useState(null);
@@ -320,6 +427,8 @@ function Game({
   const [dragging, setDragging] = useState(false);
   /* Offline, the camera circles the camp until you step in. */
   const [playing, setPlaying] = useState(live);
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
   /* Larger cells on phones: easier to read, and far fewer to draw. */
   const [density] = useState(() =>
     window.innerWidth < 700 || touchFirst() ? "coarse" : "normal",
@@ -342,18 +451,6 @@ function Game({
   paintRef.current = paint;
 
   const me = state.me;
-
-  /* The controls open by themselves the first time you step in. */
-  useEffect(() => {
-    if (!playing) return;
-    try {
-      if (window.localStorage.getItem("commons:controls-seen")) return;
-      window.localStorage.setItem("commons:controls-seen", "1");
-    } catch {
-      return;
-    }
-    setHelp(true);
-  }, [playing]);
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -416,6 +513,8 @@ function Game({
   const tapRef = useRef(null);
   /* The touch thumbstick's lean, in screen pixels, while a finger drags. */
   const stickRef = useRef(null);
+  /* A controller's left stick, -1 to 1 each way, while it leans. */
+  const padMoveRef = useRef(null);
   const mouseRef = useRef({ held: false, last: 0 });
   /* When a movement key last went down, and when a step last went out. */
   const downAtRef = useRef(0);
@@ -788,10 +887,10 @@ function Game({
         ? null
         : held?.length
           ? [
-              Math.sign(held.reduce((sum, k) => sum + MOVES[k][0], 0)),
-              Math.sign(held.reduce((sum, k) => sum + MOVES[k][1], 0)),
+              Math.sign(held.reduce((sum, k) => sum + MOVE_VECTORS[k][0], 0)),
+              Math.sign(held.reduce((sum, k) => sum + MOVE_VECTORS[k][1], 0)),
             ]
-          : stickRef.current;
+          : stickRef.current || padMoveRef.current;
       let want = [0, 0];
       const plan = alive && !lean ? planRef.current : null;
       if (lean) {
@@ -843,6 +942,8 @@ function Game({
         body.vy = 0;
         body.speed = 0;
       }
+      /* However they got there, walking ticks off the first card. */
+      if (body.speed > 0.5 && tutorialStep(tutorialRef.current)?.id === "move") teach("move");
 
       /* A tile crossed is a step taken: say so, one at a time, never
          cutting a corner. */
@@ -909,17 +1010,73 @@ function Game({
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [stepBy, sendStep, placeBody, primary, here, goThen, pumpBuild, setHover]);
+  }, [stepBy, sendStep, placeBody, primary, here, goThen, pumpBuild, setHover, teach]);
+
+  /* ── Controllers ──────────────────────────────────────────────────── */
+
+  /* The right stick turns the camera a quarter per flick; it has to come
+     back to the middle before it turns again. */
+  const lookArmed = useRef(true);
+  const { rumble } = useGamepad({
+    rootRef,
+    settingsRef,
+    getContext: () =>
+      stateRef.current.me?.hp <= 0 ? "dead" : buildingRef.current ? "build" : "play",
+    onDevice: (maker) => {
+      setDevice("gamepad");
+      setFamily(maker);
+    },
+    onConnect: (connected, maker) => {
+      if (connected) setFamily(maker);
+      else padMoveRef.current = null;
+      flash(connected ? `${FAMILY_NAME[maker]} connected` : "controller disconnected");
+    },
+    onAction: (action) => {
+      if (!playingRef.current) return;
+      if (action === "act") mouseRef.current = { held: true, last: performance.now() };
+      if (action === "cancel") runRef.current.back(false);
+      else runRef.current.run(action);
+    },
+    onRelease: (action) => {
+      if (action === "act") mouseRef.current.held = false;
+    },
+    onFrame: (frame, dt) => {
+      const [mx, my] = frame.move;
+      padMoveRef.current = playingRef.current && (mx || my) ? [mx, my] : null;
+      const field = fieldApi.current;
+      if (!field || !playingRef.current) return;
+      const [lx, ly] = frame.look;
+      if (firstPersonRef.current) {
+        if (lx || ly) field.look(lx * dt * 2.6, ly * dt * 2);
+        return;
+      }
+      if (Math.abs(lx) > 0.6 && lookArmed.current) {
+        lookArmed.current = false;
+        runRef.current.run(lx > 0 ? "cameraRight" : "cameraLeft");
+      } else if (Math.abs(lx) < 0.25) lookArmed.current = true;
+      if (Math.abs(ly) > 0.1) field.zoomBy(Math.exp(ly * dt * 1.6));
+      /* No pointer: aim at whatever is in front of you. */
+      if (deviceRef.current === "gamepad") setHover(facingSpot());
+    },
+  });
 
   /* ── Feedback ─────────────────────────────────────────────────────── */
 
-  /* Gains float up off you: experience, gold, what you gathered. */
+  /* Gains float up off you: experience, gold, what you gathered. Hits,
+     falls and level ups shake the controller or the phone. */
   const lastMe = useRef(null);
   useEffect(() => {
     const prev = lastMe.current;
     lastMe.current = me;
     if (!prev || !me || !fieldApi.current) return;
     const api = fieldApi.current;
+    if (me.hp < prev.hp) {
+      const fell = me.hp <= 0;
+      rumble(fell ? "death" : "hit");
+      if (deviceRef.current === "touch" && settingsRef.current.rumble)
+        navigator.vibrate?.(fell ? [80, 60, 220] : 35);
+    }
+    if (me.level > prev.level) rumble("levelUp");
     if (me.level > prev.level) api.floatSelf(`LEVEL ${me.level}`, "level");
     else if (me.xp > prev.xp) api.floatSelf(`+${me.xp - prev.xp} xp`, "gain");
     if (me.gold > prev.gold)
@@ -927,13 +1084,15 @@ function Game({
     const before = inventoryOf(prev);
     const after = inventoryOf(me);
     Object.keys(after).forEach((item) => {
-      if (after[item] > before[item])
+      if (after[item] > before[item]) {
         api.floatSelf(
           `+${after[item] - before[item]} ${ITEMS[item]?.name.toLowerCase() || item}`,
           "gain",
         );
+        teach("gather");
+      }
     });
-  }, [me]);
+  }, [me, rumble, teach]);
 
   /* Take down what you are aiming at, or facing, if it is yours. */
   const removeAimed = useCallback(() => {
@@ -985,8 +1144,11 @@ function Game({
   useEffect(() => {
     const typing = () =>
       document.activeElement &&
-      ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+      ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName) &&
+      document.activeElement.type !== "range";
 
+    /* Keys become actions through the player's bindings (see
+       commons/input/actions.js); runRef.current.run does the rest. */
     const onKeyDown = (event) => {
       if (customizing) return;
       const undoChord =
@@ -999,104 +1161,69 @@ function Game({
         }
         return;
       }
-      /* Inside a window the keyboard belongs to the window: Tab moves
-         between its buttons and Enter or Space presses them. Only Esc and
-         the keys that switch panels still reach the game. */
+      const { run, back } = runRef.current;
+      const actions = actionsForKey(keymapRef.current, event.key);
+      const has = (a) => actions.includes(a);
+      /* Inside a window the keyboard belongs to the window: Tab and the
+         arrows move between its buttons and Enter or Space presses them.
+         Only Esc and the keys that switch panels still reach the game. */
       const active = document.activeElement;
-      const inWindow = active?.closest?.('[role="dialog"], [role="alertdialog"]');
+      const inWindow = active?.closest?.('[role="dialog"], [role="alertdialog"], [data-pad-menu]');
       if (inWindow) {
-        const key = event.key.toLowerCase();
-        if (event.key === "Escape") {
-          if (help) setHelp(false);
-          else if (panel) setPanel(null);
-          else if (inspected) setInspected(null);
-        } else if (key === "c" || key === "i" || key === "j") {
-          const tab = { c: "Craft", i: "Pack", j: "Journal" }[key];
-          if (panel) setPanel((p) => (p === tab ? null : tab));
-        } else if ((key === "h" || key === "?") && help) setHelp(false);
-        else if (key === "r" && me?.hp <= 0) act("respawn");
+        if (ARROWS[event.key] && !ownsArrows(active)) {
+          event.preventDefault();
+          menuStep(inWindow, ARROWS[event.key]);
+        } else if (event.key === "Escape") back(false);
+        else if (panel && (has("craft") || has("pack") || has("journal"))) {
+          const tab = has("pack") ? "Pack" : has("journal") ? "Journal" : "Craft";
+          setPanel((p) => (p === tab ? null : tab));
+        } else if (has("help") && help) setHelp(false);
+        else if (has("respawn") && me?.hp <= 0) act("respawn");
         return;
       }
+      /* The title screen is a menu: its buttons have the keys. */
+      if (!playing) return;
       /* A focused HUD button keeps Enter and Space for itself. */
       if (
         (event.key === "Enter" || event.key === " ") &&
         active?.closest?.(".game-hud button, .game-hud a")
       )
         return;
-      const move = MOVES[event.key]
-        ? event.key
-        : MOVES[event.key.toLowerCase()]
-          ? event.key.toLowerCase()
-          : null;
+      const move = actions.find((a) => MOVE_VECTORS[a]);
       if (move) {
         event.preventDefault();
-        if (!playing) setPlaying(true);
         if (!heldRef.current.includes(move)) {
           heldRef.current = [...heldRef.current, move];
           downAtRef.current = performance.now();
         }
         return;
       }
-      if (event.key === "Enter" || event.key === "t") {
-        event.preventDefault();
-        setChatting(true);
-        window.setTimeout(() => chatRef.current?.focus(), 0);
-        return;
-      }
-      if (event.key === "Tab") {
-        event.preventDefault();
-        setPanel((p) => (p ? null : "Craft"));
-        return;
-      }
       if (event.key === "Escape") {
-        if (help) setHelp(false);
-        else if (panel) setPanel(null);
-        else if (inspected) setInspected(null);
-        else if (buildingRef.current) setBuilding(false);
-        else if (mapOpen) setMapOpen(false);
-        planRef.current = null;
-        queueRef.current = [];
-        setPaint(null);
+        /* Back out of whatever is open; with nothing open, the menu. */
+        back(true);
         return;
       }
-      if (undoChord) event.preventDefault();
-      const key = event.key.toLowerCase();
-      const slot = BUILD_MENU.find((entry) => entry.key === event.key);
-      if (event.key === " ") {
+      if (undoChord) {
         event.preventDefault();
-        primary(hoverRef.current || facingSpot());
-      } else if (slot) {
+        run("undo");
+        return;
+      }
+      const slot = BUILD_MENU.find((entry) => entry.key === event.key);
+      if (slot) {
         setSelected(slot.kind);
         setBuilding(true);
-      } else if (key === "b") setBuilding((b) => !b);
-      else if (key === "x") removeAimed();
-      else if (key === "z") undoLast();
-      else if (key === "r" && buildingRef.current && me?.hp > 0) turnPiece();
-      else if (key === "q") act("drink");
-      else if (key === "e")
-        act("eat", {
-          item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries",
-        });
-      else if (key === "c") setPanel((p) => (p === "Craft" ? null : "Craft"));
-      else if (key === "i") setPanel((p) => (p === "Pack" ? null : "Pack"));
-      else if (key === "j")
-        setPanel((p) => (p === "Journal" ? null : "Journal"));
-      else if (key === "k" && me) setSheet("Character");
-      else if (key === "p") setFirstPerson((on) => !on);
-      else if (key === "f") toggleFullscreen();
-      else if (key === "m") setMapOpen((m) => !m);
-      else if (key === "v") setRaw((r) => !r);
-      else if (key === "h" || key === "?") setHelp((h) => !h);
-      else if (key === "[") fieldApi.current?.rotate(-Math.PI / 2);
-      else if (key === "]") fieldApi.current?.rotate(Math.PI / 2);
-      else if (key === "-") fieldApi.current?.zoomBy(1.25);
-      else if (key === "=" || key === "+") fieldApi.current?.zoomBy(0.8);
-      else if (key === "r" && me?.hp <= 0) act("respawn");
+        return;
+      }
+      if (!actions.length) return;
+      /* Tab and Space would otherwise move focus or scroll. */
+      event.preventDefault();
+      actions.forEach(run);
     };
     const onKeyUp = (event) => {
-      const key = MOVES[event.key] ? event.key : event.key.toLowerCase();
+      const moves = actionsForKey(keymapRef.current, event.key).filter((a) => MOVE_VECTORS[a]);
+      if (!moves.length) return;
       const before = heldRef.current;
-      heldRef.current = before.filter((k) => k !== key && k !== event.key);
+      heldRef.current = before.filter((k) => !moves.includes(k));
       /* Let go before the step it asked for was taken: take it anyway. */
       if (
         before.length !== heldRef.current.length &&
@@ -1117,26 +1244,7 @@ function Game({
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", release);
     };
-  }, [
-    customizing,
-    playing,
-    help,
-    panel,
-    inspected,
-    mapOpen,
-    primary,
-    goThen,
-    act,
-    me,
-    toggleFullscreen,
-    facingSpot,
-    flash,
-    here,
-    removeAt,
-    undoLast,
-    turnPiece,
-    removeAimed,
-  ]);
+  }, [customizing, playing, help, panel, me, act]);
 
   /* ── Mouse ────────────────────────────────────────────────────────── */
 
@@ -1239,7 +1347,7 @@ function Game({
       if (turn < -Math.PI) turn += 2 * Math.PI;
       p.twist += turn;
       if (Math.abs(p.twist) > TWIST) {
-        fieldApi.current?.rotate(-Math.sign(p.twist) * (Math.PI / 2));
+        turnCamera(-Math.sign(p.twist));
         p.twist = 0;
       }
       p.dist = now.dist;
@@ -1362,7 +1470,7 @@ function Game({
       /* Dragging sideways swings the camera round, a quarter at a time. */
       drag.turn += dx;
       if (Math.abs(drag.turn) > 90) {
-        fieldApi.current?.rotate(-Math.sign(drag.turn) * (Math.PI / 2));
+        turnCamera(-Math.sign(drag.turn));
         drag.turn = 0;
       }
       return;
@@ -1428,6 +1536,140 @@ function Game({
     [onSaveCharacter, flash],
   );
 
+  /* ── Actions ──────────────────────────────────────────────────────── */
+
+  const turnCamera = useCallback(
+    (way) => {
+      fieldApi.current?.rotate(way * (Math.PI / 2));
+      teach(way < 0 ? "cameraLeft" : "cameraRight");
+    },
+    [teach],
+  );
+
+  const cyclePiece = (way) => {
+    const at = BUILD_MENU.findIndex((entry) => entry.kind === selectedRef.current);
+    const next = BUILD_MENU[(at + way + BUILD_MENU.length) % BUILD_MENU.length];
+    setSelected(next.kind);
+    setBuilding(true);
+  };
+
+  /* Esc, B on a controller: shut the newest thing open, or stop what you
+     are doing. With nothing left, `openMenu` opens the menu. */
+  const back = (openMenu) => {
+    setPaint(null);
+    if (settingsOpen) setSettingsOpen(false);
+    else if (help) setHelp(false);
+    else if (menuOpen) setMenuOpen(false);
+    else if (panel) setPanel(null);
+    else if (inspected) setInspected(null);
+    else if (building) stopBuilding();
+    else if (digMode) setDigMode(null);
+    else if (mapOpen) setMapOpen(false);
+    else if (planRef.current || queueRef.current.length) {
+      planRef.current = null;
+      queueRef.current = [];
+    } else if (openMenu) setMenuOpen(true);
+  };
+
+  /* Every control, from every device, arrives here by name. */
+  const run = (action) => {
+    const alive = me?.hp > 0;
+    const toggle = (tab) => setPanel((p) => (p === tab ? null : tab));
+    switch (action) {
+      case "act":
+        primary(hoverRef.current || facingSpot());
+        break;
+      case "build":
+        setBuilding((b) => !b);
+        break;
+      case "remove":
+        removeAimed();
+        break;
+      case "undo":
+        undoLast();
+        break;
+      case "turnPiece":
+        if (building && alive) turnPiece();
+        break;
+      case "prevPiece":
+        cyclePiece(-1);
+        break;
+      case "nextPiece":
+        cyclePiece(1);
+        break;
+      case "respawn":
+        if (!alive) act("respawn");
+        break;
+      case "eat":
+        act("eat", { item: (me?.inventory?.meal || 0) > 0 ? "meal" : "berries" });
+        break;
+      case "drink":
+        act("drink");
+        break;
+      case "shovel":
+        setDigMode((m) => nextMode(m));
+        break;
+      case "craft":
+        toggle("Craft");
+        break;
+      case "pack":
+        toggle("Pack");
+        break;
+      case "journal":
+        toggle("Journal");
+        break;
+      case "character":
+        if (me) setSheet("Character");
+        break;
+      case "firstPerson":
+        setFirstPerson((on) => !on);
+        break;
+      case "fullscreen":
+        toggleFullscreen();
+        break;
+      case "map":
+        setMapOpen((m) => !m);
+        break;
+      case "raw":
+        setRaw((r) => !r);
+        break;
+      case "help":
+        setHelp((h) => !h);
+        break;
+      case "pause":
+        setMenuOpen((m) => !m);
+        break;
+      case "chat":
+        openChat();
+        break;
+      case "cameraLeft":
+        turnCamera(-1);
+        break;
+      case "cameraRight":
+        turnCamera(1);
+        break;
+      case "zoomIn":
+        fieldApi.current?.zoomBy(0.8);
+        break;
+      case "zoomOut":
+        fieldApi.current?.zoomBy(1.25);
+        break;
+      default:
+    }
+  };
+  const runRef = useRef(null);
+  runRef.current = { run, back };
+
+  useEffect(() => {
+    if (panel) teach("craft");
+  }, [panel, teach]);
+  useEffect(() => {
+    if (building) teach("build");
+  }, [building, teach]);
+  useEffect(() => {
+    if (menuOpen) teach("pause");
+  }, [menuOpen, teach]);
+
   /* ── Drawing ──────────────────────────────────────────────────────── */
 
   const aim = playing ? hover || null : null;
@@ -1458,16 +1700,22 @@ function Game({
   const inspection =
     state.players.find((p) => p.id === inspected?.id) || inspected;
 
+  /* Windows over the game hide the tutorial card. */
+  const windowOpen = Boolean(menuOpen || settingsOpen || help || panel || customizing);
+
   return (
+    <InputContext.Provider value={input}>
     <main
       ref={rootRef}
-      className={`commons-game commons-game--${state.phase} ${building ? "is-building" : ""} ${dragging ? "is-turning" : ""} ${fullscreen ? "is-fullscreen" : ""}`}
+      data-input={device}
+      style={{ "--ui-scale": uiScale }}
+      className={`commons-game commons-game--${state.phase} ${building ? "is-building" : ""} ${dragging ? "is-turning" : ""} ${fullscreen ? "is-fullscreen" : ""} ${settings.highContrast ? "is-high-contrast" : ""} ${reducedMotion ? "is-reduced-motion" : ""}`}
     >
       <div
         ref={stageRef}
         className="game-stage"
         role="application"
-        aria-label="The Commons. WASD to walk, click to act, brackets to turn the camera, H for help."
+        aria-label="The Commons. WASD or a controller's left stick to walk, click or A to act, Escape or Start for the menu, H for every control."
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -1537,7 +1785,8 @@ function Game({
               onFullscreen={toggleFullscreen}
               firstPerson={firstPerson}
               onFirstPerson={() => setFirstPerson((on) => !on)}
-              onTurn={(way) => fieldApi.current?.rotate(way * (Math.PI / 2))}
+              onTurn={turnCamera}
+              onMenu={() => setMenuOpen(true)}
             >
               <button
                 onClick={toggleSound}
@@ -1595,18 +1844,17 @@ function Game({
             onStop={stopBuilding}
           />
 
-          <DigControl
-            mode={digMode}
-            setMode={setDigMode}
-            me={me}
-            disabled={customizing || chatting}
-          />
+          <DigControl mode={digMode} setMode={setDigMode} me={me} />
 
-          {status && (
-            <p className="hud-status" role="alert">
-              {status}
-            </p>
+          {settings.hints && !windowOpen && me?.hp > 0 && (
+            <Coach
+              done={tutorial}
+              onNext={() => teach("dismiss")}
+              onSkip={() => setTutorial(skipTutorial())}
+            />
           )}
+
+          <ConnectionBanner status={status} online={online} />
           <p
             className={`hud-notice ${notice ? "is-on" : ""}`}
             role="status"
@@ -1640,13 +1888,53 @@ function Game({
             </HudWindow>
           )}
 
-          {help && <HelpOverlay onClose={() => setHelp(false)} />}
-
           {me?.hp <= 0 && <DeathScreen onRespawn={() => act("respawn")} />}
         </div>
       )}
 
-      {!playing && <TitleScreen live={live} onPlay={() => setPlaying(true)} />}
+      {!playing && (
+        <TitleScreen
+          live={live}
+          returning={tutorial.length > 0}
+          onPlay={() => setPlaying(true)}
+          onHelp={() => setHelp(true)}
+          onSettings={() => setSettingsOpen(true)}
+        />
+      )}
+
+      {/* The menu and the windows it opens, over the title screen too. */}
+      <div className="game-hud game-overlay">
+        {menuOpen && playing && (
+          <PauseMenu
+            me={me}
+            fullscreen={fullscreen}
+            onResume={() => setMenuOpen(false)}
+            onSettings={() => setSettingsOpen(true)}
+            onControls={() => setHelp(true)}
+            onCharacter={() => {
+              setMenuOpen(false);
+              setSheet("Character");
+            }}
+            onMap={() => {
+              setMenuOpen(false);
+              setMapOpen((m) => !m);
+            }}
+            onFullscreen={toggleFullscreen}
+          />
+        )}
+        {help && <HelpOverlay onClose={() => setHelp(false)} />}
+        {settingsOpen && (
+          <SettingsPanel
+            onClose={() => setSettingsOpen(false)}
+            onReplayTutorial={() => {
+              setTutorial([]);
+              settingsStore.set({ hints: true });
+              setSettingsOpen(false);
+              setMenuOpen(false);
+            }}
+          />
+        )}
+      </div>
 
       {inspection && playing && (
         <Inspect player={inspection} onClose={() => setInspected(null)} />
@@ -1663,5 +1951,6 @@ function Game({
         />
       )}
     </main>
+    </InputContext.Provider>
   );
 }
