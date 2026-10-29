@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { InputHub } from '../input/hub';
 import { colors } from './theme';
+import { useListNav } from './useListNav';
 
 export type MenuItem = { label: string; detail?: string; onSelect: () => void };
 
@@ -11,7 +12,10 @@ export type MenuItem = { label: string; detail?: string; onSelect: () => void };
  *   d-pad and a paired controller move focus through the platform's own
  *   focus engine, and select presses the item.
  * - Web and phones: touch or click an item, or move a highlight with the
- *   keyboard or a gamepad through the input hub.
+ *   keyboard or a gamepad through the input hub (see useListNav).
+ *
+ * Escape / the controller's menu button also leave a menu that has somewhere
+ * to go back to: the hub reports them as `back`.
  */
 export function Menu({
   title,
@@ -26,22 +30,10 @@ export function Menu({
   hub: InputHub;
   onBack?: () => void;
 }) {
-  const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    if (Platform.isTV) return;
-    const poll = setInterval(() => hub.poll(), 50);
-    const off = hub.onPress((action) => {
-      if (action === 'up') setIndex((i) => (i + items.length - 1) % items.length);
-      else if (action === 'down') setIndex((i) => (i + 1) % items.length);
-      else if (action === 'confirm') setIndex((i) => (items[i]?.onSelect(), i));
-      else if ((action === 'back' || action === 'pause') && onBack) onBack();
-    });
-    return () => {
-      clearInterval(poll);
-      off();
-    };
-  }, [hub, items, onBack]);
+  const [index, setIndex] = useListNav(hub, items.length, {
+    onSelect: useCallback((i: number) => items[i]?.onSelect(), [items]),
+    onBack,
+  });
 
   return (
     <View style={styles.wrap}>

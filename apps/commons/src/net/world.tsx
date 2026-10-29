@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConvexProvider, useMutation, useQuery } from 'convex/react';
 import type { FunctionArgs, FunctionReturnType } from 'convex/server';
-import { api, convex, loadIdentity } from './convex';
+import { api, convex, gameApi, loadIdentity } from './convex';
 import { createDemo } from '../shared';
 
 /*
@@ -11,12 +11,19 @@ import { createDemo } from '../shared';
  */
 export type WorldState = FunctionReturnType<typeof api.state>;
 
+/* Every way the player can change the world, by the name the game uses. The
+   offline stand-in answers to the same names (demo.js `calls`). */
 type Mutations = {
   move: typeof api.move;
   harvest: typeof api.harvest;
   terraform: typeof api.terraform;
   build: typeof api.build;
   respawn: typeof api.respawn;
+  craft: typeof api.craft;
+  eat: typeof api.eat;
+  drink: typeof api.drink;
+  say: typeof api.say;
+  claimQuest: typeof gameApi.claimQuest;
 };
 export type CallKind = keyof Mutations;
 export type CallArgs<K extends CallKind> = Omit<FunctionArgs<Mutations[K]>, 'session'>;
@@ -62,6 +69,11 @@ function Online({ session, name, children }: { session: string; name: string; ch
     terraform: useMutation(api.terraform),
     build: useMutation(api.build),
     respawn: useMutation(api.respawn),
+    craft: useMutation(api.craft),
+    eat: useMutation(api.eat),
+    drink: useMutation(api.drink),
+    say: useMutation(api.say),
+    claimQuest: useMutation(gameApi.claimQuest),
   };
   const mutationsRef = useRef(mutations);
   mutationsRef.current = mutations;

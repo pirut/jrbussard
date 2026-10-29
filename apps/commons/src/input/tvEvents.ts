@@ -22,27 +22,31 @@ export const TAP_MS = 250;
 
 type Binding = { action: Action; dir?: [number, number]; also?: Action };
 
+/* A remote key becomes an action, and optionally a push on the walking
+   stick. Direction keys do both: in the world they walk (and, held, keep
+   walking), and in a menu the same press steps the highlight (navUp…).
+   Select is "act" in the world and "confirm" in a menu: the screen decides
+   which one it listens to, so both are sent. */
 const BINDINGS: Record<string, Binding> = {
-  up: { action: 'up', dir: [0, 1] },
-  down: { action: 'down', dir: [0, -1] },
-  left: { action: 'left', dir: [-1, 0] },
-  right: { action: 'right', dir: [1, 0] },
-  longUp: { action: 'up', dir: [0, 1] },
-  longDown: { action: 'down', dir: [0, -1] },
-  longLeft: { action: 'left', dir: [-1, 0] },
-  longRight: { action: 'right', dir: [1, 0] },
-  swipeUp: { action: 'up', dir: [0, 1] },
-  swipeDown: { action: 'down', dir: [0, -1] },
-  swipeLeft: { action: 'left', dir: [-1, 0] },
-  swipeRight: { action: 'right', dir: [1, 0] },
-  /* Select gathers in the world and confirms in a menu. */
-  select: { action: 'gather', also: 'confirm' },
+  up: { action: 'navUp', dir: [0, 1] },
+  down: { action: 'navDown', dir: [0, -1] },
+  left: { action: 'navLeft', dir: [-1, 0] },
+  right: { action: 'navRight', dir: [1, 0] },
+  longUp: { action: 'navUp', dir: [0, 1] },
+  longDown: { action: 'navDown', dir: [0, -1] },
+  longLeft: { action: 'navLeft', dir: [-1, 0] },
+  longRight: { action: 'navRight', dir: [1, 0] },
+  swipeUp: { action: 'navUp', dir: [0, 1] },
+  swipeDown: { action: 'navDown', dir: [0, -1] },
+  swipeLeft: { action: 'navLeft', dir: [-1, 0] },
+  swipeRight: { action: 'navRight', dir: [1, 0] },
+  select: { action: 'act', also: 'confirm' },
   longSelect: { action: 'build' },
-  playPause: { action: 'dig' },
-  play: { action: 'dig' },
-  pause: { action: 'dig' },
+  playPause: { action: 'shovel' },
+  play: { action: 'shovel' },
+  pause: { action: 'shovel' },
   longPlayPause: { action: 'run' },
-  menu: { action: 'pause' },
+  menu: { action: 'pause', also: 'back' },
 };
 
 export type TvEvent = { eventType?: string; eventKeyAction?: number | null };

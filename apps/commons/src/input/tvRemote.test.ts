@@ -48,7 +48,7 @@ describe('Apple TV taps (lone key-up from a tap recognizer)', () => {
     send('up', UP);
     const f = hub.frame();
     expect(f.move).toEqual({ x: 0, y: 1 });
-    expect(f.pressed).toContain('up');
+    expect(f.pressed).toContain('navUp');
     vi.advanceTimersByTime(100);
     expect(hub.frame().move).toEqual({ x: 0, y: 1 });
     vi.advanceTimersByTime(400);
@@ -56,8 +56,8 @@ describe('Apple TV taps (lone key-up from a tap recognizer)', () => {
   });
 
   it.each([
-    ['select', 'gather'],
-    ['playPause', 'dig'],
+    ['select', 'act'],
+    ['playPause', 'shovel'],
     ['menu', 'pause'],
   ])('a tapped %s presses %s', (eventType, action) => {
     send(eventType, UP);
@@ -66,14 +66,14 @@ describe('Apple TV taps (lone key-up from a tap recognizer)', () => {
 
   it('select also confirms, for menus', () => {
     send('select', UP);
-    expect(hub.frame().pressed).toEqual(expect.arrayContaining(['gather', 'confirm']));
+    expect(hub.frame().pressed).toEqual(expect.arrayContaining(['act', 'confirm']));
   });
 
   it('two quick taps press twice', () => {
     send('playPause', UP);
     vi.advanceTimersByTime(50);
     send('playPause', UP);
-    expect(hub.frame().pressed.filter((a) => a === 'dig')).toHaveLength(2);
+    expect(hub.frame().pressed.filter((a) => a === 'shovel')).toHaveLength(2);
   });
 });
 
@@ -117,10 +117,10 @@ describe('Android TV (paired key-down / key-up)', () => {
     expect(hub.frame().move).toEqual({ x: 0, y: 0 });
   });
 
-  it('a center press gathers once', () => {
+  it('a center press acts once', () => {
     send('select', DOWN);
     send('select', UP);
-    expect(hub.frame().pressed.filter((a) => a === 'gather')).toHaveLength(1);
+    expect(hub.frame().pressed.filter((a) => a === 'act')).toHaveLength(1);
   });
 });
 

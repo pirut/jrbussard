@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Linking, Platform, StyleSheet, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GameScreen } from './game/GameScreen';
 import { createGamepad } from './input/gamepad';
@@ -8,6 +8,7 @@ import { keyboard } from './input/keyboard';
 import { CONVEX_URL } from './net/convex';
 import { WorldSource } from './net/world';
 import { Menu } from './ui/Menu';
+import { CONTROLS } from './ui/controlsText';
 import { colors } from './ui/theme';
 
 type Screen = 'title' | 'controls' | 'play';
@@ -73,12 +74,6 @@ export default function App() {
     </View>
   );
 }
-
-const CONTROLS = Platform.isTV
-  ? 'D-pad or controller to walk. Select gathers, play/pause digs, hold select builds a wall, menu pauses.'
-  : Platform.OS === 'web'
-    ? 'WASD or arrows to walk, shift to run. E gathers, F digs, B builds a wall, Esc pauses. A gamepad works too.'
-    : 'Left thumbstick to walk. Buttons on the right gather, dig and build. II pauses.';
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },

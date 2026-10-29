@@ -17,7 +17,10 @@ export const CONVEX_URL = (process.env.EXPO_PUBLIC_CONVEX_URL ?? '').trim();
 
 export const convex = CONVEX_URL ? new ConvexReactClient(CONVEX_URL) : null;
 
+/* The two modules the app calls: `world` (moving, gathering, crafting,
+   chat: convex/world.ts) and `game` (the quest chain: convex/game.ts). */
 export const api = (anyApi as unknown as typeof generated).world;
+export const gameApi = (anyApi as unknown as typeof generated).game;
 
 /* A stable per-install identity, like the browser's per-browser one. */
 const SESSION_KEY = 'commons_session';
