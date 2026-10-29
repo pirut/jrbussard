@@ -183,6 +183,10 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
 
     let last = 0;
     let clock = 0;
+    /* Nothing bites you until you have done something: the title screen
+       circles the camp for a while, and stepping in to find yourself
+       already dead is no welcome. */
+    let engaged = false;
     const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
     function tick(now) {
@@ -223,6 +227,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
                 if (m.hp <= 0 || p.hp <= 0) return;
                 if (Math.abs(p.x - m.x) + Math.abs(p.y - m.y) !== 1) return;
                 if (!p.self && random() < 0.35) wound(m, 2 + Math.floor(random() * 3), null);
+                if (p.self && !engaged) return;
                 if (random() < 0.3) {
                     const bite = m.kind === "troll" ? 6 : m.kind === "rat" ? 2 : 3;
                     p.hp = p.self ? Math.max(0, p.hp - bite) : Math.max(12, p.hp - bite);
@@ -536,6 +541,7 @@ export function createDemo({ phase: fixedPhase, weather: fixedWeather } = {}) {
         tick,
         snapshot,
         call(name, args = {}) {
+            engaged = true;
             return calls[name] ? calls[name](args) : null;
         },
     };
