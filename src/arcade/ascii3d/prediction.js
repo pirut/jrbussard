@@ -7,14 +7,23 @@
  * steps are still on their way, so a step the server refused costs one
  * small correction instead of a jump back when the next snapshot lands, and
  * steps it took are never undone.
+ *
+ * Pure bookkeeping with no timers or three.js, so it is unit-tested alone
+ * (prediction.test.js). The caller is arcade/Commons.js, which owns one
+ * walker for the session: it calls judgeStep() to decide whether to show a
+ * step, send() when it fires the move at the server, ack() when the reply
+ * returns, and sync() with each snapshot's `self`. Positions are integer
+ * map tiles. Acks are expected in the order the steps were sent; ack()
+ * also settles any earlier step still waiting when a later one is answered.
  */
 
 /* Steps on their way at once. Past this, walking waits for the server
    rather than running further ahead of it. */
 export const MAX_IN_FLIGHT = 4;
 
-/* Further than this from the server's word with nothing on the way, and you
-   were moved (a respawn, a teleport): go there at once. */
+/* Further than this (plus one per step still on the way, see sync) from the
+   server's word, and you were moved (a respawn, a teleport) rather than
+   merely a few steps ahead: go there at once. */
 const TELEPORT = 3;
 
 /*
@@ -24,6 +33,9 @@ const TELEPORT = 3;
  * tiles beside it open. A creature there means a swing, not a step.
  */
 export function judgeStep(nav, from, dx, dy) {
+    /* The ordering mirrors the server: a creature on the target tile is
+       attacked rather than walked into, a diagonal past a wall corner is
+       refused, and only then does tile occupancy matter. */
     const nx = from.x + dx;
     const ny = from.y + dy;
     const creature = nav.creatureAt(nx, ny);
@@ -31,6 +43,12 @@ export function judgeStep(nav, from, dx, dy) {
     return { creature, cornered, moved: !creature && !cornered && nav.free(nx, ny) };
 }
 
+/*
+ * A fresh walker. Three pieces of state: `confirmed`, the last position the
+ * server vouched for; `pending`, the steps sent and not yet answered, oldest
+ * first; and `shown`, the position the player sees, which is always
+ * `confirmed` with the pending steps that moved replayed on top.
+ */
 export function createWalker() {
     let confirmed = null;
     let pending = [];
@@ -47,6 +65,7 @@ export function createWalker() {
         return { x, y };
     };
 
+    /* Recompute `shown` from the state above; true if it moved. */
     const settle = () => {
         const next = replay();
         const changed = !shown || !next || shown.x !== next.x || shown.y !== next.y;
@@ -79,6 +98,9 @@ export function createWalker() {
                 confirmed = { x: me.x, y: me.y };
                 return settle();
             }
+            /* Chebyshev distance, to match diagonal steps costing one move.
+               The allowance grows with the steps outstanding, since each
+               could legitimately put the snapshot that far from `shown`. */
             const off = shown ? Math.max(Math.abs(shown.x - me.x), Math.abs(shown.y - me.y)) : Infinity;
             if (off > TELEPORT + pending.length) {
                 pending = [];

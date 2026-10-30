@@ -26,3 +26,44 @@ jobs:
       - run: npm run build:frontend
         env:
           CI: true
+
+  # The Convex functions and their rules, against an in-memory database.
+  # convex/_generated is gitignored and real codegen needs a deployment
+  # token, so a stand-in is written from the files in convex/ (see the
+  # script). It is enough to run the tests and typecheck the functions.
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node scripts/stub-convex-generated.cjs
+      - run: npx tsc --noEmit -p convex
+      - run: npm run test:commons
+
+  # The multiplatform Commons app (apps/commons) has its own install. Its
+  # typecheck needs the Convex bindings too, so it uses the same stand-in.
+  commons-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/commons
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/commons/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      # The typecheck follows type imports into ../../convex, which resolves
+      # `convex/server` and friends from the repo root's node_modules.
+      - run: npm ci --no-audit --no-fund
+        working-directory: .
+      - run: node ../../scripts/stub-convex-generated.cjs
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx expo export --platform web --output-dir /tmp/commons-web

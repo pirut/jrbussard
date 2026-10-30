@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+import React from "react";
+import { Glyph } from "./input/InputContext";
 import { TOOL_NAMES } from "../../lib/survival";
 import { groundIndex, surfaceAt, protectedGround, DIRT, MAX_DIG, MAX_RAISE } from "../../lib/ground";
 import { WATER, SAND, TREE, ROCK } from "../../lib/terrain";
@@ -6,7 +7,7 @@ import "./dig.css";
 
 /*
  * The shovel, in the HUD: which way it is set to work, and the key that
- * switches it. Kept to this file (and commons-dig.css) so the rest of the
+ * switches it. Kept to this file (and dig.css) so the rest of the
  * HUD can move around it.
  *
  *   G        cycle the shovel: dig → raise → level → off
@@ -14,9 +15,11 @@ import "./dig.css";
  *   Esc      put the shovel away
  *
  * Commons.js owns the mode (so a click knows to dig instead of walk) and
- * hands it in with `setMode`. The server judges every swing.
+ * the keys (the "shovel" action, remappable); this draws it and hands
+ * clicks back with `setMode`. The server judges every swing.
  */
 
+/* The shovel's working modes, in cycle order. "Off" is `null`, not a mode. */
 export const DIG_MODES = ["dig", "raise", "level"];
 
 const LABEL = { dig: "Dig", raise: "Raise", level: "Level" };
@@ -27,9 +30,23 @@ const VERB = {
     level: "click to bring it a step toward your height",
 };
 
-const nextMode = (mode) => (mode ? DIG_MODES[DIG_MODES.indexOf(mode) + 1] || null : "dig");
+/* Cycle for the shovel key: off → dig → raise → level → off. */
+export const nextMode = (mode) => (mode ? DIG_MODES[DIG_MODES.indexOf(mode) + 1] || null : "dig");
 
-/* The HUD's target line while the shovel is out. */
+/*
+ * The HUD's target line while the shovel is out: what is under the cursor and
+ * what a swing there would do, or why it cannot. The same { label, verb } shape
+ * as describeTarget (target.js), which Commons.js uses instead when the shovel
+ * is away. Returns null with no spot or no mode. These are hints only; the
+ * server (and src/lib/ground.js planTerraform) has the last word.
+ *
+ *   state  the snapshot (ground edits and placed cells)
+ *   spot   the tile under the cursor, { x, y }
+ *   mode   one of DIG_MODES, or null
+ *
+ * The order of checks matters: protected ground first, then an unfelled
+ * tree or rock (which must be cleared before digging), then the surface.
+ */
 export function digTargetInfo(state, spot, mode) {
     if (!spot || !mode) return null;
     if (protectedGround(spot.x, spot.y)) return { label: spot.x === 0 || spot.y === 0 ? "the road" : "the crossroads", verb: "protected · no digging here" };
@@ -53,21 +70,18 @@ export function digTargetInfo(state, spot, mode) {
     return { label, verb: limit ? "as far as it will go" : VERB[mode] };
 }
 
-export default function DigControl({ mode, setMode, me, disabled = false }) {
+/*
+ *   mode     the active mode or null while the shovel is put away
+ *   setMode  called with a mode, or null when the active mode's button is
+ *            pressed again (so the buttons also work as an off switch)
+ *   me       your player, for the shovel tier; renders nothing before it exists
+ *
+ * Without a shovel (tier 0) the buttons still render, in an "is-empty" style
+ * that tells the player to craft one. The tool name is clamped to the last
+ * name because there are only three tiers. The tooltip names the default keys.
+ */
+export default function DigControl({ mode, setMode, me }) {
     const tier = me?.tools?.shovel || 0;
-
-    useEffect(() => {
-        const onKeyDown = (event) => {
-            if (disabled || event.metaKey || event.ctrlKey || event.altKey) return;
-            const active = document.activeElement;
-            if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
-            if (active?.closest?.('[role="dialog"], [role="alertdialog"]')) return;
-            if (event.key === "Escape") setMode(null);
-            else if (event.key.toLowerCase() === "g") setMode((m) => nextMode(m));
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [disabled, setMode]);
 
     if (!me) return null;
     return (
@@ -88,7 +102,7 @@ export default function DigControl({ mode, setMode, me, disabled = false }) {
                     </button>
                 ))}
             </div>
-            <kbd>G</kbd>
+            <Glyph action="shovel" />
         </section>
     );
 }

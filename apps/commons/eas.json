@@ -1,0 +1,43 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "base": {
+      "node": "24.0.0",
+      "env": { "EXPO_PUBLIC_CONVEX_URL": "https://industrious-dachshund-727.convex.cloud" }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": { "simulator": true },
+      "env": { "EXPO_PUBLIC_CONVEX_URL": "https://agile-sardine-811.convex.cloud" }
+    },
+    "development_tv": {
+      "extends": "development",
+      "env": { "EXPO_TV": "1", "EXPO_PUBLIC_CONVEX_URL": "https://agile-sardine-811.convex.cloud" }
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "android": { "buildType": "apk" }
+    },
+    "preview_tv": {
+      "extends": "preview",
+      "env": { "EXPO_TV": "1", "EXPO_PUBLIC_CONVEX_URL": "https://industrious-dachshund-727.convex.cloud" }
+    },
+    "production": {
+      "extends": "base",
+      "autoIncrement": true
+    },
+    "production_tv": {
+      "extends": "production",
+      "env": { "EXPO_TV": "1", "EXPO_PUBLIC_CONVEX_URL": "https://industrious-dachshund-727.convex.cloud" }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

@@ -15,17 +15,39 @@ import * as THREE from "three";
  * cut down to stubs (see cutaway() below), the way those games open a
  * building up when you walk into it, so nothing ever hides you and you can
  * see the room you are in.
+ *
+ * Callers: AsciiWorld (the Commons), site3d/SiteScene.js and Diorama.js (the
+ * site), and arcade/Commons.js and pages/World.js for screenToMap. Conventions:
+ * yaw is radians about the vertical axis, with the camera sitting at
+ * (sin yaw, ., cos yaw) from its target, so yaw 0 looks north (toward -z,
+ * map -y) from the south and ISO_YAW looks north-west from the south-east.
+ * World units are tiles; map (x, y) is three.js (x, z).
+ *
+ * Module state: CUT is a single set of uniforms shared by every material
+ * that has been through cutaway(), in every scene on the page. Whoever
+ * owns the frame calls aimCutaway() each frame; a scene that closes must
+ * switch it off (AsciiWorld.dispose does) so the next one does not inherit
+ * a cut aimed at something that no longer exists.
  */
 
+/* Thirty degrees down (the "isometric" angle of the survival games this
+   copies; true isometric is about 35.3). */
 export const ISO_PITCH = Math.PI / 6;
+/* Forty-five degrees: the camera at a corner of the map, so streets run
+   diagonally. The four allowed yaws are ISO_YAW plus a quarter turn each
+   (see isoTurn). */
 export const ISO_YAW = Math.PI / 4;
 /* How far back the camera hangs. Only the direction matters to an
-   orthographic camera; this just keeps everything in front of it. */
+   orthographic camera; this just keeps everything in front of it. The far
+   plane in createIsoCamera is 2 * ISO_BACK + 60, so the focus sits 120
+   units in and the frustum runs 180 beyond it. */
 export const ISO_BACK = 120;
 
 const scratch = new THREE.Vector3();
 
-/* A camera that looks along the isometric diagonal. */
+/* An orthographic camera with placeholder bounds: the real box is set every
+   frame by placeIsoCamera. userData.iso marks it so other code can tell it
+   from the first-person camera. */
 export function createIsoCamera() {
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, ISO_BACK * 2 + 60);
     camera.userData.iso = true;
@@ -40,7 +62,10 @@ export function isoBack(yaw, out = new THREE.Vector3()) {
 /*
  * Point the camera at `focus`, showing `height` world units from the top of
  * the screen to the bottom. `aspect` is the character grid's, width over
- * height.
+ * height (columns * cell width over rows * cell height, which is slightly
+ * different from the canvas's, since the grid is whole cells). `yaw` is
+ * radians (see the header). Call snapIsoCamera afterwards if the picture
+ * is to be kept on the cell grid.
  */
 export function placeIsoCamera(camera, focus, yaw, height, aspect) {
     const half = height / 2;
@@ -63,6 +88,12 @@ export function placeIsoCamera(camera, focus, yaw, height, aspect) {
  * still while you walk across it. Returns how many cells across and up the
  * camera now sits from the origin, for anything keyed to the ground (the
  * ASCII pass's texture), wrapped so it stays exact as a float.
+ *
+ * Needs the camera's matrixWorld to be current (placeIsoCamera does that).
+ * `cols`/`rows` are the character grid; `out` receives the cell offset
+ * (wrapped at 4096, which asciiPass's uCellShift and history.js rely on);
+ * `slack`, if given, receives how far in cells the snap moved the picture
+ * (in -0.5..0.5), for the pass to slide back out sub-cell.
  */
 const snapRight = new THREE.Vector3();
 const snapUp = new THREE.Vector3();
@@ -86,6 +117,8 @@ export function snapIsoCamera(camera, cols, rows, out = new THREE.Vector2(), sla
     if (slack) slack.set(ix - sx, iy - sy);
     camera.position.addScaledVector(snapRight, (ix - sx) * cw).addScaledVector(snapUp, (iy - sy) * ch);
     camera.updateMatrixWorld();
+    /* The wrap period must match history.js and the shader's cell-shift
+       handling: a jump here would read as the whole picture moving. */
     const wrap = (n) => ((n % 4096) + 4096) % 4096;
     return out.set(wrap(ix), wrap(iy));
 }
@@ -98,6 +131,8 @@ export function snapIsoCamera(camera, cols, rows, out = new THREE.Vector2(), sla
  * north-west and W with D walks due north.
  */
 export function screenToMap(yaw, sx, sy) {
+    /* (fx, fy): screen-up on the map, away from the camera. (rx, ry):
+       screen-right. They are the camera's axes flattened onto the ground. */
     const fx = -Math.sin(yaw);
     const fy = -Math.cos(yaw);
     const rx = Math.cos(yaw);
@@ -108,7 +143,9 @@ export function screenToMap(yaw, sx, sy) {
     return length < 1e-6 ? [0, 0] : [x / length, y / length];
 }
 
-/* The nearest of the four isometric turns to a yaw, as 0–3. */
+/* The nearest of the four isometric turns to a yaw, as 0–3 (0 is ISO_YAW,
+   each step a quarter turn the way yaw increases). The same count that
+   controls.js's TURN_UP is indexed by. */
 export function isoTurn(yaw) {
     const q = Math.round((yaw - ISO_YAW) / (Math.PI / 2));
     return ((q % 4) + 4) % 4;
@@ -124,6 +161,7 @@ export function isoTurn(yaw) {
  * of you is a stub at knee height, and you can see in.
  */
 export const CUT = {
+    /* 1 while the cut is active, 0 for none (set by aimCutaway). */
     uCutOn: { value: 0 },
     /* Where you stand: your feet. */
     uCutAt: { value: new THREE.Vector3() },
@@ -140,7 +178,12 @@ export const CUT = {
     uCutStorey: { value: 0.9 },
 };
 
-/* Aim the cut at someone standing at `at`, seen by `camera`. */
+/* Aim the cut at someone standing at `at` (a Vector3, their feet), seen by
+   `camera` (its matrixWorld must be current). `width`/`height` are the oval's
+   half extents in world units on screen; `stub` is how tall, above `at`,
+   a cut wall is left standing. `on: false` turns the cut off for everything
+   (first person does this; the orbit view also turns it off). Call once per frame, after the
+   camera has been placed and snapped. */
 export function aimCutaway(camera, at, { on = true, width = 5, height = 4.5, stub = 0.45 } = {}) {
     CUT.uCutOn.value = on ? 1 : 0;
     CUT.uCutAt.value.copy(at);
@@ -157,7 +200,14 @@ export function aimCutaway(camera, at, { on = true, width = 5, height = 4.5, stu
 /*
  * Teach a material to be cut away. Chains onto whatever onBeforeCompile it
  * already has (the grass sways in one). Figures are never passed through
- * this: people are not cut in half.
+ * this: people are not cut in half. (asFigure() clones materials, and a
+ * clone does not carry the patch because three.js's Material.copy leaves
+ * onBeforeCompile behind.)
+ *
+ * Any material passed in that has its own onBeforeCompile must also set its
+ * own customProgramCacheKey (the grass and sea do): the key made below
+ * only prefixes the existing one, and the default key is derived from the
+ * function source.
  */
 export function cutaway(mat) {
     if (mat.userData.cutaway) return mat;
@@ -167,6 +217,10 @@ export function cutaway(mat) {
     mat.onBeforeCompile = (shader, renderer) => {
         before.call(mat, shader, renderer);
         Object.assign(shader.uniforms, CUT);
+        /* The world position of each fragment, with instancing applied
+           (an InstancedMesh is placed by instanceMatrix on top of the model
+           matrix). The fragment stage below compares it against the
+           uniforms. */
         shader.vertexShader = shader.vertexShader
             .replace("#include <common>", "#include <common>\nvarying vec3 vCutWorld;")
             .replace(

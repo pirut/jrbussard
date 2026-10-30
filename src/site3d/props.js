@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { KIND } from "../world/tiles";
 import { material, ownMaterial } from "../arcade/ascii3d/materials";
 import { buildStructure, buildSurvivor } from "../arcade/ascii3d/models";
+import { releaseFigure } from "../arcade/ascii3d/figureGeometry";
 
 /*
  * The things in the workshop you walk up to, as models.
@@ -13,13 +14,39 @@ import { buildStructure, buildSurvivor } from "../arcade/ascii3d/models";
  * with its glow.
  *
  * Coordinates follow the Commons: one tile is one unit, x east, z south.
+ * Each builder draws around the origin of its own tile: the caller positions
+ * the group at the marker's tile and the standing height.
+ *
+ * Contract of every builder, as buildProp returns it:
+ *   { group, update(t, lit, seed), light? }
+ * `group` is a THREE.Group; `update` is called every frame by
+ * SiteScene.updateProps (t = scene seconds, 0 under reduced motion; lit =
+ * whether there is content behind this prop, from the counts World.js sets;
+ * seed = a per-prop phase so neighbours do not pulse together); `light`,
+ * when present, is {y, range, color} and is only a description: the scene
+ * owns a small pool of real point lights (MAX_LIGHTS, SiteScene.js) and
+ * lends them to the nearest lit props each frame, since a light per prop
+ * would be far past what the renderer can afford.
+ *
+ * Callers: SiteScene.buildProps and Diorama (arcade cabinets, the signpost,
+ * torches). This file does not decide what a prop opens or whether it is lit
+ * (World.js and the counts do) and does no placement.
+ *
+ * Disposal: geometries below live in a module-level cache for the life of
+ * the page and are never freed, because they are shared across scenes and
+ * there are only a handful of distinct shapes. Materials are the opposite: shared
+ * palette materials come from materials.js and are freed with the scene's
+ * retainMaterials() hold, but the "glow" materials here change colour per
+ * prop, so each prop has its own and disposeProps frees them.
  */
 
+/* Shared geometry by key, built on first use. */
 const geometries = new Map();
 function geo(key, make) {
     if (!geometries.has(key)) geometries.set(key, make());
     return geometries.get(key);
 }
+/* Boxes are keyed by size, so a repeated size across props is one geometry. */
 const box = (w, h, d) => geo(`b${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d));
 
 function mesh(geometry, mat, x = 0, y = 0, z = 0) {
@@ -30,7 +57,10 @@ function mesh(geometry, mat, x = 0, y = 0, z = 0) {
     return m;
 }
 
-/* A material whose colour flips between lit and cold. */
+/* A material whose colour flips between lit and cold. Unlit (basic) so it
+   keeps its colour at night when the scene lighting is low: "lit" has to
+   read as lit whatever the sun is doing. Flagged userData.own for
+   disposeProps. */
 function glow(lit, cold, set = "fire") {
     const mat = ownMaterial(lit, set, { unlit: true });
     mat.userData.own = true;
@@ -39,6 +69,7 @@ function glow(lit, cold, set = "fire") {
     return mat;
 }
 
+/* Cheap per-frame switch: copy one of the two stored colours, no allocation. */
 function setLit(mat, on) {
     mat.color.copy(on ? mat.userData.lit : mat.userData.cold);
 }
@@ -47,6 +78,11 @@ const TIMBER_DARK = "#7a5a3c";
 const STONE = "#8f978f";
 const SPINES = ["#e0a35e", "#c8735a", "#d9c27a", "#8fb0a0", "#b48ab8"];
 
+/* A bookshelf: `marker.index` is this slot's rank among its room's shelves
+   in reading order (assigned in world/build.js), and the same rank decides
+   which note it holds, so the first shelf shows the newest note. It is also
+   what varies the spine colours and heights, deterministically, so a shelf
+   looks the same on every load. Two rows of four spines face south (+z). */
 function bookshelf(marker) {
     const g = new THREE.Group();
     g.add(mesh(box(0.96, 0.9, 0.62), material(TIMBER_DARK, "timber"), 0, 0.45, 0));
@@ -89,7 +125,8 @@ function machine() {
     };
 }
 
-/* A repository: a star turning over a small brass mount. */
+/* A repository: a star turning over a small brass mount. A dim, slow, nearly
+   still star when it has no repository behind it. `seed` offsets the phase. */
 function star() {
     const g = new THREE.Group();
     g.add(mesh(geo("mount", () => new THREE.CylinderGeometry(0.12, 0.3, 0.6, 6)), material("#b49a6a", "timber"), 0, 0.3, 0));
@@ -108,7 +145,9 @@ function star() {
 }
 
 /* An arcade cabinet's screen and controls. The case around it is built
-   from the room's own wall tiles, so only the face is here. */
+   from the room's own wall tiles, so only the face is here. The screen hue
+   is picked by `marker.index` so a row of cabinets is a row of colours
+   (Diorama's arcade builds six, with indexes 0-5, one of each hue). */
 function cabinet(marker) {
     const g = new THREE.Group();
     g.add(mesh(box(0.96, 1.3, 0.8), material("#3e3346", "solid"), 0, 0.65, 0));
@@ -129,7 +168,9 @@ function cabinet(marker) {
     };
 }
 
-/* A terminal: a pedestal and a tilted green screen. Always on. */
+/* A terminal: a pedestal and a tilted green screen. Always on (it ignores
+   `lit`; nothing counts against it), with a rare brief dropout of the
+   screen for life. */
 function terminal() {
     const g = new THREE.Group();
     g.add(mesh(box(0.5, 0.8, 0.5), material("#5d6066", "solid"), 0, 0.4, 0));
@@ -145,6 +186,8 @@ function terminal() {
     };
 }
 
+/* The signpost comes from the Commons' own structure kit, so the site and
+   the Commons share one sign. Same for the torch below. */
 function signpost() {
     const g = buildStructure({ kind: "sign" }, {});
     g.scale.setScalar(1.25);
@@ -174,6 +217,8 @@ function lighthouse() {
     /* The beam: a long thin wedge that sweeps the water. */
     const beam = new THREE.Group();
     beam.position.y = 3.08;
+    /* The cone's tip is translated to the origin so the beam pivots about the
+       lamp, then laid on its side; the group is what turns (0.9 rad/s). */
     const ray = mesh(geo("beam", () => new THREE.ConeGeometry(0.22, 4.5, 6, 1, true).translate(0, -2.25, 0)), glow("#4f7f96", "#000000", "water"));
     ray.rotation.z = Math.PI / 2;
     ray.castShadow = false;
@@ -188,7 +233,8 @@ function lighthouse() {
     };
 }
 
-/* The operator, cast on a plinth in the atrium. */
+/* The operator, cast on a plinth in the atrium. A real survivor model, so
+   it takes a hold on shared figure geometry that disposeProps must give back. */
 function statue() {
     const g = new THREE.Group();
     g.add(mesh(box(0.96, 0.4, 0.96), material(STONE, "rock"), 0, 0.2, 0));
@@ -201,6 +247,8 @@ function statue() {
     return { group: g, update() {} };
 }
 
+/* Which tile kinds have a prop. Kinds absent here (walls, torches, which
+   SiteScene builds separately via buildTorch) get none. */
 const BUILDERS = {
     [KIND.BOOK]: bookshelf,
     [KIND.PROJECT]: machine,
@@ -212,6 +260,8 @@ const BUILDERS = {
     [KIND.STATUE]: statue,
 };
 
+/* A prop for a world marker ({kind, x, y, index, room} from world/build.js),
+   or null for a kind with no model. Tags the group with userData.kind. */
 export function buildProp(marker) {
     const make = BUILDERS[marker.kind];
     if (!make) return null;
@@ -227,8 +277,13 @@ export function buildTorch() {
     return g;
 }
 
+/* Free what a prop (or a torch) owns: its own glow materials, and any
+   figure geometry it holds. Shared palette materials and the module's
+   geometry cache are deliberately left alone. Safe to call twice. */
 export function disposeProps(root) {
     root.traverse((node) => {
         if (node.material && node.material.userData?.own) node.material.dispose();
     });
+    /* The statue is a survivor, and shares figure geometry. */
+    releaseFigure(root);
 }

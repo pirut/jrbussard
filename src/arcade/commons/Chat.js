@@ -1,6 +1,20 @@
 import React from "react";
+import { Glyph } from "./input/InputContext";
 
-/* Stable colour per name, so you learn to recognise people. */
+/*
+ * The chat and news log, bottom left, with a line to type into. A view
+ * only: Commons.js owns the draft text, whether the box is open, and the
+ * input's ref (it focuses the input itself once it has mounted, which is why
+ * the field is not simply always there). Used by Commons.js.
+ *
+ * While the box is open it holds the keyboard, so Commons.js stops treating
+ * keys as game actions; submitting or Esc hands it back (Commons.js blurs
+ * the input).
+ */
+
+/* Stable colour per name, so you learn to recognise people. A plain string
+   hash (kept unsigned with >>> 0) picks one of six hues; the same name always
+   gets the same colour on every client. */
 export function nameColor(name) {
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) {
@@ -10,7 +24,22 @@ export function nameColor(name) {
   return hues[hash % hues.length];
 }
 
-/* Bottom left: what people said and what happened, newest at the bottom. */
+/*
+ * Bottom left: what people said and what happened, newest at the bottom.
+ *
+ *   chat       the snapshot's log, NEWEST FIRST ({ name, text, kind }); only
+ *              the latest six show, flipped here so the newest sits lowest.
+ *              `kind` ("chat", "system", ...) becomes the class chat-<kind>;
+ *              only "chat" lines carry a name.
+ *   chatting   whether the input is open
+ *   draft, setDraft   the input's controlled value
+ *   inputRef   ref Commons.js uses to focus and blur the input
+ *   onOpen     the "talk" button; onSubmit the form submit
+ *   onBlur     input lost focus (Commons.js closes the box if it is empty)
+ *
+ * The list is an aria-live region so new lines are announced; the 160
+ * character limit matches the server's own cap on a chat line.
+ */
 export default function Chat({
   chat,
   chatting,
@@ -56,7 +85,7 @@ export default function Chat({
         </form>
       ) : (
         <button className="hud-chat-open" onClick={onOpen}>
-          <kbd>Enter</kbd> talk
+          <Glyph action="chat" /> talk
         </button>
       )}
     </section>

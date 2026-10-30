@@ -1,6 +1,40 @@
-/* Shared descriptions and deterministic resources; the server owns all changes. */
+/*
+ * The survival catalogue: what items, recipes and structures exist, what
+ * each tile yields when gathered, and the arithmetic of hunger and cold.
+ *
+ * Responsibility: shared descriptions and deterministic resources; the
+ * server owns all changes. Everything here is data or a pure function of its
+ * arguments. It deliberately does not mutate players, check cooldowns or
+ * look anything up in the database: convex/world.ts (craft, eat, harvest,
+ * build) and convex/tick.ts do that, and call into this file for the rules.
+ *
+ * Callers: convex/world.ts, convex/game.ts, convex/survival.ts, convex/tick.ts
+ * and convex/field.ts on the server; the browser's panels, HUD and
+ * character sheet (src/arcade/CommonsPanels.js, src/arcade/commons/*); the
+ * offline stand-in (src/arcade/ascii3d/demo.js); and the native app via
+ * apps/commons/src/shared.ts (ITEMS, FOOD, RECIPES, STRUCTURES, TOOL_NAMES,
+ * inventoryOf, recipeBlocker, costLabel).
+ *
+ * Invariants:
+ * - Imported by the Convex functions, the browser AND the native app, so it
+ *   stays dependency-free, deterministic plain JavaScript (only terrain.js).
+ *   The Convex bundle carries its own copy: after changing a recipe cost, a
+ *   structure, or resourceAt, run npm run commons:deploy, or the client's
+ *   "can craft" / ghost / "what is this tile" answers drift from what the
+ *   server accepts.
+ * - The server is authoritative. recipeBlocker is checked again inside the
+ *   craft mutation; the client uses it to grey buttons. resourceAt is a pure
+ *   function of coordinates so the client knows what it is aiming at, but
+ *   harvest re-derives it server-side.
+ * - Recipe ids, item ids and structure kinds are persisted (inventory keys,
+ *   milestones, stats such as "craft:smelt", cells.kind). Rename them and
+ *   old players' data stops matching; add new ones freely.
+ */
 import { tileAt, TREE, ROCK, WATER, GRASS, inSafeZone } from "./terrain";
 
+/* Display data for every item id: name, the glyph the ASCII pass draws and a
+   colour. The ids are the keys of a player's `inventory` (except wood and
+   stone, which are their own columns on the player row; see inventoryOf). */
 export const ITEMS = {
   wood: { name: "Wood", glyph: "/", color: "#c6a47b" },
   stone: { name: "Stone", glyph: "^", color: "#b0b9b2" },
@@ -15,11 +49,33 @@ export const ITEMS = {
   meal: { name: "Cooked meal", glyph: "&", color: "#e9b96b" },
   dirt: { name: "Dirt", glyph: "o", color: "#9a7b58" },
   sand: { name: "Sand", glyph: ".", color: "#d8c690" },
+  essence: { name: "Shadow essence", glyph: "~", color: "#a79bd8" },
 };
+/* Edible items: hunger restored (out of 100) and hp healed. Raw meat and fish
+   are not here on purpose: they have to be cooked at a campfire first
+   (world:eat refuses anything not listed). Keep the numbers in sync with the
+   recipes' `detail` text below, which is typed by hand. */
 export const FOOD = {
   berries: { hunger: 12, hp: 0 },
   meal: { hunger: 45, hp: 8 },
 };
+/*
+ * The craft tree. The order is only presentation; the server finds a recipe
+ * by id.
+ *   id        stable key; also the milestone and the "craft:<id>" stat
+ *   group     panel heading
+ *   cost      items consumed, by ITEMS id
+ *   output    items produced (food and materials). Absent for tools
+ *   tool      for equipment: which slot this fills (a key of TOOL_NAMES)
+ *   tier      the level it sets in that slot, 1 and up. Tools are not items
+ *             in the pack: crafting sets player.tools[tool] = tier, and
+ *             recipeBlocker refuses a recipe whose tier you already have
+ *   station   a structure that must be nearby, see recipeBlocker
+ *   detail    one line for the panel; numbers in it are typed by hand and
+ *             must match the real effect (world:harvest, tick, FOOD)
+ * Tool slots are never consumed: iron axe replaces stone axe because its tier
+ * is higher, and nothing stops crafting tier 2 first if you can afford it.
+ */
 export const RECIPES = [
   {
     id: "stone_axe",
@@ -188,7 +244,34 @@ export const RECIPES = [
     station: "workbench",
     detail: "The finest pick. Triple ore yields.",
   },
+  {
+    id: "lantern",
+    name: "Warden's lantern",
+    glyph: "i",
+    group: "Tools",
+    cost: { essence: 5, ingot: 2, crystal: 1 },
+    tool: "lantern",
+    tier: 1,
+    station: "workbench",
+    detail: "Shades will not close on you, and bite for half.",
+  },
 ];
+/*
+ * Everything a player can build (the keys are the `kind` stored on a cells
+ * row and BUILDABLE in building.js).
+ *   ch, color   how the ASCII pass draws it
+ *   solid       blocks walking, for players and creatures
+ *   light       0 for none. Creatures will not spawn on or step into any tile
+ *               within light * 0.5 tiles of it (a torch's 6 holds them 3
+ *               tiles off, a campfire's 9 holds them 4.5; an unfuelled
+ *               campfire is dark). convex/tick.ts reads it. Warmth from a
+ *               campfire is a separate 4-tile check
+ *   wood, stone cost, checked by planBuild and charged by world:build; a
+ *               demolish refunds all of it within UNDO_MS and half after
+ *   label, detail   the build menu text
+ * Doors are listed as not solid because an open door lets you through; the
+ * server tracks open/closed on the cell itself and treats a shut one as solid.
+ */
 export const STRUCTURES = {
   wall: {
     ch: "#",
@@ -291,6 +374,9 @@ export const STRUCTURES = {
     detail: "Store supplies or share them with nearby travelers.",
   },
 };
+/* Display name per equipment slot and tier: index 0 is "nothing equipped", so
+   TOOL_NAMES[slot][player.tools[slot] || 0] is always defined. Keep in step
+   with the highest `tier` in RECIPES for each slot. */
 export const TOOL_NAMES = {
   axe: ["Bare hands", "Stone axe", "Iron axe"],
   pick: ["Bare hands", "Stone pickaxe", "Iron pickaxe", "Crystal pickaxe"],
@@ -298,12 +384,30 @@ export const TOOL_NAMES = {
   armor: ["No armor", "Woven coat", "Iron armor"],
   rod: ["No fishing rod", "Fishing rod"],
   shovel: ["No shovel", "Stone shovel", "Iron shovel"],
+  lantern: ["No lantern", "Warden's lantern"],
 };
+/* Per-tile roll in [0, 1) that picks which resource a tile gives. Its own
+   hash (Math.imul, no salt), not terrain.js's. Changing it reshuffles every
+   ore vein and berry patch. */
 function seed(x, y) {
   let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
+/*
+ * What gathering this tile would give, or null: "wood", "stone", "ore",
+ * "coal", "crystal", "berries", "fiber" or "fish" (the first six are ITEMS
+ * ids; "ore" is shown as iron ore). Deterministic from coordinates only, so
+ * the client can show what is under the cursor with no round trip. It reads
+ * the generated tile only: whether a stump, building or dug ground is there
+ * now is for the caller (world:harvest checks cells and ground first), and
+ * the tool needed (pick tier for ore, coal and crystal, a rod for fish) is
+ * checked there too. The cut-offs are slices of one roll per tile: on rock,
+ * rolls under 0.4 are ore, under 0.62 coal, the rest stone, and beyond 45
+ * tiles from the crossroads the lowest 0.12 become crystal instead; on grass
+ * the lowest 0.08 is berries and the next 0.12 fiber. Inside the safe zone
+ * nothing grows.
+ */
 export function resourceAt(x, y) {
   if (inSafeZone(x, y)) return null;
   const tile = tileAt(x, y),
@@ -320,6 +424,13 @@ export function resourceAt(x, y) {
   if (tile === WATER) return "fish";
   return null;
 }
+/*
+ * A player's whole pack as one flat { itemId: count } with every ITEMS id
+ * present (0 if none). Wood and stone are separate columns on the player row
+ * and everything else is in `player.inventory`; this hides that split, and
+ * the columns win if a stale `inventory.wood` exists. Safe for a missing
+ * player (all zeros).
+ */
 export function inventoryOf(player) {
   return {
     ...Object.fromEntries(Object.keys(ITEMS).map((k) => [k, 0])),
@@ -328,6 +439,8 @@ export function inventoryOf(player) {
     stone: player?.stone || 0,
   };
 }
+/* "3 wood · 3 stone · 2 fiber" from a recipe or structure cost, for buttons
+   and tooltips. Unknown ids fall back to the raw key. */
 export function costLabel(cost) {
   return Object.entries(cost)
     .map(
@@ -335,6 +448,15 @@ export function costLabel(cost) {
     )
     .join(" · ");
 }
+/*
+ * Why a recipe cannot be crafted right now, as a short label for the button,
+ * or "" if it can. Checked in this order: alive; not already equipped at this
+ * tier or better; a required station nearby; enough supplies. `stations` is
+ * the list of station kinds within reach, which the caller works out (the
+ * server's stationsNear in convex/survival.ts: cells within 4 tiles, a
+ * campfire counting only while lit).
+ * The craft mutation calls this again, so the client is only previewing.
+ */
 export function recipeBlocker(recipe, player, stations = []) {
   if (!player || player.hp <= 0) return "Wake up first";
   if (recipe.tool && (player.tools?.[recipe.tool] || 0) >= recipe.tier)
@@ -346,6 +468,14 @@ export function recipeBlocker(recipe, player, stations = []) {
     return "Need supplies";
   return "";
 }
+/*
+ * The six-step starter checklist on the character sheet ("Journey 2/6").
+ * It predates the quest chain (game/quests.js), which is the real
+ * progression and pays rewards; this one is display-only and derives from
+ * `player.milestones` (resource ids, built kinds, recipe ids and "dig", set
+ * by the mutations) plus a few player fields. Returns [{ id, title, detail,
+ * done }].
+ */
 export function journeyOf(player) {
   const done = player?.milestones || [];
   return [
@@ -387,7 +517,23 @@ export function journeyOf(player) {
     },
   ];
 }
-/* Tick only online characters. Offline time is never charged as hunger. */
+/*
+ * One survival check for one character: new { hunger, warmth, hp }, with
+ * hunger and warmth clamped to 0..100 and hp to 0 or more, without mutating
+ * `player`. convex/tick.ts runs
+ * it every 15 seconds for each online, living player (so, as the original
+ * note says: tick only online characters, and offline time is never charged
+ * as hunger), then writes the result.
+ *
+ * Flags, all worked out by the tick: `safe` is standing inside the
+ * crossroads, `fire` is a lit campfire within 4 tiles, `cold` is night,
+ * rain or a storm. Hunger falls 1 a step (never at the crossroads), so
+ * 100 lasts 25 minutes in the wild. Warmth recovers 12 a step by a fire or
+ * in the crossroads, otherwise falls 4 when cold (1 if wearing any armor)
+ * and creeps back 4 when not. Each of hunger and warmth at zero costs 2 hp
+ * a step. Healing is separate (the tick's regen, which is skipped while
+ * hunger is under 25 or warmth is gone).
+ */
 export function survivalStep(
   player,
   { cold = false, fire = false, safe = false } = {},

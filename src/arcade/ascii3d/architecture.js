@@ -13,8 +13,31 @@ import { P, place, hash } from "./shapes";
  * Everything here writes into a Batch, so a whole skyline merges into a few
  * meshes. Coordinates follow the Commons: one tile is one unit, x east,
  * z south, y up. A building's face looks south, toward the usual camera.
+ *
+ * Callers: terrainMesh.js (peakBuilding on mountain summits), and the
+ * workshop scenes in src/site3d (Diorama.js, SiteScene.js, compound.js,
+ * warren.js). Nothing here knows about tiles, the server or lighting; it
+ * only emits coloured boxes and cones into a `b` (a terrainMesh Batch), so
+ * the caller decides where a building goes and disposes the meshes.
+ *
+ * Conventions that are easy to trip over:
+ * - `b` is always the first argument. The low-level helpers (block, cone,
+ *   cross, redStar, onion, windows) take (x, y, z), but the buildings
+ *   (stalinTower, kremlinTower, church, basil, chimney, slab,
+ *   observatoryDome, setbackTower, streetlamp, wallTile, peakBuilding) take
+ *   (x, z, y), the ground plan first and the base height last.
+ * - Heights are measured up from the base `y` of each part, which sits on
+ *   the part below it, so stacks are built by adding the height to a running
+ *   `top`. Buildings return the height of their tip (so callers can stack
+ *   another building on it, as warren.js does) except where noted.
+ * - Glyph set keys are the ones in glyphs.js ("solid", "rock", "light",
+ *   "fire"); a ":glow" suffix asks Batch for the unlit material, so windows,
+ *   lanterns and stars stay bright at night.
+ * - Anything random-looking (which windows are lit, brick tone) is a hash of
+ *   the position, so a rebuilt skyline is identical.
  */
 
+/* Palette, as sRGB hex. */
 export const STONE = "#b9ab8e";
 export const STONE_TRIM = "#d8cdb2";
 export const BRICK = "#9c4b3c";
@@ -25,22 +48,29 @@ export const PLASTER = "#e4dfd2";
 export const WINDOW = "#e6b768";
 export const STAR_RED = "#e0584a";
 
+/* Scratch colour: col() returns this same object each time, which is safe
+   because Batch.shape reads it immediately. Do not hold on to the result. */
 const c = new THREE.Color();
 function col(hex, k = 1) {
     return c.set(hex).multiplyScalar(k);
 }
 
-/* A box from its base centre: easier to stack than one from its middle. */
+/* A box from its base centre: easier to stack than one from its middle.
+   (x, y, z) is the middle of the underside; w, h, d are the sizes along x, y,
+   z; `k` darkens (<1) or lightens the colour; `ry` turns it about y. */
 function block(b, set, x, y, z, w, h, d, hex, k = 1, ry = 0) {
     b.shape(set, P.cube(), place(x, y + h / 2, z, w, h, d, ry), col(hex, k));
 }
 
+/* A cone-like prototype (P.spire, P.tent, ...) standing on (x, y, z). `r` is
+   the radius of its base (the prototypes are unit-diameter, hence r * 2). */
 function cone(b, set, proto, x, y, z, r, h, hex, k = 1, ry = 0) {
     b.shape(set, proto(), place(x, y, z, r * 2, h, r * 2, ry), col(hex, k));
 }
 
 /* An Orthodox cross: an upright, the main bar, the short title bar above
-   and the footrest below. Gilded and unlit, so it shows against any sky. */
+   and the footrest below. Gilded and unlit, so it shows against any sky.
+   (x, y, z) is the foot of the upright; `s` scales it (about 1 tall at s = 1). */
 export function cross(b, x, y, z, s = 1) {
     const g = "light:glow";
     block(b, g, x, y, z, 0.07 * s, 0.95 * s, 0.07 * s, GOLD);
@@ -49,13 +79,19 @@ export function cross(b, x, y, z, s = 1) {
     block(b, g, x, y + 0.24 * s, z, 0.3 * s, 0.06 * s, 0.06 * s, GOLD, 1, 0.5);
 }
 
-/* The red star the Kremlin towers wear. */
+/* The red star the Kremlin towers wear: two crossed gems, one across x and
+   one across z, so it reads as a star from either side. Unlit. */
 export function redStar(b, x, y, z, s = 1) {
     b.shape("fire:glow", P.gem(), place(x, y + 0.3 * s, z, 0.55 * s, 0.6 * s, 0.18 * s), col(STAR_RED));
     b.shape("fire:glow", P.gem(), place(x, y + 0.3 * s, z, 0.18 * s, 0.6 * s, 0.55 * s), col(STAR_RED, 0.85));
 }
 
-/* An onion dome on a short drum, finished with a cross. */
+/*
+ * An onion dome on a short drum, finished with a cross. (x, y, z) is the
+ * base of the drum; `r` is the dome's radius in tiles and `drum` the drum's
+ * height (default a little over r). `crossed: false` leaves the cross off.
+ * Returns the height of the top of the dome (the cross stands above that).
+ */
 export function onion(b, x, y, z, r, hex, { drum = r * 1.1, drumHex = PLASTER, crossed = true } = {}) {
     b.shape("solid", P.drum(), place(x, y, z, r * 1.5, drum, r * 1.5), col(drumHex, 0.95));
     b.shape("solid", P.onion(), place(x, y + drum, z, r * 2, r * 2.3, r * 2), col(hex));
@@ -63,8 +99,13 @@ export function onion(b, x, y, z, r, hex, { drum = r * 1.1, drumHex = PLASTER, c
     return y + drum + r * 2.3;
 }
 
-/* A row of lit windows across a face. `face` is +1 for south, -1 for north,
-   or "e"/"w" for the sides. */
+/* A grid of `rows` x `cols` windows across a face. `face` is +1 for south,
+   -1 for north, or "e"/"w" for the sides. (x, y, z) is the middle of the
+   building at the foot of the grid; `w` is the length of the face being
+   decorated (along x for north/south, along z for e/w), `d` the building's
+   depth the other way (it only sets how far out the panes sit), `h` the
+   height the rows share. About 70% are lit (glowing); which ones is a hash of
+   the position so a rebuild looks the same. */
 function windows(b, x, y, z, w, d, rows, cols, h, face = 1) {
     if (cols < 1 || rows < 1) return;
     const step = w / cols;
@@ -85,8 +126,8 @@ function windows(b, x, y, z, w, d, rows, cols, h, face = 1) {
     }
 }
 
-/* Thin pinnacles at the four corners of a tier: what makes the outline
-   bristle instead of stepping in plain boxes. */
+/* Thin pinnacles at the four corners of a tier (w x d) whose top is at y:
+   what makes the outline bristle instead of stepping in plain boxes. */
 function pinnacles(b, x, y, z, w, d, h, hex) {
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
         const px = x + sx * (w / 2 - 0.08);
@@ -100,6 +141,9 @@ function pinnacles(b, x, y, z, w, d, h, hex) {
  * A stepped tower of the Seven Sisters kind: tiers that narrow as they rise,
  * each with a cornice, pilasters and pinnacles, then a lantern and a long
  * spire. `crown` is "cross" or "star". Returns the height of its tip.
+ * Each tier is 0.76 the width and 0.86 the height of the one below (the
+ * first is 3.2 x 3 times `scale`); `wings` adds lower side blocks with
+ * their own small spires.
  */
 export function stalinTower(b, x, z, y, { scale = 1, crown = "cross", tiers = 5, stone = STONE, wings = false } = {}) {
     let top = y;
@@ -146,6 +190,10 @@ export function stalinTower(b, x, z, y, { scale = 1, crown = "cross", tiers = 5,
 /*
  * A Kremlin tower: brick shaft, an overhanging gallery, a narrower stage,
  * then a tall green tent roof with a star or an onion and cross on top.
+ * `w` is the square footprint and `h` the shaft height in tiles. A non-zero
+ * `gate` (a width, less than `w`) makes the bottom half a gateway: two piers
+ * with an opening between them, running through a wall along `axis` ("x" for
+ * a wall running east-west). Returns the height of the tip.
  */
 export function kremlinTower(b, x, z, y, { w = 1.8, h = 5, crown = "star", roof = VERDIGRIS, brick = BRICK, gate = 0, axis = "x" } = {}) {
     if (gate) {
@@ -189,7 +237,10 @@ export function kremlinTower(b, x, z, y, { w = 1.8, h = 5, crown = "star", roof 
     return onion(b, x, top, z, 0.2, GOLD, { drum: 0.12, drumHex: GOLD });
 }
 
-/* One tile of Kremlin wall, running east-west or north-south. */
+/* One tile of Kremlin wall, running east-west (`alongX`) or north-south,
+   `h` tall with a stone cap and two swallowtail merlons. The footprint is
+   1.02 by 0.7: a hair over one tile along the wall so neighbours overlap and
+   leave no seam. Returns nothing. */
 export function wallTile(b, x, z, y, h, alongX, brick = BRICK) {
     const k = 0.88 + hash(Math.round(x), Math.round(z), 61) * 0.18;
     const w = alongX ? 1.02 : 0.7;
@@ -212,6 +263,11 @@ export function wallTile(b, x, z, y, h, alongX, brick = BRICK) {
 /*
  * An Orthodox church: a white cube, a ring of kokoshnik gables, one great
  * dome on a tall drum and four smaller ones, with a bell tower beside it.
+ * `dome` and `small` are the great and the small domes' colours; `domes` is
+ * 5 for the full set or anything else for just the great one; `belfry` is
+ * +1 or -1 for the side of the bell tower (east or west), 0 for none; `wall`
+ * is the plaster colour. The body is 3.4 x 3.2 tiles at scale 1. Returns the
+ * tip's height.
  */
 export function church(b, x, z, y, { scale = 1, dome = GOLD, small = dome, domes = 5, belfry = 1, wall = PLASTER } = {}) {
     const s = scale;
@@ -260,7 +316,8 @@ export function church(b, x, z, y, { scale = 1, dome = GOLD, small = dome, domes
 
 /*
  * A cathedral of St Basil's kind: a cluster of drums of different heights,
- * each with its own striped or coloured onion.
+ * each with its own coloured onion (the cluster is `spots`: offset x, offset
+ * z, relative height, radius, colour index). Returns the tip's height.
  */
 export function basil(b, x, z, y, { scale = 1 } = {}) {
     const s = scale;
@@ -291,7 +348,9 @@ export function basil(b, x, z, y, { scale = 1 } = {}) {
     return tip;
 }
 
-/* A factory chimney: a tapering drum banded in red and white. */
+/* A factory chimney: a tapering drum banded in red and white. `h` is its
+   height and `r` its radius at the base, in tiles; it narrows by 35% over
+   its height, in bands of about 1.1 tiles. Returns nothing. */
 export function chimney(b, x, z, y, h = 9, r = 0.5) {
     const bands = Math.round(h / 1.1);
     for (let i = 0; i < bands; i += 1) {
@@ -301,14 +360,16 @@ export function chimney(b, x, z, y, h = 9, r = 0.5) {
     b.shape("solid", P.drum(), place(x, y + h, z, r * 1.5, 0.2, r * 1.5), col("#3a3a3a"));
 }
 
-/* A panel block, the kind every Soviet city has a thousand of. */
+/* A panel block, the kind every Soviet city has a thousand of: w x d footprint
+   and h tall, with a window grid on the south face and a cap. */
 export function slab(b, x, z, y, w, d, h, hex = "#a9a69a") {
     block(b, "solid", x, y, z, w, h, d, hex);
     windows(b, x, y + 0.2, z, w, d, Math.max(1, Math.round(h / 0.9)), Math.max(2, Math.round(w * 1.3)), h - 0.3);
     block(b, "solid", x, y + h, z, w * 1.02, 0.12, d * 1.02, "#8d8a80");
 }
 
-/* An observatory: a round tower and a dome with a slot for the telescope. */
+/* An observatory: a round tower and a dome with a slot for the telescope
+   (the glowing strip on the south side). Returns the height of the dome's top. */
 export function observatoryDome(b, x, z, y, { scale = 1 } = {}) {
     const s = scale;
     b.shape("solid", P.drum(), place(x, y, z, 3 * s, 5 * s, 3 * s), col(STONE));
@@ -321,7 +382,10 @@ export function observatoryDome(b, x, z, y, { scale = 1 } = {}) {
 
 /*
  * A watchtower or chapel for a mountain top in the Commons. `pick` in [0,1)
- * chooses which, so the same peak always carries the same building.
+ * chooses which, so the same peak always carries the same building: terrainMesh
+ * passes hash(cx, cy, 79) of the chunk. About 40% towers, 35% chapels and
+ * 25% small stepped towers. Sized small (the summit's 3x3 plinth is about 2.8
+ * wide). Returns the height of the tip.
  */
 export function peakBuilding(b, x, z, y, pick) {
     if (pick < 0.4) return kremlinTower(b, x, z, y, { w: 1.6, h: 3.6, crown: pick < 0.15 ? "star" : "cross" });
@@ -330,7 +394,8 @@ export function peakBuilding(b, x, z, y, pick) {
 }
 
 /* A streetlamp: an iron post, a crook, and a lantern that glows. Built
-   tall, so the street has a ceiling of light. */
+   tall, so the street has a ceiling of light. `double` puts a lantern on
+   both sides. Returns nothing. */
 export function streetlamp(b, x, z, y, { double = false } = {}) {
     const iron = "#3a3a40";
     block(b, "solid", x, y, z, 0.22, 0.3, 0.22, iron);
@@ -347,7 +412,9 @@ export function streetlamp(b, x, z, y, { double = false } = {}) {
 /*
  * A tall block on a 2x2 lot, stepped back as it rises the way the Moscow
  * high-rises are: a broad base, a narrower shaft, a crown, and a spire with
- * a star or a cross on it.
+ * a star or a cross on it. `h` is the total height of the three stepped
+ * stages (shares 0.5, 0.28 and 0.22 of it); the spire adds 0.28 h on top.
+ * Returns the height of the base of the crown ornament.
  */
 export function setbackTower(b, x, z, y, h, { hex = STONE, crown = "star" } = {}) {
     const steps = [

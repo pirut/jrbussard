@@ -1,3 +1,19 @@
+/*
+ * Fieldcraft: the window with the Craft, Build, Pack and Journal tabs that
+ * opens from the craft, pack and journal actions.
+ *
+ * Presentational. It reads the player and world snapshot it is given and
+ * calls back for every change (craft, eat, chest transfers, quests, project
+ * contributions); the Convex calls themselves are made by Commons.js, which
+ * also owns the window frame (HudWindow), the open tab and the selected build
+ * piece. Only the recipe category lives here, because nothing outside cares
+ * which one you last looked at.
+ *
+ * What can be crafted or built is decided by lib/survival.js (recipeBlocker,
+ * RECIPES, STRUCTURES) and checked again by the server; this file only shows
+ * the blocker as the button's label and disables it. Used by Commons.js.
+ */
+
 import React, { useState } from "react";
 import {
   ITEMS,
@@ -6,10 +22,30 @@ import {
   inventoryOf,
   recipeBlocker,
   costLabel,
-  journeyOf,
 } from "../lib/survival";
 import { withinReach } from "../lib/terrain";
+import QuestLog from "./commons/QuestLog";
+import ProjectsPanel from "./commons/ProjectsPanel";
 
+/*
+ *   me           your player record (inventory, stations, gold, hp, tools),
+ *                or null while loading
+ *   state        the world snapshot; its `cells` are searched for a chest
+ *                within reach
+ *   selected     the build piece kind currently chosen, or null
+ *   setSelected  (kind) choose a piece; the parent also enters build mode
+ *                and closes this window
+ *   craft        (recipeId)
+ *   eat          (itemKey), for berries and meals
+ *   transfer     (chestCell, itemKey, "deposit" | "withdraw")
+ *   projects     shared town projects, shown in the Journal tab
+ *   claimQuest   () claim the finished quest reward
+ *   contribute   (itemKey) give to a project
+ *   tab          "Craft" | "Build" | "Pack" | "Journal"; controlled by the
+ *                parent so the craft, pack and journal keys can open a
+ *                particular tab
+ *   setTab       (name)
+ */
 export function Fieldcraft({
   me,
   state,
@@ -18,11 +54,16 @@ export function Fieldcraft({
   craft,
   eat,
   transfer,
+  projects,
+  claimQuest,
+  contribute,
   tab,
   setTab,
 }) {
   const [category, setCategory] = useState("Tools");
   const bag = inventoryOf(me);
+  /* A shared chest you are within reach of, if any (lib/terrain.js
+     withinReach). Decides whether the Pack tab shows transfer controls. */
   const chest =
     me &&
     state.cells.find((c) => c.kind === "chest" && withinReach(me, c.x, c.y));
@@ -39,10 +80,16 @@ export function Fieldcraft({
         role="tablist"
         aria-label="Fieldcraft"
         onKeyDown={(e) => {
+          /* Roving-tabindex tab list: arrows, Home and End move between tabs
+             and focus the new one. stopPropagation keeps these keys from
+             reaching the game's window-level key handler, so it does not
+             also act on them. */
           if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
             return;
           e.preventDefault();
           e.stopPropagation();
+          /* Same order as the buttons below. Left adds 3 rather than
+             subtracting 1 so the modulo never sees a negative. */
           const names = ["Craft", "Build", "Pack", "Journal"];
           const next =
             e.key === "Home"
@@ -95,6 +142,11 @@ export function Fieldcraft({
                 .join(" + ") || "Handcrafting · build stations to progress"}
             </p>
             {RECIPES.filter((r) => r.group === category).map((recipe) => {
+              /* recipeBlocker returns "" when craftable, else the reason
+                 ("Wake up first", "Equipped", "Near a lit campfire", "Need
+                 supplies"), which replaces the button label and disables it.
+                 When craftable the label is "Craft + equip" for tools and
+                 plain "Craft" for anything else. */
               const blocked = recipeBlocker(recipe, me, me?.stations || []);
               return (
                 <article
@@ -246,21 +298,12 @@ export function Fieldcraft({
         )}
         {tab === "Journal" && (
           <>
-            <h3 className="journal-heading">A foothold in the wild.</h3>
-            <p className="station-status">
-              Small beginnings. A settlement, in time.
-            </p>
-            <ol className="survival-journey">
-              {journeyOf(me).map((entry, i) => (
-                <li className={entry.done ? "is-done" : ""} key={entry.id}>
-                  <span>{entry.done ? "✓" : `0${i + 1}`}</span>
-                  <div>
-                    <b>{entry.title}</b>
-                    <p>{entry.detail}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <QuestLog me={me} onClaim={claimQuest} />
+            <ProjectsPanel
+              projects={projects}
+              me={me}
+              onContribute={contribute}
+            />
             <div className="survival-guide">
               <h3>Know the wilderness</h3>
               <p>
@@ -272,6 +315,11 @@ export function Fieldcraft({
                 Night and bad weather bring cold. Stay near a fueled campfire,
                 eat regularly, and wear a coat. A closed door and walls keep
                 creatures out.
+              </p>
+              <p>
+                From dusk to dawn, shades hunt from far off. Torchlight holds
+                them back and the sunrise burns them away. Be out in the wild
+                when it does, and you have survived the night.
               </p>
               <p>
                 Use your bedroll to set camp. Death costs 10% of your gold;

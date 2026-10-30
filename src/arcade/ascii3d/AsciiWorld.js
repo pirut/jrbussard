@@ -16,10 +16,13 @@ import {
     flashModel,
     disposeModel,
 } from "./models";
-import { disposeMaterials } from "./materials";
+import { retainMaterials } from "./materials";
+import { abandon } from "./abandon";
 import { disposeMerged, mergeModel } from "./mergeModel";
 import { CUT, ISO_BACK, ISO_YAW, aimCutaway, createIsoCamera, placeIsoCamera, snapIsoCamera } from "./iso";
-import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality } from "./perf";
+import { Puffs } from "./puffs";
+import { asNews, changedEdits, clearedSet, newlyCleared } from "./worldEvents";
+import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality, recallQuality, rememberQuality } from "./perf";
 
 /*
  * The Commons, as a 3D scene drawn in characters.
@@ -33,6 +36,44 @@ import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality } from "./perf
  * It decides nothing about the game. Picking a tile under the pointer is the
  * only thing it reports back, and the server still judges whatever is done
  * there.
+  *
+  * What it deliberately does not do: no game rules, no pathing or collision
+  * (navigation.js and prediction.js, driven from the page), no input handling
+  * beyond the camera setters below, and no React. Besides picking, it reports
+  * what happens in the world through on() / emit() (hits, builds, footsteps,
+  * ...), which is how commons/useCommonsSound.js hears it.
+  *
+  * Who calls it: AsciiField.js is the only place that constructs one (one per
+  * mounted field). It forwards its props to setState / setAim / setGhosts /
+  * setTurn / setZoom / setRaw / setOrbit / setCellSize, and hands the instance
+  * to the page through its `apiRef` for the imperative calls (predictSelf,
+  * driveSelf, pick, floatText, rotate, ...). site3d/SiteScene.js and Diorama.js
+  * are separate scene classes; they share AsciiPass, iso.js, terrainMesh.js and
+  * abandon.js with this one, not this file.
+  *
+  * Coordinates and units. The server's tile (x, y) is three.js (x, ., z = y):
+  * map y is world z, and world y is up. One tile is one world unit. Entities
+  * keep their tile-space walk as `from` / `to` ({ x, y } in map coordinates)
+  * and their drawn position as `pos`, a Vector3 (x, height, z), so `pos.z`
+  * corresponds to the `y` of `from` / `to`. Facing angles are radians in the
+  * form atan2(dx, dy) of a map step, used as a rotation about world y.
+  * Heights always come from this.ground (a GroundMap, src/lib/ground.js, shared
+  * with the server) through terrainMesh.standHeight, so what is drawn is the
+  * same ground the server lets you walk on. Times are seconds on this.time,
+  * which advances by the clamped frame delta rather than the wall clock.
+  *
+  * Ownership. init() creates the renderer, its canvas and the fx layer inside
+  * `container` and takes a hold on the shared materials (retainMaterials);
+  * dispose() gives them back, once. If init() throws, abandon.js undoes
+  * whatever got made. Chunk meshes belong to this world (dropChunk frees their
+  * geometry); figure geometry and materials are shared and ref-counted, which
+  * is what disposeModel / disposeMerged are for.
+  *
+  * Ordering that matters. setState applies the ground first, so every height
+  * read after it is current, and syncs structures before people and creatures
+  * because entityHeight() consults this.structures for bridges. Each frame
+  * moves the entities before the camera (the camera follows self.pos) and
+  * places chunks and the shadow camera after it (both centre on this.focus).
  */
 
 /*
@@ -42,25 +83,44 @@ import { PerfOverlay, QualityGovernor, perfEnabled, pinnedQuality } from "./perf
  * degrees, turned only a quarter at a time with [ and ]. Whatever stands
  * between it and you, trees and walls and hills, is cut down so you can
  * always see yourself.
+ *
+ * The index is the step setZoom() takes (1 is the default); the value is
+ * `this.distance`, which is placeIsoCamera's `height`.
  */
 export const ZOOMS = [8, 11, 15, 21];
+/* Limits for zoomBy()'s continuous zoom (pinch and wheel), in the same
+   units as ZOOMS but a little wider than its steps. */
 const NEAREST = 6;
 const FARTHEST = 30;
+/* Real point lights for lit fires. The pool is built once and never grown or
+   shrunk (changing the light count makes three.js recompile every material);
+   spare ones sit at intensity 0. updateEmbers() spreads its sparks over the
+   six nearest fires, a figure it keeps separately. */
 const MAX_LIGHTS = 6;
 /* Main-thread time a frame may spend building chunks once the first view
    is up. Walking brings a chunk or two into reach at a time; spreading them
    out keeps the step that crosses a border from hitching. */
 const CHUNK_BUDGET_MS = 4;
 
-/* Sky, sun and fill for each part of the day. Colours are sRGB hex. */
+/* Sky, sun and fill for each part of the day. Colours are sRGB hex. The
+   state's `phase` names an entry. `sun` and `hemi` are light intensities,
+   `sunColor` the sun's colour, `sky` and `ground` the hemisphere light's two
+   colours, `bg` the fog and background colour, and `angle` (radians) where
+   the sun stands in its swing (see updateLighting). */
 export const PHASES = {
     dawn: { sun: 1.3, sunColor: "#ffc796", hemi: 0.6, sky: "#a9b0d8", ground: "#3a3a36", bg: "#0d1020", angle: 0.5 },
     day: { sun: 1.7, sunColor: "#f6efe0", hemi: 0.8, sky: "#b9cdf0", ground: "#34443a", bg: "#0c1322", angle: 1.0 },
     dusk: { sun: 1.0, sunColor: "#ff9d6a", hemi: 0.5, sky: "#a68cb0", ground: "#3a3030", bg: "#110d1c", angle: 0.4 },
     night: { sun: 0.4, sunColor: "#8fa7ff", hemi: 0.26, sky: "#4f5c95", ground: "#1a1e2a", bg: "#070a16", angle: 0.8 },
 };
+/* A multiplier on a phase's `sun` and `hemi` for each kind of weather (the
+   state's `weather`). */
 const WEATHER_DIM = { clear: 1, rain: 0.72, storm: 0.55, fog: 0.82 };
 
+/* Scratch objects, reused so a frame allocates nothing. They are shared by
+   every method here, so none may be held across a call to another; `tmp` in
+   particular is borrowed by pick(), the label, bar and floater projections,
+   updateCamera and updateLighting. */
 const tmp = new THREE.Vector3();
 const ndc = new THREE.Vector2();
 const m4 = new THREE.Matrix4();
@@ -69,6 +129,10 @@ const lightRight = new THREE.Vector3();
 const lightUp = new THREE.Vector3();
 const lightDir = new THREE.Vector3();
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
+const pickRay = new THREE.Raycaster();
+/* A horizontal plane; pick() slides its `constant` to the height of the
+   ground it is testing. */
+const pickPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 /*
@@ -78,6 +142,9 @@ const now = () => (typeof performance !== "undefined" ? performance.now() : Date
  */
 const SHADOW_PART = 0.09;
 const partScale = new THREE.Vector3();
+/* Run it before mergeModel(), which would otherwise judge each merged mesh as
+   one big part. SHADOW_PART is in world units: a part's bounding radius times
+   its largest world scale. */
 function trimShadows(model) {
     model.updateMatrixWorld(true);
     model.traverse((node) => {
@@ -91,6 +158,7 @@ function trimShadows(model) {
     return model;
 }
 
+/* Interpolate from angle `a` to `b` (radians) the short way round, `t` 0..1. */
 function lerpAngle(a, b, t) {
     let d = b - a;
     while (d > Math.PI) d -= Math.PI * 2;
@@ -99,25 +167,52 @@ function lerpAngle(a, b, t) {
 }
 
 
+/*
+ * One instance per mounted field. Construction is split into the constructor
+ * and init() only so the constructor can catch a failure part-way through (no
+ * WebGL, say) and have abandon.js clean up the half-built object.
+ *
+ * `container` is the element the canvas goes in. Options: `cellWidth` and
+ * `cellHeight`, one character cell in CSS pixels (see AsciiField.DENSITIES),
+ * and `reducedMotion`, which stills the sea, embers, rain splashes, lightning,
+ * camera shake, the build ghost's breath and the rise of new structures.
+ */
 export default class AsciiWorld {
-    constructor(container, { cellWidth = 8, cellHeight = 14, reducedMotion = false } = {}) {
+    constructor(container, options) {
+        /* If setting up throws, the caller never gets this to dispose of,
+           so it disposes of itself before passing the error on. */
+        try {
+            this.init(container, options);
+        } catch (error) {
+            abandon(this);
+            throw error;
+        }
+    }
+
+    init(container, { cellWidth = 8, cellHeight = 14, reducedMotion = false } = {}) {
         this.container = container;
         this.reducedMotion = reducedMotion;
         this.cellCss = { w: cellWidth, h: cellHeight };
         this.state = null;
         this.aim = null;
         this.aimOk = true;
+        /* `turn` is the camera's quarter turn, 0..3, as React sets it (setTurn).
+           `yawGoal` is the angle the camera is heading for and `yaw` where its easing
+           has got to; `distance` eases toward `distanceGoal` the same way. */
         this.turn = 0;
         this.yaw = ISO_YAW;
         this.zoom = 1;
         this.distance = ZOOMS[1];
         this.distanceGoal = ZOOMS[1];
         this.yawGoal = ISO_YAW;
+        /* Seconds of camera shake left; a blow to yourself sets it. */
         this.shake = 0;
         /* Once the game steers you itself, the server's word on where you
            stand only reaches the screen through it (see predictSelf). */
         this.selfDriven = false;
         this.self = null;
+        /* Rising DOM text (see floatText), and the element for each player
+           name tag React registers (registerLabel). */
         this.floaters = [];
         this.orbit = false;
         this.labels = new Map();
@@ -125,6 +220,8 @@ export default class AsciiWorld {
         this.creatures = [];
         this.leaving = [];
         this.structures = new Map();
+        /* Terrain meshes by "cx:cy" chunk key, and structures by "x,y". The two
+           are separate so building or demolishing never rebuilds terrain. */
         this.chunks = new Map();
         /* Chunks waiting to be built, nearest first, and what the last look
            round for them saw (see updateChunks). */
@@ -133,26 +230,42 @@ export default class AsciiWorld {
         this.chunksDirty = true;
         /* Per chunk, the signature of its harvested tiles. */
         this.clearedByChunk = new Map();
+        /* Rebuilt by refreshFires() when structures change: `fires` are the
+           positions embers rise from, `lit` the structures that hold a light. */
         this.fires = [];
         this.lit = [];
+        /* Camera snapping to whole character cells (see snapIsoCamera):
+           `cellShift` is the camera's position in cells, wrapped, for the pass's
+           ground-keyed texture; `slack` is the fraction of a cell the snap moved it,
+           which becomes shiftX / shiftY. */
         this.cellShift = new THREE.Vector2();
         /* The picture's slide under the characters, in device pixels. */
         this.shiftX = 0;
         this.shiftY = 0;
         this.slack = new THREE.Vector2();
-        this.quality = { shadow: 1024, cell: 1 };
+        /* The top step of perf.js's QUALITY; the governor replaces it. */
+        this.quality = { shadow: 1024, cell: 1, dpr: 3, ascii: "full" };
         /* Dug and piled ground, as last heard from the server. */
         this.ground = new GroundMap();
         this.flames = [];
+        /* What the camera looks at, in world space. It eases toward the player
+           (or the middle of the view before there is one); `focusReady` makes the
+           first target a jump instead of a swoop. */
         this.focus = new THREE.Vector3();
         this.focusReady = false;
         this.selfFacing = null;
         this.clock = new THREE.Clock();
         this.time = 0;
+        /* Lightning: `flash` falls from 1 to 0 after a strike, `nextFlash` counts
+           down the seconds to the next (see updateLighting). */
         this.flash = 0;
         this.nextFlash = 4;
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
+        /* Past the point a missing WebGL throws: from here dispose() runs. */
+        this.materials = retainMaterials();
+        /* Device pixels are handled by hand: resize() works in them (grid.dpr)
+           and calls setSize(w, h, false), so the renderer's own ratio stays 1. */
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -172,11 +285,14 @@ export default class AsciiWorld {
         container.appendChild(this.fxLayer);
 
         this.scene = new THREE.Scene();
+        /* Placeholder: updateLighting sets colour, near and far every frame. */
         this.scene.fog = new THREE.Fog(0x0b120d, 20, 40);
         this.camera = createIsoCamera();
         this.isoCamera = this.camera;
         /* Seen from behind your own eyes: a perspective camera, looking
-           where yawGoal and pitch say. */
+           where yawGoal and pitch say.
+           72 is the vertical field of view in degrees; the aspect is a
+           placeholder that resize() replaces. */
         this.fpCamera = new THREE.PerspectiveCamera(72, 1.6, 0.1, 140);
         this.firstPerson = false;
         this.pitch = 0;
@@ -186,6 +302,9 @@ export default class AsciiWorld {
         this.sun = new THREE.DirectionalLight(0xffffff, 2);
         this.sun.castShadow = true;
         this.sun.shadow.mapSize.set(1024, 1024);
+        /* The shadow box (+-28) and map size are only starting values:
+           updateLighting resizes the box with the zoom and applyQuality changes the
+           map size. */
         this.sun.shadow.bias = -0.0015;
         const sc = this.sun.shadow.camera;
         sc.left = -28;
@@ -197,12 +316,19 @@ export default class AsciiWorld {
         this.scene.add(this.sun, this.sun.target);
         this.lightPool = [];
         for (let i = 0; i < MAX_LIGHTS; i += 1) {
+            /* Colour, range and intensity are reassigned each frame for
+               whichever fires are nearest (updateLighting). */
             const light = new THREE.PointLight(0xffb46b, 0, 8, 1.2);
             this.scene.add(light);
             this.lightPool.push(light);
         }
+        /* The working copy of PHASES that updateLighting eases toward the current
+           phase's entry, so dawn and dusk take a few seconds. Its colours are
+           THREE.Colors so they can be lerped in place. */
         this.phase = { ...PHASES.day, sunColor: new THREE.Color(PHASES.day.sunColor), sky: new THREE.Color(PHASES.day.sky), ground: new THREE.Color(PHASES.day.ground), bg: new THREE.Color(PHASES.day.bg) };
 
+        /* One sea plane, 72 tiles across, re-centred on the view every frame
+           (see updateCamera), not one per chunk. */
         this.water = createWater(72);
         this.water.position.y = WATER_LEVEL;
         this.scene.add(this.water);
@@ -218,16 +344,35 @@ export default class AsciiWorld {
         this.sparks = this.createSparks();
         this.scene.add(this.sparks);
         this.scene.add(this.embers);
+        this.puffs = new Puffs(this.scene, { still: reducedMotion });
+        /* Who hears about what happens here: blows, felled trees, digging,
+           footsteps (see on() and commons/sound.js). */
+        this.listeners = new Set();
+        this.cleared = null;
 
-        /* The ASCII pass reads the offscreen render and draws characters. */
+        /* The ASCII pass reads the offscreen render and draws characters. The
+           scene is rendered into this.ascii.target, never straight to the
+           canvas (see frame). */
         this.ascii = new AsciiPass();
 
         /* ?perf=1 shows the numbers; the governor trades quality for speed
            on machines that cannot keep up (see perf.js). */
         this.perf = perfEnabled() ? new PerfOverlay(container) : null;
         const pinned = pinnedQuality();
-        this.governor = new QualityGovernor({ enabled: pinned === null, onChange: (quality) => this.applyQuality(quality) });
-        if (pinned) this.governor.set(pinned);
+        /* Only steps the governor measured its way to are remembered:
+           saving the step it was started on would walk it down one more
+           every visit (see recallQuality). */
+        let measured = false;
+        this.governor = new QualityGovernor({
+            enabled: pinned === null,
+            onChange: (quality, level) => {
+                this.applyQuality(quality);
+                if (pinned === null && measured) rememberQuality(level);
+            },
+        });
+        const start = pinned ?? recallQuality();
+        if (start) this.governor.set(start);
+        measured = true;
         /* For poking at from the console while tuning. */
         if (this.perf) window.asciiWorld = this;
 
@@ -235,15 +380,25 @@ export default class AsciiWorld {
         this.frame = this.frame.bind(this);
         this.observer = new ResizeObserver(this.resize);
         this.observer.observe(container);
+        this.watchPixelRatio();
         this.resize();
         this.raf = requestAnimationFrame(this.frame);
     }
 
     /* ── Size and the character grid ───────────────────────────────────── */
 
+    /*
+     * Sizes everything in device pixels: the canvas is the CSS box times dpr
+     * (capped by the quality step's dpr), a character cell is the CSS cell size
+     * times the step's `cell` times dpr (never under 3 x 5), and the grid is the
+     * whole cells that fit (at least 8 x 6), centred by offX / offY. The camera's
+     * aspect comes from the grid, not the box, so the leftover margin never
+     * stretches the picture. Called by the ResizeObserver, by watchPixelRatio,
+     * and when quality or the cell size change.
+     */
     resize() {
         const box = this.container.getBoundingClientRect();
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = Math.min(window.devicePixelRatio || 1, this.quality.dpr ?? 2);
         const width = Math.max(1, Math.floor(box.width * dpr));
         const height = Math.max(1, Math.floor(box.height * dpr));
         const scale = this.quality.cell;
@@ -251,6 +406,7 @@ export default class AsciiWorld {
         const cellH = Math.max(5, Math.round(this.cellCss.h * scale * dpr));
         const cols = Math.max(8, Math.floor(width / cellW));
         const rows = Math.max(6, Math.floor(height / cellH));
+        const before = this.grid;
         this.grid = {
             dpr,
             width,
@@ -264,6 +420,14 @@ export default class AsciiWorld {
         };
         this.renderer.setSize(width, height, false);
 
+        /* A box that changed by less than a cell (a phone's address bar
+           sliding away, say) keeps the same grid: only the margins move, so
+           the pass keeps its targets rather than making them all again. */
+        if (before && before.cols === cols && before.rows === rows && before.cellW === cellW && before.cellH === cellH) {
+            this.ascii.offset = { x: this.grid.offX, y: this.grid.offY };
+            this.ascii.setShift(this.shiftX, this.shiftY);
+            return;
+        }
         this.ascii.setSize(this.grid);
         this.camera.userData.aspect = (cols * cellW) / (rows * cellH);
         this.isoCamera.userData.aspect = this.camera.userData.aspect;
@@ -271,9 +435,25 @@ export default class AsciiWorld {
         this.fpCamera.updateProjectionMatrix();
     }
 
+    /* Dragging the window to another screen, or zooming the page, changes
+       the pixel ratio without changing the box, so ResizeObserver never
+       hears of it and the characters come out blurred or the wrong size. */
+    watchPixelRatio() {
+        this.unwatchPixelRatio?.();
+        if (typeof window.matchMedia !== "function") return;
+        const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+        const changed = () => {
+            this.resize();
+            this.watchPixelRatio();
+        };
+        query.addEventListener?.("change", changed, { once: true });
+        this.unwatchPixelRatio = () => query.removeEventListener?.("change", changed);
+    }
+
     /* A step of the governor: shadow detail, then cell size. */
     applyQuality(quality) {
-        const resize = quality.cell !== this.quality.cell;
+        const resize = quality.cell !== this.quality.cell || quality.dpr !== this.quality.dpr;
+        this.ascii.setTier(quality.ascii);
         this.quality = quality;
         const shadows = quality.shadow > 0;
         /* three.js sees the change in lights and recompiles what it must. */
@@ -288,22 +468,34 @@ export default class AsciiWorld {
         if (resize) this.resize();
     }
 
+    /* A character cell's size in CSS pixels (the density toggle). */
     setCellSize(w, h) {
         this.cellCss = { w, h };
         this.resize();
     }
 
+    /* How many character columns the picture is across, now. */
     get columns() {
         return this.grid.cols;
     }
 
     /* ── Inputs from React ─────────────────────────────────────────────── */
 
+    /*
+     * Take a server snapshot: { cells, players, monsters, ground, groundChunks,
+     * view, phase, weather, now, ... }. Call it with each new one; null is
+     * remembered but leaves the models as they were. The ground goes in first
+     * (its previous byChunk is copied beforehand, since absorb() updates the
+     * entries it holds) so heights are right for the syncs that follow, and
+     * noticeWork() then diffs this snapshot against the last for news.
+     */
     setState(state) {
         this.state = state;
-        this.ground.absorb(state);
+        const groundBefore = new Map(this.ground.byChunk);
+        const groundChanged = this.ground.absorb(state);
         this.chunksDirty = true;
         if (!state) return;
+        this.noticeWork(state, groundBefore, groundChanged);
         this.indexCleared(state);
         this.syncStructures(state);
         this.syncPlayers(state);
@@ -311,12 +503,89 @@ export default class AsciiWorld {
         this.setPhase(state.phase, state.weather);
     }
 
+    /* Listen for what happens in the world. Returns how to stop.
+       (`listener(type, detail)`; the types are the ones emit() is called with
+       below and in the frame loop: harvest, dig, build, demolish, hit, slain,
+       swing, step, gain, level, thunder; most carry world x / z in `detail`.) */
+    on(listener) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
+
+    emit(type, detail = {}) {
+        this.listeners.forEach((listener) => {
+            try {
+                listener(type, detail);
+            } catch {
+                /* A listener's trouble is its own. */
+            }
+        });
+    }
+
+    /* What the place sounds like from where the view is: the time of day,
+       the weather, how near the nearest fire is, and how much water is
+       about. Cheap enough to ask a few times a second.
+       `fire` is the distance in tiles to the nearest lit fire, Infinity if none;
+       `water` the fraction of a 7 x 7 spread of tiles (two apart) around the
+       view that is water. */
+    ambience() {
+        const cx = Math.round(this.focus.x);
+        const cz = Math.round(this.focus.z);
+        let water = 0;
+        let seen = 0;
+        for (let dz = -6; dz <= 6; dz += 2) {
+            for (let dx = -6; dx <= 6; dx += 2) {
+                seen += 1;
+                if (this.ground.tile(cx + dx, cz + dz) === WATER) water += 1;
+            }
+        }
+        return {
+            phase: this.phaseName || "day",
+            weather: this.weather || "clear",
+            fire: this.nearestFire ?? Infinity,
+            water: water / seen,
+            orbit: this.orbit,
+        };
+    }
+
+    /* How far a point is from the middle of the view, in tiles. */
+    distanceTo(x, z) {
+        return Math.hypot(x - this.focus.x, z - this.focus.z);
+    }
+
+    /* Trees felled, rocks broken and ground dug since the last snapshot:
+       a puff for each nearby, and word of it to listeners.
+       The first snapshot has no `before`, so reports nothing. Only changes
+       within 12 tiles of the view count, and asNews drops a crowd of them at once
+       as loading rather than events. */
+    noticeWork(state, groundBefore, groundChanged) {
+        const before = this.cleared;
+        this.cleared = clearedSet(state.cells);
+        if (!before) return;
+        const near = (t) => this.distanceTo(t.x, t.y) < 12;
+        asNews(newlyCleared(before, state.cells).filter(near)).forEach((t) => {
+            const at = { x: t.x, y: this.ground.height(t.x, t.y), z: t.y };
+            this.puffs.add(t.kind === "stump" ? "wood" : "stone", at, this.time);
+            if (t.kind === "stump") this.puffs.add("leaf", { ...at, y: at.y + 1.2 }, this.time);
+            this.emit("harvest", { x: t.x, z: t.y, kind: t.kind });
+        });
+        asNews(changedEdits(groundBefore, this.ground.byChunk, groundChanged).filter(near)).forEach((t) => {
+            const at = { x: t.x, y: Math.max(WATER_LEVEL, this.ground.height(t.x, t.y)), z: t.y };
+            this.puffs.add("earth", at, this.time);
+            this.emit("dig", { x: t.x, z: t.y });
+        });
+    }
+
+    /* The tile the cursor rings, { x, y } in map coordinates or null; `ok`
+       tints it as a valid or invalid target. */
     setAim(aim, ok = true) {
         this.aim = aim;
         this.aimOk = ok;
     }
 
-    /* The build ghosts (see ghost.js), seated like real structures. */
+    /* The build ghosts (see ghost.js), seated like real structures.
+       The `deck` height here (WATER_LEVEL + 0.12) is the one syncStructures
+       uses for things built over water; keep the two in step by hand. */
     setGhosts(list) {
         this.ghosts.set(list, (x, y) => ({
             height: this.ground.height(x, y),
@@ -325,7 +594,8 @@ export default class AsciiWorld {
         }));
     }
 
-    /* Snap to a quarter turn, the nearest way round. */
+    /* Snap to a quarter turn, the nearest way round.
+       `yaw` is left alone; updateCamera eases it toward the new `yawGoal`. */
     setTurn(turn) {
         this.turn = ((turn % 4) + 4) % 4;
         const goal = ISO_YAW + (this.turn * Math.PI) / 2;
@@ -334,6 +604,7 @@ export default class AsciiWorld {
         this.yawGoal += d;
     }
 
+    /* `zoom` indexes ZOOMS and is clamped to it. */
     setZoom(zoom) {
         this.zoom = Math.max(0, Math.min(ZOOMS.length - 1, zoom));
         this.distanceGoal = ZOOMS[this.zoom];
@@ -345,6 +616,8 @@ export default class AsciiWorld {
         if (dyaw) this.yawGoal += Math.sign(dyaw) * (Math.PI / 2);
     }
 
+    /* Multiplies the zoom distance by `factor` between NEAREST and FARTHEST,
+       whatever step setZoom last chose. */
     zoomBy(factor) {
         this.distanceGoal = Math.max(NEAREST, Math.min(FARTHEST, this.distanceGoal * factor));
     }
@@ -366,7 +639,8 @@ export default class AsciiWorld {
         }
     }
 
-    /* Turn your head: `dx` to the right and `dy` down, in radians. */
+    /* Turn your head: `dx` to the right and `dy` down, in radians.
+       (Pitch is held to +-1.1 radians, about 63 degrees.) */
     look(dx, dy) {
         if (!this.firstPerson) return;
         this.yawGoal -= dx;
@@ -387,7 +661,9 @@ export default class AsciiWorld {
 
     /* Move yourself at once, before the server confirms, so walking feels
        like walking. The game squares this with the server step by step
-       (see prediction.js) and calls it again with any correction. */
+       (see prediction.js) and calls it again with any correction.
+       `x`, `y` are the tile in map coordinates; `duration` the seconds the
+       walk takes. */
     predictSelf(x, y, duration = 0.15) {
         const self = this.selfEntity();
         if (!self) return;
@@ -398,7 +674,11 @@ export default class AsciiWorld {
     /* Put yourself wherever the body is, every frame: the same continuous
        walking as the site (see world/motion.js). The server only ever hears
        which tile you are on; what is drawn is the body itself. `snap` jumps
-       there instead of walking. */
+       there instead of walking.
+       `x`, `y` are fractional map coordinates; `speed` is the body's own, and
+       above 0.3 the figure turns to `facing` (radians) and counts as walking.
+       Once called, the figure follows the body (followBody) and stops easing
+       between the server's tiles. */
     driveSelf({ x, y, speed, facing }, snap = false) {
         const self = this.selfEntity();
         if (!self) return;
@@ -416,7 +696,10 @@ export default class AsciiWorld {
         return this.self;
     }
 
-    /* Words that rise off someone and fade: damage, gains, a level. */
+    /* Words that rise off someone and fade: damage, gains, a level.
+       `x`, `y` are map coordinates; `kind` picks the CSS modifier
+       ascii3d__float--<kind>; `lift` is world units above the ground. Removed by
+       updateFloaters after 1.1 s. */
     floatText(x, y, text, kind = "gain", lift = 1.9) {
         if (!this.fxLayer) return;
         const el = document.createElement("span");
@@ -429,9 +712,12 @@ export default class AsciiWorld {
 
     floatSelf(text, kind = "gain") {
         const self = this.selfEntity();
-        if (self) this.floatText(self.pos.x, self.pos.z, text, kind, 2.3);
+        if (!self) return;
+        this.floatText(self.pos.x, self.pos.z, text, kind, 2.3);
+        this.emit(kind === "level" ? "level" : "gain", { text });
     }
 
+    /* Show the plain render instead of the characters (a debugging view). */
     setRaw(raw) {
         this.ascii.uniforms.uRaw.value = raw ? 1 : 0;
     }
@@ -440,7 +726,8 @@ export default class AsciiWorld {
         this.orbit = orbit;
     }
 
-    /* Turn yourself to face what you are working on. */
+    /* Turn yourself to face what you are working on.
+       (`dx`, `dy` is a map step; the turn is applied on the next updateCamera.) */
     faceSelf(dx, dy) {
         this.selfFacing = Math.atan2(dx, dy);
     }
@@ -448,7 +735,9 @@ export default class AsciiWorld {
     /* Swing the arm: chopping, mining, hitting. Purely for show. */
     swingSelf() {
         const self = this.selfEntity();
-        if (self) self.attackStart = this.time;
+        if (!self) return;
+        self.attackStart = this.time;
+        this.emit("swing", { x: self.pos.x, z: self.pos.z });
     }
 
     registerLabel(id, element) {
@@ -456,7 +745,9 @@ export default class AsciiWorld {
         else this.labels.delete(id);
     }
 
-    /* The world tile under a point on screen, or null. */
+    /* The world tile under a point on screen, or null.
+       Takes page (client) pixels. Returns { x, y } in map coordinates, or null
+       when the point is outside the character grid or the ray misses the ground. */
     pick(clientX, clientY) {
         const rect = this.renderer.domElement.getBoundingClientRect();
         const g = this.grid;
@@ -466,14 +757,15 @@ export default class AsciiWorld {
         const h = g.rows * g.cellH;
         if (px < 0 || py < 0 || px > w || py > h) return null;
         ndc.set((px / w) * 2 - 1, (py / h) * 2 - 1);
-        const ray = new THREE.Raycaster();
+        /* Called on every pointer move and, in first person, every frame. */
+        const ray = pickRay;
         ray.setFromCamera(ndc, this.camera);
         let height = this.focus.y;
         let tile = null;
         /* The ground is terraced, so settle on the height of the tile hit. */
         for (let i = 0; i < 3; i += 1) {
-            const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -height);
-            const hit = ray.ray.intersectPlane(plane, tmp);
+            pickPlane.constant = -height;
+            const hit = ray.ray.intersectPlane(pickPlane, tmp);
             if (!hit) return tile;
             tile = { x: Math.round(hit.x), y: Math.round(hit.z) };
             const next = Math.max(WATER_LEVEL, this.ground.height(tile.x, tile.y));
@@ -485,11 +777,14 @@ export default class AsciiWorld {
 
     /* ── Server snapshot → models ──────────────────────────────────────── */
 
+    /* Whether a built floor stands on the tile; over water it is a walkable
+       bridge, which entityHeight() stands people on instead of the sea. */
     bridged(x, y) {
         const s = this.structures.get(`${x},${y}`);
         return Boolean(s && s.kind === "floor");
     }
 
+    /* World height a person or creature stands at on tile (x, y). */
     entityHeight(x, y) {
         return standHeight(x, y, this.bridged(x, y), this.ground.editAt(x, y));
     }
@@ -506,11 +801,19 @@ export default class AsciiWorld {
         });
         this.clearedByChunk = new Map();
         byChunk.forEach((list, key) => {
+            /* Sorted so the same tiles always make the same signature; scanChunks
+               compares signatures to tell whether a chunk needs rebuilding. */
             list.sort();
             this.clearedByChunk.set(key, { list, signature: list.join(";") });
         });
     }
 
+    /*
+     * Reconcile this.structures (keyed "x,y") with state.cells. A cell whose
+     * structureKey (kind, lit, over water) is unchanged is kept and only turned
+     * or opened; any other change rebuilds it. Stumps and rubble are cells too,
+     * so a tree growing back is one disappearing.
+     */
     syncStructures(state) {
         const seen = new Set();
         const walls = new Set(state.cells.filter((c) => c.kind === "wall").map((c) => `${c.x},${c.y}`));
@@ -524,8 +827,10 @@ export default class AsciiWorld {
             seen.add(key);
             const overWater = this.ground.tile(cell.x, cell.y) === WATER;
             const ctx = {
+                /* Only a campfire burns out; `fuelUntil` and `now` are the server's clock. */
                 lit: cell.kind === "campfire" ? cell.fuelUntil > state.now : true,
                 overWater,
+                /* Height of the deck that things built over water sit on. */
                 deck: WATER_LEVEL + 0.12,
             };
             const k = structureKey(cell, ctx);
@@ -540,6 +845,8 @@ export default class AsciiWorld {
             if (existing) this.removeStructure(key);
             const group = buildStructure(cell, ctx);
             if (!group) return;
+            /* Over water the group stays at 0 and the model lifts its own parts by
+               ctx.deck (see models.js); on land it stands on the terrain. */
             group.position.set(cell.x, overWater ? 0 : this.ground.height(cell.x, cell.y), cell.y);
             group.rotation.y = (facing * Math.PI) / 2;
             /* Judged at full height, before it starts to rise. */
@@ -547,6 +854,11 @@ export default class AsciiWorld {
             if (grow && !existing && !this.reducedMotion) {
                 group.userData.born = this.time;
                 group.scale.set(1, 0.05, 1);
+            }
+            /* Only what goes up within 14 tiles of the view is heard and kicks up dust. */
+            if (grow && !existing && this.distanceTo(cell.x, cell.y) < 14) {
+                this.puffs.add("dust", { x: cell.x, y: group.position.y, z: cell.y }, this.time);
+                this.emit("build", { x: cell.x, z: cell.y, kind: cell.kind, mine: Boolean(cell.mine) });
             }
             group.traverse((node) => {
                 if (node.userData.flame) this.flames.push(node);
@@ -556,10 +868,22 @@ export default class AsciiWorld {
             this.firesDirty = true;
         });
         [...this.structures.keys()].forEach((key) => {
-            if (!seen.has(key)) this.removeStructure(key);
+            if (seen.has(key)) return;
+            const s = this.structures.get(key);
+            const { x, z } = s.group.position;
+            /* A stump or rubble going is regrowth, not demolition. */
+            if (s.kind !== "stump" && s.kind !== "rubble" && this.distanceTo(x, z) < 14) {
+                this.puffs.add("dust", { x, y: s.group.position.y, z }, this.time);
+                this.puffs.add(s.kind === "wall" || s.kind === "furnace" ? "stone" : "wood", { x, y: s.group.position.y + 0.6, z }, this.time);
+                this.emit("demolish", { x, z, kind: s.kind });
+            }
+            this.removeStructure(key);
         });
     }
 
+    /* Both frees are needed: disposeModel releases the model's own materials
+       (the flames') and figure geometry, disposeMerged the geometry mergeModel
+       made. Each is safe after the other (releaseFigure does nothing twice). */
     removeStructure(key) {
         const s = this.structures.get(key);
         if (!s) return;
@@ -573,6 +897,12 @@ export default class AsciiWorld {
         this.firesDirty = true;
     }
 
+    /*
+     * Start `entity` walking to tile (x, y) over `duration` seconds. A jump of
+     * more than 2.5 tiles is a teleport, not a walk: it starts at the new tile and
+     * keeps its facing. Otherwise the walk starts from wherever the body is now
+     * (possibly mid-stride) and turns to face the step.
+     */
     moveEntity(entity, x, y, duration) {
         if (entity.to.x === x && entity.to.y === y) return;
         const far = Math.hypot(entity.to.x - x, entity.to.y - y) > 2.5;
@@ -596,6 +926,14 @@ export default class AsciiWorld {
         }
     }
 
+    /*
+     * Wrap a freshly built model in the per-frame state updateEntity and
+     * finishEntity animate. The model is added to the scene here; whoever drops
+     * the entity must scene.remove it and disposeMerged it. `pos` is the model's
+     * own position vector, so moving it moves the model. `lastStep` and
+     * `attackStart` begin far in the past so nothing looks recent; `baseScale` is
+     * the authored size that the pop-in and shrink-away multiply.
+     */
     makeEntity(model, x, y) {
         mergeModel(trimShadows(model));
         this.scene.add(model);
@@ -623,6 +961,13 @@ export default class AsciiWorld {
         };
     }
 
+    /*
+     * Reconcile this.players (by id) with state.players. A change of lookKey
+     * (clothes, tools) rebuilds the model in place. Once the game drives you
+     * (selfDriven) your own entity is not moved from here. The snapshot carries no
+     * events, so a drop in hp is how a blow is noticed. Anyone missing from the
+     * snapshot leaves().
+     */
     syncPlayers(state) {
         const seen = new Set();
         let self = null;
@@ -642,6 +987,7 @@ export default class AsciiWorld {
             }
             if (!entity) {
                 entity = this.makeEntity(buildSurvivor(p), p.x, p.y);
+                /* People ease through the server's whole-tile steps (see updateEntity). */
                 entity.glide = true;
                 entity.key = key;
                 entity.facing = p.self ? Math.PI : 0;
@@ -678,6 +1024,8 @@ export default class AsciiWorld {
         const next = [];
         state.monsters.forEach((m) => {
             let best = m.id ? pool.findIndex((c) => c && c.data?.id === m.id) : -1;
+            /* The match radius in tiles for a creature with no id; -1 shuts the
+               fallback out once an id has matched. */
             let bestDistance = best >= 0 ? -1 : 2.5;
             pool.forEach((c, i) => {
                 /* Without ids, the nearest of its kind is probably it. */
@@ -702,6 +1050,7 @@ export default class AsciiWorld {
                 entity.facing = Math.random() * Math.PI * 2;
             }
             entity.data = m;
+            /* A creature's step is spread over 0.4 s, a person's over 0.15 s. */
             this.moveEntity(entity, m.x, m.y, 0.4);
             next.push(entity);
         });
@@ -711,7 +1060,10 @@ export default class AsciiWorld {
         this.creatures = next;
     }
 
+    /* A blow lands on `entity`: sparks, a white flash for 0.09 s, floating
+       `-amount` text and a "hit" event. `kind` "hurt" marks damage to yourself. */
     hit(entity, amount = 0, kind = "damage") {
+        this.emit("hit", { x: entity.pos.x, z: entity.pos.z, amount, self: entity === this.self || kind === "hurt", creature: entity.kind || null });
         entity.hurt = 1;
         entity.hurtAt = this.time;
         entity.flashUntil = this.time + 0.09;
@@ -722,6 +1074,7 @@ export default class AsciiWorld {
     /* A spray of sparks where a blow lands. */
     burst(at, size = 1) {
         this.lastBurst = this.time;
+        /* A ring buffer of 48 (see createSparks): the oldest is overwritten. */
         const seeds = this.sparks.userData.seeds;
         for (let n = 0; n < 8; n += 1) {
             const i = this.sparks.userData.next;
@@ -740,6 +1093,9 @@ export default class AsciiWorld {
         }
     }
 
+    /* These small instanced meshes carry their glyph set in the material's
+       opacity (glyphCode): with NoBlending it reaches the target as written, and
+       the ASCII pass reads it as the character set to draw. 4 is the fire set. */
     createSparks() {
         const count = 48;
         const mesh = new THREE.InstancedMesh(
@@ -766,6 +1122,7 @@ export default class AsciiWorld {
             } else {
                 any = true;
                 const size = 1 - t / 0.35;
+                /* Shrinks to nothing over 0.35 s, flying on a parabola (gravity 12). */
                 m.makeScale(size, size, size).setPosition(s.x + s.vx * t, s.y + s.vy * t - 6 * t * t, s.z + s.vz * t);
             }
             mesh.setMatrixAt(i, m);
@@ -774,12 +1131,16 @@ export default class AsciiWorld {
         mesh.instanceMatrix.needsUpdate = true;
     }
 
-    /* Creatures' health, as a little bar of characters over the hurt. */
+    /* Creatures' health, as a little bar of characters over the hurt.
+       Screen position, here and in updateFloaters and updateLabels: projected
+       (normalised device) coordinates are mapped into the character grid,
+       offset by its margin and the sub-cell shift, divided by dpr for CSS
+       pixels, with y flipped. */
     updateBars() {
         const g = this.grid;
         const w = g.cols * g.cellW;
         const h = g.rows * g.cellH;
-        this.creatures.concat(this.leaving.filter((e) => e.bar)).forEach((e) => {
+        const each = (e) => {
             const data = e.data;
             const show = data && data.maxHp && data.hp < data.maxHp && data.hp > 0 && !e.leftAt;
             if (!show) {
@@ -791,6 +1152,7 @@ export default class AsciiWorld {
                 e.bar.className = "ascii3d__bar";
                 this.fxLayer.appendChild(e.bar);
             }
+            /* Eight characters wide; never fewer than one filled while alive. */
             const filled = Math.max(1, Math.round((data.hp / data.maxHp) * 8));
             const text = `${"#".repeat(filled)}${"-".repeat(8 - filled)}`;
             if (e.bar.dataset.text !== text) {
@@ -806,7 +1168,9 @@ export default class AsciiWorld {
             }
             e.bar.style.visibility = "visible";
             e.bar.style.transform = `translate(${((g.offX + this.shiftX + ((tmp.x + 1) / 2) * w) / g.dpr).toFixed(1)}px, ${((g.height - g.offY - this.shiftY - ((tmp.y + 1) / 2) * h) / g.dpr).toFixed(1)}px)`;
-        });
+        };
+        this.creatures.forEach(each);
+        this.leaving.forEach((e) => e.bar && each(e));
     }
 
     updateFloaters() {
@@ -841,6 +1205,7 @@ export default class AsciiWorld {
         });
         if (!best) return;
         best.facing = Math.atan2(target.to.x - best.to.x, target.to.y - best.to.y);
+        /* Back-dated so the swing is already under way. */
         best.attackStart = this.time - 0.12;
     }
 
@@ -852,8 +1217,12 @@ export default class AsciiWorld {
         const self = this.selfEntity();
         const struckBySelf =
             self && this.time - self.attackStart < 0.8 && Math.hypot(self.to.x - entity.to.x, self.to.y - entity.to.y) < 1.6;
+        /* Slain: hurt within the last 1.5 s, or struck by you within 0.8 s and 1.6
+           tiles. A slain one falls (hp 0 shows the down pose) and lingers 0.8 s;
+           anything else just shrinks and spins away. */
         entity.slain = (entity.hurtAt !== undefined && this.time - entity.hurtAt < 1.5) || Boolean(struckBySelf);
         if (entity.slain && entity.data) entity.data = { ...entity.data, hp: 0 };
+        if (entity.slain && entity.kind) this.emit("slain", { x: entity.pos.x, z: entity.pos.z, creature: entity.kind });
         if (entity.bar) entity.bar.remove();
         entity.bar = null;
         this.leaving.push(entity);
@@ -865,6 +1234,7 @@ export default class AsciiWorld {
             const age = this.time - e.leftAt;
             if (e.slain) this.updateEntity(e, dt);
             if (age < linger) return true;
+            /* After lingering, shrinks away over 0.45 s. */
             const k = (age - linger) / 0.45;
             if (k >= 1) {
                 this.scene.remove(e.model);
@@ -879,6 +1249,10 @@ export default class AsciiWorld {
     }
 
     setPhase(phase, weather) {
+        /* The first word on the time of day is taken at once, so a visit
+           at night does not open on a sunset; after that it is eased in. */
+        if (!this.phaseName) this.phaseSnap = true;
+        /* Unknown names fall back to day and clear. */
         this.phaseName = PHASES[phase] ? phase : "day";
         this.weather = WEATHER_DIM[weather] ? weather : "clear";
     }
@@ -899,6 +1273,8 @@ export default class AsciiWorld {
         return mesh;
     }
 
+    /* 60 rings recycled at random spots within 11 tiles of the view; `life`
+       counts down at 2.5 a second and each ring widens as it runs out. */
     updateSplashes(dt, on) {
         const mesh = this.splashes;
         mesh.visible = on;
@@ -945,6 +1321,7 @@ export default class AsciiWorld {
             const light = s.group.userData.light;
             if (!light) return;
             this.lit.push({ s, light, d: 0 });
+            /* A furnace lights its surroundings but sends up no embers. */
             if (s.kind !== "furnace") this.fires.push({ at: s.group.position.clone().setY(s.group.position.y + light.y - 0.3), d: 0 });
         });
     }
@@ -957,6 +1334,8 @@ export default class AsciiWorld {
         list.forEach((f) => (f.d = f.at.distanceToSquared(this.focus)));
         list.sort((a, b) => a.d - b.d);
         const m = m4;
+        /* Each seed [a, b, c] fixes one ember's phase, speed and sideways drift;
+           they are dealt out round the nearest six fires. */
         mesh.userData.seeds.forEach(([a, b, c], i) => {
             const fire = list[i % Math.min(list.length, 6)].at;
             const t = (this.time * (0.5 + b * 0.5) + a) % 1;
@@ -982,16 +1361,22 @@ export default class AsciiWorld {
     /* Stars and cloud for the ASCII pass to draw where nothing else is. */
     updateSky(dt) {
         const u = this.ascii.uniforms;
+        /* Targets: stars come out by night and fade behind cloud; cloud cover
+           follows the weather. Both ease at the lighting's rate (`k`), or jump on the
+           first snapshot. This clears phaseSnap, so it must run after
+           updateLighting, which reads it too. */
         const stars = { night: 1, dusk: 0.45, dawn: 0.3, day: 0 }[this.phaseName || "day"];
         const clouds = { clear: 0.15, fog: 0.5, rain: 0.75, storm: 1 }[this.weather || "clear"];
-        const k = Math.min(1, dt * 0.8);
+        const k = this.phaseSnap ? 1 : Math.min(1, dt * 0.45);
+        this.phaseSnap = false;
         u.uStars.value += (stars * (1 - clouds * 0.6) - u.uStars.value) * k;
         u.uClouds.value += (clouds - u.uClouds.value) * k;
         const day = this.phaseName === "day" || this.phaseName === "dawn";
         const tint = goalColor.setHex(day ? 0x3c4a66 : 0x283350);
         if (this.flash > 0.2) tint.setHex(0x8f9fd0);
         u.uCloudColor.value.lerp(tint, this.flash > 0.2 ? 1 : k);
-        /* Turning the camera slides the sky along. */
+        /* Turning the camera slides the sky along: a screen's width of columns
+           for every 1.4 radians of yaw. */
         u.uSkyShift.value = (-this.yaw / 1.4) * this.grid.cols;
     }
 
@@ -1002,6 +1387,7 @@ export default class AsciiWorld {
         const b = entity.driven;
         const moved = Math.hypot(b.x - entity.pos.x, b.y - entity.pos.z);
         const ground = this.entityHeight(Math.round(b.x), Math.round(b.y));
+        /* x and z are the body's exactly; only the height is eased. */
         const h = entity.pos.y + (ground - entity.pos.y) * Math.min(1, dt * 18);
         entity.pos.set(b.x, h, b.y);
         if (b.facing !== undefined && b.speed > 0.3) entity.facing = b.facing;
@@ -1009,6 +1395,8 @@ export default class AsciiWorld {
         return { moved, walking: b.speed > 0.4 };
     }
 
+    /* One entity for one frame: place `pos` from the driven body, or from how
+       far along its from -> to walk it is (`t`, of `duration`), then finishEntity. */
     updateEntity(entity, dt) {
         if (entity.driven) {
             const { moved, walking } = this.followBody(entity, dt);
@@ -1038,6 +1426,8 @@ export default class AsciiWorld {
              * into the straight line that was meant, and the body turns to
              * the way it is really going.
              */
+            /* Frame-rate independent easing: the same fraction of the gap closes per
+               second whatever dt is (the camera's easing below is the same shape). */
             const k = 1 - Math.exp(-dt * 13);
             const gx = entity.pos.x + (x - entity.pos.x) * k;
             const gz = entity.pos.z + (z - entity.pos.z) * k;
@@ -1050,6 +1440,8 @@ export default class AsciiWorld {
             const along = span > 1e-6 ? Math.min(1, Math.max(0, ((gx - entity.from.x) * sx + (gz - entity.from.y) * sz) / span)) : 1;
             entity.pos.set(gx, climb ? lift(along) : h, gz);
         } else entity.pos.set(x, h, z);
+        /* Counts as walking for a moment after the last step (longer for the slow
+           creatures), so a run of steps does not flick between idle and walk. */
         const walking = this.time - entity.lastStep < (entity.duration > 0.3 ? 0.55 : 0.28);
         this.finishEntity(entity, dt, moved, walking);
     }
@@ -1058,11 +1450,23 @@ export default class AsciiWorld {
        turning, hurt, falling and rising, the pop-in, the pose. */
     finishEntity(entity, dt, moved, walking) {
         entity.moving += ((walking ? 1 : 0) - entity.moving) * Math.min(1, dt * 12);
+        /* Stride phase grows 4.6 per tile moved; a foot lands every PI of it. */
         entity.stride += moved * 4.6;
+        /* A foot comes down each half turn of the stride. */
+        if (entity === this.self) {
+            const plant = Math.floor(entity.stride / Math.PI);
+            if (plant !== entity.plant && entity.moving > 0.5 && !(entity.data?.hp <= 0)) {
+                const x = Math.round(entity.pos.x);
+                const z = Math.round(entity.pos.z);
+                this.emit("step", { x: entity.pos.x, z: entity.pos.z, wet: this.ground.tile(x, z) === WATER && !this.bridged(x, z), built: this.bridged(x, z) });
+            }
+            entity.plant = plant;
+        }
         entity.yaw = lerpAngle(entity.yaw, entity.facing, Math.min(1, dt * 14));
         entity.model.rotation.y = entity.yaw;
         entity.hurt = Math.max(0, entity.hurt - dt * 2.8);
         const dead = entity.data && entity.data.hp <= 0;
+        /* 0 up, 1 down; takes about 0.6 s either way. */
         entity.down = Math.min(1, Math.max(0, entity.down + (dead ? dt : -dt) * 1.6));
         flashModel(entity.model, this.time < entity.flashUntil);
 
@@ -1070,6 +1474,7 @@ export default class AsciiWorld {
         const age = (this.time - entity.born) / 0.4;
         if (age < 1) {
             const k = age - 1;
+            /* An ease-out-back curve (overshoot constant 1.7). */
             entity.model.scale.setScalar(entity.baseScale * Math.max(0.001, 1 + 2.7 * k * k * k + 1.7 * k * k));
         } else if (entity.model.scale.x !== entity.baseScale) {
             entity.model.scale.setScalar(entity.baseScale);
@@ -1080,6 +1485,7 @@ export default class AsciiWorld {
             moving: entity.moving,
             /* Offset each figure's clock so idle crowds don't breathe in step. */
             t: this.time + entity.seed,
+            /* 0..1 across a half-second swing. */
             attack: (this.time - entity.attackStart) / 0.5,
             down: entity.down,
             hurt: entity.hurt,
@@ -1116,6 +1522,13 @@ export default class AsciiWorld {
         }
     }
 
+    /*
+     * Work out which chunks within `radius` tiles of the view are missing or
+     * stale (their signature differs from the one built), nearest first, into
+     * chunkQueue, and drop built ones beyond it. The drop margin (2 chunks) is
+     * wider than the build margin (0.7 of a chunk), so a chunk on the edge is not
+     * built and dropped in turn.
+     */
     scanChunks(cx, cy, radius) {
         const reach = Math.ceil(radius / CHUNK);
         const wanted = [];
@@ -1127,6 +1540,7 @@ export default class AsciiWorld {
                 if (d > radius + CHUNK * 0.7) continue;
                 const key = `${x}:${y}`;
                 const cleared = this.clearedByChunk.get(key);
+                /* Stale when its harvested tiles or the ground edits in and around it differ. */
                 const signature = `${cleared ? cleared.signature : ""}#${this.ground.chunkSignature(x, y)}`;
                 const have = this.chunks.get(key);
                 if (!have || have.signature !== signature) wanted.push({ key, x, y, d, list: cleared ? cleared.list : [], signature });
@@ -1144,6 +1558,8 @@ export default class AsciiWorld {
         });
     }
 
+    /* Frees geometry only; materials are shared (materials.js) and given back
+       in dispose(). */
     dropChunk(chunk) {
         this.scene.remove(chunk.group);
         chunk.group.traverse((node) => {
@@ -1151,10 +1567,19 @@ export default class AsciiWorld {
         });
     }
 
+    /*
+     * Per frame: ease the lights toward the phase and weather, fire lightning,
+     * set fog and the ASCII pass's lighting uniforms, aim the sun with its shadow
+     * box following the view, and hand the nearest fires the pool of real lights.
+     * `k` below is the easing rate, 1 on the first snapshot so it opens at the
+     * right time of day.
+     */
     updateLighting(dt) {
         const goal = PHASES[this.phaseName || "day"];
         const dimming = WEATHER_DIM[this.weather || "clear"];
-        const k = Math.min(1, dt * 1.5);
+        /* Dawn and dusk take their time: a few seconds of the light
+           warming or draining, rather than a cut. */
+        const k = this.phaseSnap ? 1 : Math.min(1, dt * 0.45);
         const p = this.phase;
         p.sun += (goal.sun * dimming - p.sun) * k;
         p.hemi += (goal.hemi * dimming - p.hemi) * k;
@@ -1164,14 +1589,18 @@ export default class AsciiWorld {
         p.ground.lerp(goalColor.set(goal.ground), k);
         p.bg.lerp(goalColor.set(goal.bg), k);
 
+        /* Lightning, in storms only: a strike every 5 to 14 s sets `flash` to 1,
+           which decays at 4 a second (and only decays inside this branch). */
         let flash = 0;
         if (this.weather === "storm" && !this.reducedMotion) {
             this.nextFlash -= dt;
             if (this.nextFlash <= 0) {
                 this.flash = 1;
                 this.nextFlash = 5 + Math.random() * 9;
+                this.emit("thunder");
             }
             this.flash = Math.max(0, this.flash - dt * 4);
+            /* Two pulses as it decays: above 0.5, then briefly between 0.3 and 0.2. */
             flash = this.flash > 0.5 || (this.flash > 0.2 && this.flash < 0.3) ? 2.5 : 0;
         }
 
@@ -1186,16 +1615,20 @@ export default class AsciiWorld {
         this.scene.fog.color.copy(p.bg);
         this.scene.fog.near = ISO_BACK + this.distance * (fog ? -0.4 : 0.3);
         this.scene.fog.far = ISO_BACK + this.distance * (fog ? 0.9 : 2.4) + (fog ? 4 : 12);
+        /* The clear alpha is a glyph code too: empty cells read as set 0. */
         this.renderer.setClearColor(this.scene.fog.color, glyphCode(0));
         /* Colours live in linear space; the ASCII pass writes sRGB. */
         this.ascii.uniforms.uBackground.value.copy(p.bg).convertLinearToSRGB();
         /* A wash of each cell's colour behind its character, so shapes read
            as masses at a glance; more at night, when the type is thinner. */
-        this.ascii.uniforms.uFill.value = this.phaseName === "night" ? 0.6 : 0.52;
-        this.ascii.uniforms.uGlow.value = this.phaseName === "night" ? 1.2 : 0.5;
+        const u = this.ascii.uniforms;
+        u.uFill.value += ((this.phaseName === "night" ? 0.6 : 0.52) - u.uFill.value) * k;
+        u.uGlow.value += ((this.phaseName === "night" ? 1.2 : 0.5) - u.uGlow.value) * k;
         /* Flat walls thin out as they darken, so cabins read as timber
            rather than as slabs of # and %. */
         this.ascii.uniforms.uContrast.value = 1.7;
+        /* The active camera's depth range, so the pass can turn depth back into
+           distance (the isometric and first-person cameras differ). */
         this.ascii.uniforms.uNear.value = this.camera.near;
         this.ascii.uniforms.uFar.value = this.camera.far;
 
@@ -1226,6 +1659,7 @@ export default class AsciiWorld {
             .addScaledVector(lightRight, Math.round(fr / texel) * texel - fr)
             .addScaledVector(lightUp, Math.round(fu / texel) * texel - fu);
         this.sun.target.position.copy(tmp);
+        /* The same offset as lightDir, from the snapped target. */
         this.sun.position.set(tmp.x - 10 * Math.cos(a), tmp.y + 18 * Math.sin(a) + 4, tmp.z + 8);
 
         /* The nearest fires get real lights; there are only so many. */
@@ -1233,6 +1667,8 @@ export default class AsciiWorld {
         const lit = this.lit;
         lit.forEach((entry) => (entry.d = entry.s.group.position.distanceToSquared(this.focus)));
         lit.sort((x, y) => x.d - y.d);
+        this.nearestFire = lit.length ? Math.sqrt(lit[0].d) : Infinity;
+        /* Fire light multiplier: strongest at night, weakest by day. */
         const night = this.phaseName === "night" ? 1.6 : this.phaseName === "day" ? 0.6 : 1.1;
         this.lightPool.forEach((light, i) => {
             const entry = lit[i];
@@ -1241,6 +1677,8 @@ export default class AsciiWorld {
                 return;
             }
             const flicker = this.reducedMotion ? 1 : 0.85 + Math.sin(this.time * 13 + i * 3) * 0.08 + Math.sin(this.time * 7.3 + i) * 0.07;
+            /* `entry.light` is { color, range, y } from the structure's userData.light
+               (models.js); `y` is the height above its base. */
             light.color.setHex(entry.light.color);
             light.distance = entry.light.range * 1.3;
             light.intensity = 4.5 * flicker * night;
@@ -1249,7 +1687,9 @@ export default class AsciiWorld {
         });
     }
 
-    /* Looking out of your own eyes. */
+    /* Looking out of your own eyes: at 1.55 times the body's scale above its
+       feet, along yaw (flat on the ground plane) tilted by pitch. Your own
+       model is hidden and the cutaway is off. */
     updateFirstPerson(self) {
         const cam = this.fpCamera;
         this.yaw = this.yawGoal;
@@ -1305,6 +1745,8 @@ export default class AsciiWorld {
             this.selfFacing = null;
         }
 
+        /* Orbit turns the view by itself at 0.08 radians a second. Yaw and
+           distance ease with 1 - exp(-dt * rate), as above. */
         if (this.orbit) this.turnAngle = (this.turnAngle ?? ISO_YAW) + dt * 0.08;
         const goalYaw = this.orbit ? this.turnAngle : this.yawGoal;
         this.yaw = this.orbit ? goalYaw : lerpAngle(this.yaw, goalYaw, 1 - Math.exp(-dt * 9));
@@ -1313,18 +1755,26 @@ export default class AsciiWorld {
         placeIsoCamera(this.camera, this.focus, this.yaw, this.distance, this.camera.userData.aspect || 1.6);
         /* Whole cells only, so the picture does not crawl as it follows. */
         snapIsoCamera(this.camera, this.grid.cols, this.grid.rows, this.cellShift, this.slack);
+        /* The sub-cell remainder of the snap, in device pixels, so the picture
+           still slides smoothly under the characters. */
         this.shiftX = Math.round(this.slack.x * this.grid.cellW);
         this.shiftY = Math.round(this.slack.y * this.grid.cellH);
         this.ascii.setShift(this.shiftX, this.shiftY);
         this.ascii.uniforms.uCellShift.value.copy(this.cellShift);
         if (this.shake > 0 && !this.reducedMotion) {
             this.shake = Math.max(0, this.shake - dt);
-            const k = this.shake * 0.35;
-            this.camera.position.x += (Math.random() - 0.5) * k;
-            this.camera.position.y += (Math.random() - 0.5) * k;
+            /* A blow knocks the view about and lets it settle: a couple of
+               fast, unrelated wobbles dying away, rather than a fresh random
+               jump every frame, which reads as a glitch more than a hit. */
+            const k = this.shake * this.shake * 0.5;
+            const t = this.time * 38;
+            this.camera.position.x += (Math.sin(t) * 0.6 + Math.sin(t * 1.7 + 1.3) * 0.4) * k;
+            this.camera.position.y += (Math.sin(t * 1.3 + 0.7) * 0.6 + Math.sin(t * 2.1) * 0.4) * k;
             this.camera.updateMatrixWorld();
         }
-        /* Cut away whatever stands between the camera and you. */
+        /* Cut away whatever stands between the camera and you, out of an oval
+           (half-width and half-height, world units) that grows with the zoom.
+           Off in orbit, or with nobody to look after. */
         aimCutaway(this.camera, self ? self.pos : this.focus, { on: Boolean(self) && !this.orbit, width: 2.4 + this.distance * 0.12, height: 2.2 + this.distance * 0.1 });
 
         this.water.position.x = Math.round(this.focus.x);
@@ -1345,6 +1795,8 @@ export default class AsciiWorld {
         this.cursor.children[0].material.color.setHex(this.aimOk ? 0xf3e6bd : 0xc0705a);
     }
 
+    /* Player name tags (registered by React): placed 2 units above the head and
+       hidden when off screen, behind the camera, or when their player is gone. */
     updateLabels() {
         const g = this.grid;
         const w = g.cols * g.cellW;
@@ -1369,6 +1821,12 @@ export default class AsciiWorld {
         });
     }
 
+    /*
+     * One animation frame. The governor gets the real frame time while the
+     * simulation gets `dt`, capped at 0.1 s so a hitch or a hidden tab does not
+     * make everything leap. Order: entities, camera, chunks, lighting (see the
+     * header), then the two passes.
+     */
     frame() {
         this.raf = requestAnimationFrame(this.frame);
         const begin = now();
@@ -1382,6 +1840,7 @@ export default class AsciiWorld {
         this.creatures.forEach((c) => this.updateEntity(c, dt));
         this.updateLeaving(dt);
         this.updateSparks();
+        this.puffs.update(this.time);
         this.updateCamera(dt);
         this.updateChunks();
         this.updateLighting(dt);
@@ -1400,6 +1859,8 @@ export default class AsciiWorld {
                 s.group.scale.y = t >= 1 ? 1 : 0.05 + 0.95 * (1 - (1 - t) ** 3) * (1 + Math.sin(t * Math.PI) * 0.12);
                 if (t >= 1) delete s.group.userData.born;
             }
+            /* A door: userData.open (0 or 1, from syncStructures) is the target, and
+               the hinge eases toward a quarter turn at 10 a second. */
             const hinge = s.group.userData.hinge;
             if (hinge) hinge.rotation.y += (-s.group.userData.open * Math.PI * 0.5 - hinge.rotation.y) * Math.min(1, dt * 10);
         });
@@ -1408,18 +1869,22 @@ export default class AsciiWorld {
             f.scale.y = f.scale.x * (1 + n);
             f.rotation.y = this.time * 1.5 + i;
         });
+        /* With reduced motion the sea is laid flat once and then left alone. */
         if (!this.reducedMotion || !this.waterStill) {
             rippleWater(this.water, this.time, this.reducedMotion);
             this.waterStill = this.reducedMotion;
         }
 
+        /* Two passes: the scene into the ASCII pass's target, then the pass draws
+           characters to the canvas. The uniforms between describe this frame's
+           camera, so they are set after the camera moved. */
         this.renderer.setRenderTarget(this.ascii.target);
         this.renderer.render(this.scene, this.camera);
         this.ascii.uniforms.uFlash.value = this.flash > 0.2 ? 1 : 0;
         this.ascii.uniforms.uOrtho.value = this.camera.isOrthographicCamera ? 1 : 0;
         this.ascii.uniforms.uInvProj.value.copy(this.camera.projectionMatrixInverse);
         this.ascii.uniforms.uCamToWorld.value.copy(this.camera.matrixWorld);
-        this.ascii.render(this.renderer);
+        this.ascii.render(this.renderer, this.camera);
         this.updateLabels();
         this.updateBars();
         this.updateFloaters();
@@ -1432,10 +1897,21 @@ export default class AsciiWorld {
         }
     }
 
+    /* Idempotent. Gives back what init() took: the frame loop and observers,
+       chunk geometry, figure holds, structures, ghosts, puffs, listeners, the
+       pass, the DOM layers, the material hold, then the renderer. Called by
+       AsciiField on unmount. */
     dispose() {
+        /* Closing twice frees nothing twice, and gives back the material
+           hold only once. */
+        if (this.disposed) return;
+        this.disposed = true;
         cancelAnimationFrame(this.raf);
+        /* The cutaway uniforms are shared module-wide (iso.js); switch the cut
+           off so the next scene does not inherit this one's. */
         CUT.uCutOn.value = 0;
         this.observer.disconnect();
+        this.unwatchPixelRatio?.();
         this.chunks.forEach((c) => this.dropChunk(c));
         this.chunks.clear();
         this.players.forEach((e) => disposeMerged(e.model));
@@ -1445,10 +1921,12 @@ export default class AsciiWorld {
             disposeMerged(s.group);
         });
         this.ghosts.dispose();
+        this.puffs.dispose();
+        this.listeners.clear();
         this.ascii.dispose();
         if (this.perf) this.perf.dispose();
         this.fxLayer.remove();
-        disposeMaterials();
+        this.materials?.release();
         this.renderer.dispose();
         this.renderer.domElement.remove();
     }
