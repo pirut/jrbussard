@@ -251,7 +251,7 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
       {!TOUCH && !paused ? (
         <Text style={styles.hint} pointerEvents="none">
           {Platform.isTV
-            ? 'd-pad walk · select gather · play/pause dig · hold select wall · menu pause'
+            ? 'd-pad walk · select gather · play/pause dig · hold select wall · menu/back pause'
             : 'WASD walk · shift run · E gather · F dig · B wall · Esc pause · pad: A gather · LT dig · X wall · Start pause'}
         </Text>
       ) : null}

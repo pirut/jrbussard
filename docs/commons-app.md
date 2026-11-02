@@ -56,7 +56,10 @@ fails the app's typecheck. Only types are imported from `_generated`, so the
 bundle never needs it.
 
 `convex/_generated` is gitignored. `npx convex dev` at the repo root writes it,
-and the app's typecheck needs it there. Running the app doesn't.
+and the app's typecheck needs it there. Running the app doesn't. Without a
+deployment, `npm run types:convex` (in `apps/commons/`) writes it offline:
+`convex codegen --system-udfs` plus the rate limiter's `components` export,
+in the form codegen writes for npm components. CI uses that.
 
 ### Configuration
 
@@ -94,17 +97,17 @@ Two shared modules are being written in parallel and aren't in this branch:
   `watchFolders` in `metro.config.js` and a matching alias in `tsconfig.json`.
   It has to stay dependency-free plain JS or TS, as the current shared modules
   are.
-- **input action map** (from `commons-polish/ux`). `apps/commons/src/input/types.ts`
-  defines a placeholder `Action` union (`up/down/left/right/confirm/back`,
-  `gather/dig/build/run/pause`). When the shared map lands:
-  1. replace `Action` with the shared module's action type;
-  2. have each source (`keyboard.ts`, `gamepad.ts`, `tvRemote.ts`, the touch
-     buttons) look up bindings in the shared map instead of its own table;
-  3. leave `InputHub` and its readers (`GameScreen`, `Menu`) unchanged. They
-     only see actions and an axis.
-
-Merge `commons-polish/integration` into this branch after both land, then do
-the steps above in one follow-up PR.
+- **input action map** (from `commons-polish/ux`, now merged into this
+  branch as `src/arcade/commons/input/`). The gamepad already reads its
+  buttons through the shared `PAD_LAYOUT` and `createPadReader`
+  (`src/arcade/commons/input/gamepad.js`, re-exported from `src/shared.ts`);
+  `APP_ACTIONS` in `gamepad.ts` only renames the shared actions to the app's
+  (`act` → `gather`, `shovel` → `dig`, `cancel`/`back` → `back`, ...).
+  Still to do: the app's `Action` union in `types.ts` is smaller than the
+  shared `ACTIONS` list, because the app has no camera, panels, food or
+  build mode yet, and `keyboard.ts` still has its own table (the shared
+  `DEFAULT_KEYS` bind E to eat and F to full screen, which the app doesn't
+  have). Move them over as those features arrive.
 
 ## Input
 
@@ -115,8 +118,8 @@ hub.
 | Device | Source | Notes |
 | --- | --- | --- |
 | Keyboard (web) | `keyboard.ts` | WASD/arrows, Shift run, E gather, F dig, B wall, Esc pause, Enter confirm |
-| Gamepad (web) | `gamepad.ts` | Gamepad API standard mapping. Left stick or d-pad walks; A gather/confirm, B dig, X wall, Start pause, RT/L3 run |
-| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select gathers, play/pause digs, a long select builds a wall, menu pauses. The menu key is claimed only during play, so it still exits from the title screen |
+| Gamepad (web) | `gamepad.ts` | The browser Commons' layout (`PAD_LAYOUT`). In the world: left stick walks, A or RT gathers, LT digs, X builds a wall, Start pauses, B backs out. In a menu: d-pad or stick steps, A confirms, B or Start backs out. Buttons the app has no action for yet (camera, panels, the d-pad's food and journal shortcuts) do nothing. With several pads, the first one touched is used until it is unplugged |
+| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select gathers, play/pause digs, a held select builds a wall, a held play/pause runs, Menu pauses |
 | Touch (phones, tablets) | `TouchStick.tsx` + buttons in `GameScreen` | Drag-anywhere thumbstick, Gather/Dig/Wall buttons, II pause |
 
 TV events differ by platform, and `tvEvents.ts` handles each case
@@ -129,7 +132,11 @@ TV events differ by platform, and `tvEvents.ts` handles each case
 - **tvOS holds** come from long-press recognizers (`longUp`, `longSelect`, …),
   which fire after about 0.5 s and send key-down, then key-up when released.
   They're held for as long as they last.
-- **Android TV** sends a key-down/key-up pair for every key.
+- **Android TV** sends a key-down/key-up pair for every key, repeating the
+  key-down while it is held, and has no long-press events. Arrows are held
+  for as long as the key is down. Select and play/pause wait 500 ms (UIKit's
+  long-press threshold): let go sooner and it's a tap; hold on and it becomes
+  `longSelect` / `longPlayPause`, as on Apple TV.
 - **Swipes** on the Siri Remote touch surface carry no key action and count as
   taps.
 - **Select** on tvOS only reaches JS from a focused view, so during play the game
@@ -138,6 +145,25 @@ TV events differ by platform, and `tvEvents.ts` handles each case
 Menus (`ui/Menu.tsx`): on TV every item is a native focusable, so the platform
 focus engine handles the d-pad and select. On web and phones, items respond to
 touch and click, and the hub moves the highlight for keyboards and gamepads.
+While a menu is up, the hub's context is `menu`, so a controller uses its
+menu layout.
+
+Back (`input/back.ts`) goes up one level and leaves the app only from the
+title screen:
+
+| Where | Apple TV Menu, Android Back, Esc, pad B/Start |
+| --- | --- |
+| Title | leaves the app (nothing claims it) |
+| Controls | back to the title |
+| In the world | opens the pause menu |
+| Pause menu | resumes |
+
+On Apple TV, the Menu button only reaches the app while claimed
+(`claimMenuKey`, counted so the pause menu letting go doesn't release the
+world's claim). Android's Back reaches JS only through `BackHandler`, newest
+listener first. A menu that handles a press consumes it (`hub.onPress`
+returning true), so the press that closes the pause menu doesn't also reach
+the world and reopen it.
 
 ## Running it
 
@@ -146,7 +172,8 @@ Requires Node 24. Run everything from `apps/commons/`.
 ```sh
 npm ci                      # .npmrc sets legacy-peer-deps; postinstall applies patches/
 npm test                    # vitest: input adapters and the render loop lifecycle
-npm run typecheck           # tsc; needs ../../convex/_generated (npx convex dev at root)
+npm run typecheck           # tsc; needs ../../convex/_generated (npx convex dev at root,
+                            # or npm run types:convex offline)
 npx expo-doctor
 
 # Browser
@@ -169,9 +196,10 @@ On a simulator with no remote or keyboard attached, start Metro with
 `commons://play` opens the world too, but iOS and tvOS first ask "Open in
 The Commons?", which needs a press.
 
-CI (`.github/workflows/validate.yml`, job `commons-app`) runs `npm ci`,
-`npm test` and the web export. The typecheck isn't in CI because it needs
-`convex/_generated`, which only a linked deployment can write.
+CI (`.github/workflows/validate.yml`, job `commons-app`) installs the root
+and the app, writes `convex/_generated` offline (`scripts/convex-types.mjs`),
+then runs `npm run typecheck`, `npm test` and the web export. No secrets, no
+deployment.
 
 `ios/` and `android/` are generated (continuous native generation) and
 gitignored. Configure native behaviour in `app.json` and config plugins.
@@ -283,7 +311,8 @@ Nothing has been uploaded. Before any store build:
 1. Play-test on a real Apple TV with the Siri Remote and a controller, then
    run Android and Android TV emulators.
 2. Native controller module and analog movement.
-3. Fold in the shared game-rules and input action map once they merge.
+3. Move the keyboard and the app's `Action` list onto the shared action map
+   as the app gains the features behind them.
 4. Port the HUD panels (inventory, crafting, build menu, chat) as native UI,
    with focus order designed for TV.
 5. Accounts, then EAS profiles and a TestFlight internal build when asked.
