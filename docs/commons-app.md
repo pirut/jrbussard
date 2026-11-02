@@ -330,9 +330,12 @@ Evidence for the native runs (commands, log excerpts, screenshots) is in
   character between devices needs accounts (Convex Auth, with Sign in with
   Apple required on iOS if any third-party login is offered).
 - **Tests.** Vitest covers the input sources, Back through the real Menu,
-  press routing, walking, action dispatch and the HUD model (117 tests). The
-  other React components and `GameScreen`'s wiring have no tests, and nothing
-  here has been exercised on a real device.
+  press routing, walking, action dispatch and the HUD model (125 tests).
+  `game/screen.test.ts` runs one press from the keyboard or TV source through
+  the hub, the pause Menu and the router the way `GameScreen` wires them, but
+  `GameScreen` itself, the panels and the other React components are not
+  rendered in any test, and nothing here has been exercised on a real
+  device.
 - **Not seen running since the HUD work.** The web export builds and the code
   typechecks, but the HUD and panels were not looked at in a browser or on a
   simulator when they were written (the dev host lacked the libraries a
