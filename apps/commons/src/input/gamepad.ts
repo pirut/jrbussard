@@ -10,9 +10,10 @@ import type { Action, InputSink, InputSource } from './types';
  *
  * Which button does what is the browser Commons' own table
  * (src/arcade/commons/input/gamepad.js, PAD_LAYOUT), read through the same
- * reader the browser uses, so the two cannot drift: A and RT act, B backs
- * out, X builds, Start pauses (and backs out of a menu), the d-pad steps
- * through menus. APP_ACTIONS only says what each of the shared actions is
+ * reader the browser uses, so the two cannot drift: A and RT act, X
+ * builds, Start pauses, B arrives as `back` (GameScreen opens the pause
+ * menu with it, see game/playActions.ts), B and Start back out of a menu,
+ * the d-pad steps through menus. APP_ACTIONS only says what each of the shared actions is
  * called in this app. The shared actions the app has nothing for yet (the
  * camera, panels, food, the d-pad's shortcuts) do nothing here.
  */

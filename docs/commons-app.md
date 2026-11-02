@@ -118,7 +118,7 @@ hub.
 | Device | Source | Notes |
 | --- | --- | --- |
 | Keyboard (web) | `keyboard.ts` | WASD/arrows, Shift run, E gather, F dig, B wall, Esc pause, Enter confirm |
-| Gamepad (web) | `gamepad.ts` | The browser Commons' layout (`PAD_LAYOUT`). In the world: left stick walks, A or RT gathers, LT digs, X builds a wall, Start pauses, B backs out. In a menu: d-pad or stick steps, A confirms, B or Start backs out. Buttons the app has no action for yet (camera, panels, the d-pad's food and journal shortcuts) do nothing. With several pads, the first one touched is used until it is unplugged |
+| Gamepad (web) | `gamepad.ts` | The browser Commons' layout (`PAD_LAYOUT`). In the world: left stick walks, A or RT gathers, LT digs, X builds a wall, Start or B opens the pause menu (in the browser B only closes an open window; the app has none open in the world). In a menu: d-pad or stick steps, A confirms, B or Start backs out. Buttons the app has no action for yet (camera, panels, the d-pad's food and journal shortcuts) do nothing. With several pads, the first one touched is used until it is unplugged |
 | Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select gathers, play/pause digs, a held select builds a wall, a held play/pause runs, Menu pauses |
 | Touch (phones, tablets) | `TouchStick.tsx` + buttons in `GameScreen` | Drag-anywhere thumbstick, Gather/Dig/Wall buttons, II pause |
 

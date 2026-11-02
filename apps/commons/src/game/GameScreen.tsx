@@ -3,12 +3,12 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { claimMenuKey, onHardwareBack } from '../input/back';
 import type { InputHub } from '../input/hub';
 import { TouchStick } from '../input/TouchStick';
-import type { Action } from '../input/types';
 import type { World, WorldState } from '../net/world';
 import { createBody, createWalker, judgeStep, octStep, passability, stepBody, stepTime } from '../shared';
 import { Menu } from '../ui/Menu';
 import { colors, mono } from '../ui/theme';
 import { WorldScene } from '../world/scene';
+import { createPlayActions } from './playActions';
 import { World3D } from '../world/World3D';
 
 /* The browser's step beat (src/arcade/Commons.js); the server enforces its own. */
@@ -45,8 +45,9 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
     hub.frame();
   }, [hub]);
 
-  /* While in the world, Menu (Apple TV) and Back (Android) open the pause
-     menu instead of leaving the app; the pause menu's own Back resumes. */
+  /* While in the world, Menu (Apple TV), Back (Android) and a controller's
+     B or Start open the pause menu instead of leaving the app; the pause
+     menu's own Back resumes. */
   useEffect(() => claimMenuKey(), []);
   useEffect(() => (paused ? undefined : onHardwareBack(() => setPaused(true))), [paused]);
 
@@ -121,26 +122,16 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
     return { x: here.x + dx, y: here.y + dy };
   }, [walker]);
 
-  const act = useCallback(
-    (action: Action) => {
-      const me = stateRef.current?.me;
-      if (action === 'pause') {
-        setPaused(true);
-        return;
-      }
-      if (!me) return;
-      if (me.hp <= 0) {
-        if (action === 'gather' || action === 'confirm') call('respawn', {}).catch(() => {});
-        return;
-      }
-      const at = facingTile();
-      if (!at) return;
-      const run = (p: Promise<unknown>) =>
-        p.then((m) => flash(typeof m === 'string' ? m : null)).catch(() => flash('That could not reach the world. Try again.'));
-      if (action === 'gather') run(call('harvest', at));
-      else if (action === 'dig') run(call('terraform', { ...at, mode: 'dig' }));
-      else if (action === 'build') run(call('build', { ...at, kind: 'wall' }));
-    },
+  /* What each press does in the world (playActions.ts). */
+  const act = useMemo(
+    () =>
+      createPlayActions({
+        me: () => stateRef.current?.me,
+        facing: facingTile,
+        call,
+        flash,
+        pause: () => setPaused(true),
+      }),
     [call, facingTile, flash],
   );
 
@@ -252,7 +243,7 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
         <Text style={styles.hint} pointerEvents="none">
           {Platform.isTV
             ? 'd-pad walk · select gather · play/pause dig · hold select wall · menu/back pause'
-            : 'WASD walk · shift run · E gather · F dig · B wall · Esc pause · pad: A gather · LT dig · X wall · Start pause'}
+            : 'WASD walk · shift run · E gather · F dig · B wall · Esc pause · pad: A gather · LT dig · X wall · Start/B pause'}
         </Text>
       ) : null}
 
