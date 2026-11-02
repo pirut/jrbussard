@@ -504,6 +504,33 @@ export function trollSpec() {
     return finished(r);
 }
 
+/* A shade: night only (src/lib/game/creatures.js). A thin hooded figure,
+   all one dark, with nothing under the hood but two pale lights and a hem
+   that frays into the dark. */
+export function shadeSpec() {
+    const dark = "#1d1830";
+    const r = humanoidRecipe({
+        skin: "#2a2540",
+        hair: "#141022",
+        hairstyle: "shaved",
+        headwear: "hood",
+        cloak: dark,
+        torso: "#241f38",
+        sleeves: "#241f38",
+        legs: dark,
+        boots: "#141022",
+        belt: "#2a2540",
+        armor: 0,
+        weapon: 0,
+        glowEyes: "#b9a8ff",
+    });
+    const { part } = r;
+    [-0.2, -0.07, 0.07, 0.2].forEach((x, i) =>
+        part("cape", ["cone", 0.05, 0.16, 4], shade(dark, 0.8), [x, -0.86, -0.07], { rot: [Math.PI, 0, (i - 1.5) * 0.15] }),
+    );
+    return finished(r);
+}
+
 /* ── Detail ─────────────────────────────────────────────────────────────── */
 
 /*

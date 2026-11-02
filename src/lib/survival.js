@@ -15,6 +15,7 @@ export const ITEMS = {
   meal: { name: "Cooked meal", glyph: "&", color: "#e9b96b" },
   dirt: { name: "Dirt", glyph: "o", color: "#9a7b58" },
   sand: { name: "Sand", glyph: ".", color: "#d8c690" },
+  essence: { name: "Shadow essence", glyph: "~", color: "#a79bd8" },
 };
 export const FOOD = {
   berries: { hunger: 12, hp: 0 },
@@ -188,6 +189,17 @@ export const RECIPES = [
     station: "workbench",
     detail: "The finest pick. Triple ore yields.",
   },
+  {
+    id: "lantern",
+    name: "Warden's lantern",
+    glyph: "i",
+    group: "Tools",
+    cost: { essence: 5, ingot: 2, crystal: 1 },
+    tool: "lantern",
+    tier: 1,
+    station: "workbench",
+    detail: "Shades will not close on you, and bite for half.",
+  },
 ];
 export const STRUCTURES = {
   wall: {
@@ -298,6 +310,7 @@ export const TOOL_NAMES = {
   armor: ["No armor", "Woven coat", "Iron armor"],
   rod: ["No fishing rod", "Fishing rod"],
   shovel: ["No shovel", "Stone shovel", "Iron shovel"],
+  lantern: ["No lantern", "Warden's lantern"],
 };
 function seed(x, y) {
   let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);

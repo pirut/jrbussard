@@ -23,6 +23,8 @@ import {
   BUILD_COOLDOWN_MS,
 } from "../src/lib/building.js";
 import { inventoryPatch, experience, stationsNear } from "./survival";
+import { bumpStats } from "../src/lib/game/stats.js";
+import { lootFor, swingFor } from "../src/lib/game/creatures.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -320,13 +322,8 @@ export const move = mutation({
       .first();
 
     if (target) {
-      const spec = MONSTERS[target.kind];
-      const swing =
-        3 +
-        player.level * 2 +
-        (player.tools?.weapon || 0) * 4 +
-        Math.floor(Math.random() * 4);
-      const left = target.hp - swing;
+      const spec = MONSTERS[target.kind] || MONSTERS.rat;
+      const left = target.hp - swingFor(player, Math.random);
 
       if (left > 0) {
         await ctx.db.patch("monsters", target._id, { hp: left });
@@ -338,7 +335,8 @@ export const move = mutation({
       }
 
       await ctx.db.delete("monsters", target._id);
-      const drop = spec.gold + Math.floor(Math.random() * spec.gold);
+      const loot = lootFor(target.kind, Math.random);
+      const drop = loot.gold;
 
       let { level, xp, maxHp, hp } = player;
       xp += spec.xp;
@@ -357,11 +355,13 @@ export const move = mutation({
         hp,
         maxHp,
         gold: player.gold + drop,
-        ...inventoryPatch(player, {
-          meat: 1 + (target.kind === "wolf" ? 1 : 0),
-        }),
+        ...inventoryPatch(player, loot.items),
         kills: player.kills + 1,
-        potions: Math.random() < 0.18 ? player.potions + 1 : player.potions,
+        stats: bumpStats(player.stats, {
+          "kill:any": 1,
+          [`kill:${target.kind}`]: 1,
+        }),
+        potions: loot.potion ? player.potions + 1 : player.potions,
         lastMove: due,
         lastSeen: now,
       });
@@ -455,6 +455,10 @@ export const harvest = mutation({
       ...inventoryPatch(player, { [resource]: gain }),
       ...experience(player, 3),
       gathered: (player.gathered || 0) + 1,
+      stats: bumpStats(player.stats, {
+        "gather:any": 1,
+        [`gather:${resource}`]: gain,
+      }),
       milestones: [...new Set([...(player.milestones || []), resource])],
       lastBuild: now,
       lastSeen: now,
@@ -524,6 +528,10 @@ export const build = mutation({
       wood: player.wood - plan.cost.wood,
       stone: player.stone - plan.cost.stone,
       placed: player.placed + 1,
+      stats: bumpStats(player.stats, {
+        "build:any": 1,
+        [`build:${args.kind}`]: 1,
+      }),
       milestones: [...new Set([...(player.milestones || []), args.kind])],
       lastBuild: now,
       lastSeen: now,
@@ -606,6 +614,7 @@ export const terraform = mutation({
       ...inventoryPatch(player, { [plan.item]: plan.change }),
       ...experience(player, plan.xp),
       milestones: [...new Set([...(player.milestones || []), "dig"])],
+      stats: bumpStats(player.stats, { dig: 1 }),
       lastBuild: now,
       lastSeen: now,
     });
@@ -915,6 +924,8 @@ export const state = query({
         milestones: v.array(v.string()),
         home: v.union(v.object({ x: v.number(), y: v.number() }), v.null()),
         stations: v.array(v.string()),
+        stats: v.record(v.string(), v.number()),
+        quest: v.number(),
       }),
       v.null(),
     ),
@@ -1062,6 +1073,8 @@ export const state = query({
             milestones: me.milestones || [],
             home: me.home || null,
             stations: await stationsNear(ctx, me, now),
+            stats: me.stats || {},
+            quest: me.quest || 0,
           }
         : null,
       players: active
@@ -1164,6 +1177,10 @@ export const craft = mutation({
         ? { ...player.tools, [recipe.tool]: recipe.tier! }
         : player.tools || {},
       milestones: [...new Set([...(player.milestones || []), recipe.id])],
+      stats: bumpStats(player.stats, {
+        [`craft:${recipe.id}`]: 1,
+        cook: recipe.output?.meal || 0,
+      }),
       lastBuild: now,
       lastSeen: now,
     });
