@@ -22,6 +22,7 @@ import Nametags from "./commons/Nametags";
 import Vitals from "./commons/Vitals";
 import WorldPanel from "./commons/WorldPanel";
 import QuestTracker from "./commons/QuestTracker";
+import { questStatus } from "../lib/game/quests";
 import Chat from "./commons/Chat";
 import ActionBar, { BUILD_MENU } from "./commons/ActionBar";
 import HelpOverlay from "./commons/HelpOverlay";
@@ -49,7 +50,7 @@ import PauseMenu from "./commons/PauseMenu";
 import SettingsPanel from "./commons/SettingsPanel";
 import Coach from "./commons/Coach";
 import { ConnectionBanner, LoadingScreen, useOnline } from "./commons/ConnectionNotice";
-import { InputContext } from "./commons/input/InputContext";
+import { InputContext, controlText } from "./commons/input/InputContext";
 import { MOVE_VECTORS, actionsForKey, createKeymap, resolveBindings } from "./commons/input/actions";
 import useGamepad, { menuStep } from "./commons/input/useGamepad";
 import { settingsStore, useCommonsSettings } from "./commons/input/useSettings";
@@ -1606,6 +1607,13 @@ function Game({
       case "drink":
         act("drink");
         break;
+      case "claimQuest":
+        if (questStatus(me).complete) act("claimQuest");
+        else flash("nothing to claim yet");
+        break;
+      case "sound":
+        toggleSound();
+        break;
       case "shovel":
         setDigMode((m) => nextMode(m));
         break;
@@ -1673,6 +1681,7 @@ function Game({
   /* ── Drawing ──────────────────────────────────────────────────────── */
 
   const aim = playing ? hover || null : null;
+  const soundKey = controlText({ ...input, device: "keyboard" }, "sound");
   const aimedCreature =
     aim && state.monsters.find((m) => m.x === aim.x && m.y === aim.y);
   const aimInfo = digMode && aim && !aimedCreature
@@ -1791,7 +1800,7 @@ function Game({
               <button
                 onClick={toggleSound}
                 aria-pressed={!muted}
-                title={muted ? "Sound off (N)" : "Sound on (N)"}
+                title={`${muted ? "Sound off" : "Sound on"}${soundKey ? ` (${soundKey})` : ""}`}
                 aria-label={muted ? "Turn sound on" : "Turn sound off"}
               >
                 <span
@@ -1908,6 +1917,8 @@ function Game({
           <PauseMenu
             me={me}
             fullscreen={fullscreen}
+            muted={muted}
+            onSound={toggleSound}
             onResume={() => setMenuOpen(false)}
             onSettings={() => setSettingsOpen(true)}
             onControls={() => setHelp(true)}

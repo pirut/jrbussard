@@ -13,6 +13,8 @@ const canFullscreen = () =>
 export default function PauseMenu({
   me,
   fullscreen,
+  muted = false,
+  onSound,
   onResume,
   onSettings,
   onControls,
@@ -31,6 +33,11 @@ export default function PauseMenu({
         <button onClick={onControls}>Controls</button>
         {me && <button onClick={onCharacter}>Character</button>}
         <button onClick={onMap}>Map</button>
+        {onSound && (
+          <button onClick={onSound} aria-pressed={!muted}>
+            {muted ? "Sound: off" : "Sound: on"}
+          </button>
+        )}
         {canFullscreen() && (
           <button onClick={onFullscreen}>
             {fullscreen ? "Leave full screen" : "Full screen"}

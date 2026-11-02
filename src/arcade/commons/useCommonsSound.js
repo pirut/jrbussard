@@ -12,9 +12,11 @@ const storage = () => {
 /*
  * Sound for the Commons: listens to the world (AsciiWorld.on) for what
  * happens, and keeps the ambience matched to where the view is. Nothing
- * starts until a click, tap or key, as browsers require. N mutes.
+ * starts until a click, tap or key, as browsers require.
  *
- * Returns [muted, toggle].
+ * Returns [muted, toggle]. The hook listens for no key of its own: the
+ * game calls toggle for its "sound" action (N unless remapped, see
+ * input/actions.js), so muting follows the player's bindings.
  */
 export default function useCommonsSound(fieldApi) {
     const [muted, setMuted] = useState(() => loadMuted(storage()));
@@ -82,18 +84,6 @@ export default function useCommonsSound(fieldApi) {
         soundRef.current.setMuted(next);
         setMuted(next);
     }, []);
-
-    useEffect(() => {
-        const onKey = (event) => {
-            if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
-            if (event.key.toLowerCase() !== "n") return;
-            const active = document.activeElement;
-            if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
-            toggle();
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [toggle]);
 
     return [muted, toggle];
 }

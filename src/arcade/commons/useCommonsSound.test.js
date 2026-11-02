@@ -66,8 +66,10 @@ function setHidden(hidden) {
 let root = null;
 let box = null;
 
+let latest = null;
+
 function Host() {
-    useCommonsSound(React.useRef(null));
+    latest = useCommonsSound(React.useRef(null));
     return null;
 }
 
@@ -138,6 +140,20 @@ describe("starting the sound", () => {
         await settle();
         expect(ctx.resumes).toBe(2);
         expect(ctx.state).toBe("running");
+    });
+});
+
+describe("muting", () => {
+    /* The game's action map owns the keys (input/actions.js "sound"), so a
+       player who binds N to something else does not mute as well. */
+    it("leaves the N key to the game's bindings", () => {
+        expect(latest[0]).toBe(false);
+        act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "n" })));
+        expect(latest[0]).toBe(false);
+        act(() => latest[1]());
+        expect(latest[0]).toBe(true);
+        act(() => latest[1]());
+        expect(latest[0]).toBe(false);
     });
 });
 

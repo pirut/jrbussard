@@ -1,5 +1,6 @@
 import React from "react";
 import { questStatus, rewardLabel } from "../../lib/game/quests";
+import { Glyph } from "./input/InputContext";
 import "./gameplay.css";
 
 /*
@@ -49,7 +50,7 @@ export default function QuestTracker({ me, onOpen, onClaim }) {
       </ul>
       {complete ? (
         <button className="quest-claim" onClick={onClaim}>
-          Claim · {rewardLabel(quest.reward)}
+          Claim · {rewardLabel(quest.reward)} <Glyph action="claimQuest" />
         </button>
       ) : (
         <small>{quest.detail}</small>

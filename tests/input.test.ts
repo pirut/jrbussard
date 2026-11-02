@@ -103,6 +103,25 @@ describe("keyboard bindings", () => {
     expect(rebind({}, "pause", "p").error).toBeTruthy();
   });
 
+  it("routes muting and claiming through the bindings, so N bound elsewhere stops muting", () => {
+    /* The sound hook used to listen for N itself: binding N to the journal
+       opened it and muted too, and settings could not move or show mute. */
+    const keymap = createKeymap(resolveBindings());
+    expect(actionsForKey(keymap, "N")).toEqual(["sound"]);
+    expect(actionsForKey(keymap, "l")).toEqual(["claimQuest"]);
+    const { custom, displaced } = rebind({}, "journal", "n");
+    expect(displaced).toEqual(["sound"]);
+    expect(actionsForKey(createKeymap(resolveBindings(custom)), "n")).toEqual(["journal"]);
+  });
+
+  it("gives no two actions the same default key, R aside", () => {
+    const seen = new Map();
+    for (const id of ACTION_IDS)
+      for (const key of DEFAULT_KEYS[id]) seen.set(key, [...(seen.get(key) || []), id]);
+    const shared = [...seen].filter(([, ids]) => ids.length > 1);
+    expect(shared).toEqual([["r", ["turnPiece", "respawn"]]]);
+  });
+
   it("resets one action or all of them", () => {
     const { custom } = rebind({}, "build", "n");
     expect(resolveBindings(resetBinding(custom, "build")).build).toEqual(["b"]);
