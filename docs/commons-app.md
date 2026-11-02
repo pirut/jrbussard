@@ -236,35 +236,40 @@ almost every React Native library. `apps/commons/.npmrc` sets
 
 ## Verified so far
 
-See the PR for the exact run log. In short:
+Evidence for the native runs (commands, log excerpts, screenshots) is in
+`apps/commons/docs/evidence/`. Anything not listed there wasn't run.
 
-- `npm test` (17 tests: TV event sequences, gamepad disconnect, render loop
-  resize and context restore), `npm run typecheck`, and `npx expo-doctor`
-  (20/20) pass.
-- **Apple TV:** with the expo-gl patch, `EXPO_TV=1` prebuild, `pod install`
-  and an `appletvsimulator` Debug build succeed. On the Apple TV 4K simulator
-  (tvOS 27.0), the title menu shows with native focus on Play, and the three.js
-  world renders and animates (two screenshots 15 s apart differ). Remote input
-  in the world has **not** been exercised: the simulator here had no remote or
-  keyboard, so walking and actions on tvOS are covered only by the
-  event-replay tests.
-- Browser resize: going from 1280×800 to 800×1000 changes the GL viewport from
-  1280×800 to 800×1000, following the drawing buffer.
-- `npm run build:web` exports. In Chromium the offline world renders in 3D
-  (terrain, trees, rocks, structures, other players), walks with WASD, and the
-  menu responds to the keyboard.
-- **iOS:** phone prebuild and an `iphonesimulator` Debug build succeed. On the
-  iPhone 17 simulator, the three.js world renders through expo-gl with the HUD,
-  the touch stick and the Gather/Dig/Wall buttons. Touch input wasn't
-  exercised: a headless simulator has no touches.
-- Root `npm run test:commons` (118 tests), `CI=true npm test` (135), and
-  `CI=true npm run build:frontend` still pass.
+- `npm test` (43 tests: TV event sequences including Android holds, Back on
+  Apple TV, Android and keyboard, every controller button in every context
+  against the shared layout, controller choice and disconnect, GPU resources
+  freed as figures leave and on teardown, render loop resize and context
+  restore), `npm run typecheck` against the offline `convex/_generated`, and
+  the web export pass. CI runs all three.
+- **iOS (2026-11-02, Xcode 27.2):** phone prebuild and an `iphonesimulator`
+  Debug build succeed. On an iPhone 18 Pro simulator (iOS 27.0), the title
+  menu shows, a tap on Play opens the three.js world through expo-gl (HUD,
+  touch stick, Gather/Dig/Wall), and a tap on II opens the pause menu. The
+  taps were simulated touches; walking with the stick wasn't exercised.
+- **Apple TV: not repeated.** With Xcode 27.2 (Swift 6.4.2) the
+  `appletvsimulator` build fails twice in a row: the Swift compiler crashes
+  compiling Expo's `ExpoModulesCore` for tvOS, before any app code (log in the
+  evidence folder). An earlier run on an older Xcode reported a working build
+  and a rendering world on the Apple TV 4K simulator. No log or screenshot of
+  that run was kept, so treat it as unconfirmed. Remote input on tvOS is
+  covered only by the event-replay tests.
+- **Android and Android TV:** not run (no Android SDK on the build Mac). The
+  Android TV hold and Back handling are covered only by tests that replay
+  the events react-native-tvos sends.
+- **Hardware:** nothing has run on a real device, remote or controller.
+- Root `npm run test:commons` (229 tests), `CI=true npm test` (169), and
+  `CI=true npm run build:frontend` pass.
 
 ## Known gaps and risks
 
-- **Apple TV on hardware.** Runs on the simulator through the expo-gl patch
-  (above). Still untested on a real Apple TV: frame rate, the Siri Remote,
-  and a paired controller.
+- **Apple TV builds.** Xcode 27.2's Swift compiler crashes on Expo's
+  `ExpoModulesCore` for tvOS (see Verified so far). Until Expo or Xcode fixes
+  it, building for Apple TV needs an older Xcode. Nothing has been tested on
+  a real Apple TV: frame rate, the Siri Remote, a paired controller.
 - **Analog sticks on native.** On TV, controllers arrive as d-pad and button
   events through react-native-tvos, so walking is 8-way digital. Phones with a
   paired controller get nothing yet. Both need a native GameController
