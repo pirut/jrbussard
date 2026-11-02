@@ -11,6 +11,7 @@ import {
   resetBinding,
   resolveBindings,
   unboundActions,
+  walkLean,
   windowKey,
 } from "../src/arcade/commons/input/actions";
 import {
@@ -260,6 +261,42 @@ describe("walking keys", () => {
     expect(moves.up("x")).toBe(first);
     expect(moves.clear()).toEqual([]);
     expect(moves.up("a")).toEqual([]);
+  });
+});
+
+describe("which way the player leans", () => {
+  it("adds up every walking key held: W and D together go up and to the right", () => {
+    expect(walkLean({ held: ["moveUp", "moveRight"] })).toEqual([1, -1]);
+    expect(walkLean({ held: ["moveUp", "moveDown"] })).toEqual([0, 0]);
+  });
+
+  it("takes held keys over a tap, a tap over the touch stick, and that over the pad", () => {
+    const stick = [0.4, 0.2];
+    const pad = [-0.9, 0];
+    expect(walkLean({ held: ["moveLeft"], tap: ["moveRight"], stick, pad })).toEqual([-1, 0]);
+    expect(walkLean({ held: [], tap: ["moveRight"], stick, pad })).toEqual([1, 0]);
+    expect(walkLean({ held: [], tap: null, stick, pad })).toBe(stick);
+    expect(walkLean({ held: [], pad })).toBe(pad);
+    expect(walkLean({ held: [] })).toBeNull();
+  });
+
+  it("stands while the player is down", () => {
+    expect(walkLean({ held: ["moveUp"], stick: [1, 0], alive: false })).toBeNull();
+  });
+
+  it("does not walk on under the menu with W still held", () => {
+    /* Hold W, then Esc opens the menu. Before, the held walk carried on at
+       full speed under it until W was let go. */
+    const moves = createHeldMoves();
+    const held = moves.down("w", "moveUp");
+    expect(walkLean({ held })).toEqual([0, -1]);
+    expect(walkLean({ held, covered: true })).toBeNull();
+    /* W's key repeat, a touch stick or the pad changes nothing while it is up. */
+    expect(walkLean({ held: moves.down("w", "moveUp"), stick: [0.5, 0], pad: [0, 1], covered: true })).toBeNull();
+    /* Commons.js lets go of what was held when the menu opened, so closing
+       it does not resume a walk; the next key down (or repeat) does. */
+    expect(walkLean({ held: moves.clear() })).toBeNull();
+    expect(walkLean({ held: moves.down("w", "moveUp") })).toEqual([0, -1]);
   });
 });
 

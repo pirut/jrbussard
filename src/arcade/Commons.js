@@ -57,6 +57,7 @@ import {
   createHeldMoves,
   createKeymap,
   resolveBindings,
+  walkLean,
   windowKey,
 } from "./commons/input/actions";
 import useGamepad, { menuStep } from "./commons/input/useGamepad";
@@ -706,6 +707,23 @@ function Game({
   const downAtRef = useRef(0);
   const stepAtRef = useRef(0);
 
+  /* Something covers the game: the menu, settings, the controls list or the
+     character screen. The frame loop stands the player still under it
+     (walkLean), and whatever was held when it opened is let go, so a walk
+     begun before Esc does not carry on under the menu. A key still down
+     when it closes walks again on its next key repeat. Fieldcraft panels
+     are left out: they sit beside play. */
+  const covered = Boolean(menuOpen || settingsOpen || help || customizing);
+  const coveredRef = useRef(covered);
+  coveredRef.current = covered;
+  useEffect(() => {
+    if (!covered) return;
+    heldRef.current = movesRef.current.clear();
+    tapRef.current = null;
+    planRef.current = null;
+    mouseRef.current.held = false;
+  }, [covered]);
+
   /* The body that walks: the same continuous motion as the site. The
      server hears about the tiles it crosses; what you see is the body. */
   const bodyRef = useRef(null);
@@ -1118,25 +1136,29 @@ function Game({
       if (navRef.current.state !== st) navRef.current = { state: st, nav: passability(st) };
       const nav = navRef.current.nav;
       const alive = st.me.hp > 0;
+      /* Read from the ref: this loop outlives the render it was made in. */
+      const isCovered = coveredRef.current;
       /* A tap lasts exactly one frame: it is consumed here. */
-      const held = heldRef.current.length ? heldRef.current : tapRef.current;
+      const tap = tapRef.current;
       tapRef.current = null;
-      /* Every key held counts, so W and D together walk up and to the
-         right of the screen, which from the isometric corner is due north
-         on the map. The thumbstick leans any way at all. `lean` is in screen
-         terms; screenToMap turns it by the camera's heading below. */
-      const lean = !alive
-        ? null
-        : held?.length
-          ? [
-              Math.sign(held.reduce((sum, k) => sum + MOVE_VECTORS[k][0], 0)),
-              Math.sign(held.reduce((sum, k) => sum + MOVE_VECTORS[k][1], 0)),
-            ]
-          : stickRef.current || padMoveRef.current;
+      /* Held keys, else a tap, else the thumbstick or pad stick (see
+         walkLean). W and D together walk up and to the right of the screen,
+         which from the isometric corner is due north on the map. `lean` is
+         in screen terms; screenToMap turns it by the camera's heading
+         below. Nothing leans while something covers the game. */
+      const lean = walkLean({
+        held: heldRef.current,
+        tap,
+        stick: stickRef.current,
+        pad: padMoveRef.current,
+        alive,
+        covered: isCovered,
+      });
       /* `want`: the direction to steer in, on the map, [0, 0] to stand. */
       let want = [0, 0];
-      /* Any lean overrides (and cancels) a click-to-walk plan. */
-      const plan = alive && !lean ? planRef.current : null;
+      /* Any lean overrides (and cancels) a click-to-walk plan, and nothing
+         follows one under the menu. */
+      const plan = alive && !lean && !isCovered ? planRef.current : null;
       if (lean) {
         planRef.current = null;
         stepAtRef.current = now;
@@ -1253,6 +1275,7 @@ function Game({
       const spot = hoverRef.current;
       if (
         mouse.held &&
+        !isCovered &&
         heldSwing({
           state: stateRef.current,
           spot,
@@ -1927,8 +1950,7 @@ function Game({
      closes. Unknown names fall through the switch and do nothing. */
   const run = (action) => {
     const alive = me?.hp > 0;
-    /* Nothing changes Fieldcraft from behind another window. */
-    const covered = settingsOpen || menuOpen || help || Boolean(sheet);
+    /* Nothing changes Fieldcraft from behind another window (`covered`). */
     const toggle = (tab) => {
       if (!covered) setPanel((p) => (p === tab ? null : tab));
     };

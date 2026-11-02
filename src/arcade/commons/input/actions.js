@@ -313,6 +313,35 @@ export function createHeldMoves() {
   };
 }
 
+/*
+ * Which way the player leans this frame, in screen terms, or null to stand.
+ * Commons.js's frame loop asks once a frame.
+ *
+ *   held     walking actions whose keys are down (createHeldMoves)
+ *   tap      the walk of a key let go before its step was taken, or null
+ *   stick    the touch thumbstick's lean, or null
+ *   pad      the controller's left stick, or null
+ *   alive    false while waiting to wake up
+ *   covered  the menu, settings, the controls list or the character
+ *            screen is over the game
+ *
+ * Keys win over a tap, a tap over the touch stick, and that over the pad.
+ * Every key held counts, so W and D together give [1, -1] (up and to the
+ * right); keys give -1, 0 or 1 per axis, a stick any lean up to 1. Nothing
+ * leans while the player is down or something covers the game, so a key
+ * still held when Esc opens the menu does not walk on under it.
+ */
+export function walkLean({ held, tap = null, stick = null, pad = null, alive = true, covered = false }) {
+  if (!alive || covered) return null;
+  const keys = held?.length ? held : tap;
+  if (keys?.length)
+    return [
+      Math.sign(keys.reduce((sum, k) => sum + MOVE_VECTORS[k][0], 0)),
+      Math.sign(keys.reduce((sum, k) => sum + MOVE_VECTORS[k][1], 0)),
+    ];
+  return stick || pad || null;
+}
+
 const ARROW_DIRS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
 const PANEL_TABS = { craft: "Craft", pack: "Pack", journal: "Journal" };
 
