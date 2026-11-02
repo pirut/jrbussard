@@ -79,10 +79,12 @@ export function createKeyboard(
            typed into the chat box are text, not walking. */
         if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || hub.typing) return;
         const key = normalizeKey(e.key);
+        const actions = actionsOf(key).filter((a) => !(a in MOVE_VECTORS));
         down.add(key);
-        actionsOf(key).forEach((a) => {
-          if (!(a in MOVE_VECTORS)) hub.hold('keyboard', a, true);
-        });
+        /* One key is one press, however many actions it stands for: Enter
+           is `chat` and `confirm`, and a menu that takes the confirm takes
+           the whole press, so Enter on Resume does not also open chat. */
+        hub.hold('keyboard', actions, true);
         sync();
         /* Stop Space scrolling the page and Tab leaving the game. */
         if (key === ' ' || key === 'Tab') e.preventDefault();
@@ -90,13 +92,13 @@ export function createKeyboard(
       const onUp = (e: KeyboardEvent) => {
         const key = normalizeKey(e.key);
         down.delete(key);
-        actionsOf(key).forEach((a) => hub.hold('keyboard', a, false));
+        hub.hold('keyboard', actionsOf(key), false);
         sync();
       };
       /* Alt-tabbing away swallows the key-up: let go of everything, or the
          player is still walking when they come back. */
       const onBlur = () => {
-        down.forEach((key) => actionsOf(key).forEach((a) => hub.hold('keyboard', a, false)));
+        down.forEach((key) => hub.hold('keyboard', actionsOf(key), false));
         down.clear();
         sync();
       };

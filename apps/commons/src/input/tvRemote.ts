@@ -16,7 +16,7 @@ export function createTvRemote(): InputSource {
       const events = createTvEvents(
         {
           setAxis: (x, y) => hub.setAxis('tv', x, y),
-          hold: (action, down) => hub.hold('tv', action, down),
+          hold: (actions, down) => hub.hold('tv', actions, down),
         },
         undefined,
         /* Android TV has no Play/Pause hold, so a held direction runs. */

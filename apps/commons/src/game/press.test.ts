@@ -57,16 +57,14 @@ beforeEach(() => {
     setChatting: () => {},
     canChat: true,
     /* GameScreen's doAction. */
-    act: (action) => {
-      if (me) perform(action, me, { call: call as never, facing: () => ({ x: 4, y: 5 }) });
-    },
+    act: (action) => !!me && perform(action, me, { call: call as never, facing: () => ({ x: 4, y: 5 }) }) !== undefined,
   });
 });
 
 /* One frame with these buttons down. */
 const play = (...pressed: number[]) => {
   hold(...pressed);
-  hub.frame().pressed.forEach(route);
+  hub.frame().presses.forEach(route);
 };
 
 describe('a controller in the world', () => {
@@ -137,7 +135,7 @@ describe('the keyboard over a panel', () => {
     const off = attachBack(hub, () => setOverlay(null));
     handlers.get('keydown')!({ key: 'Escape', repeat: false, ctrlKey: false, metaKey: false, altKey: false, preventDefault() {} });
     off();
-    hub.frame().pressed.forEach(route);
+    hub.frame().presses.forEach(route);
     expect(overlay).toBeNull();
   });
 
@@ -150,7 +148,7 @@ describe('the keyboard over a panel', () => {
       }),
     );
     handlers.get('keydown')!({ key: 'Escape', repeat: false, ctrlKey: false, metaKey: false, altKey: false, preventDefault() {} });
-    hub.frame().pressed.forEach(route);
+    hub.frame().presses.forEach(route);
     expect(overlay).toBe('pause');
   });
 });

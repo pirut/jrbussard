@@ -25,8 +25,9 @@ export type PressDeps = {
   setChatting(next: boolean): void;
   /* Whether this device has the chat box (not on TV). */
   canChat: boolean;
-  /* Anything left is the world's: act, dig, build, eat (actions.ts). */
-  act(action: Action): void;
+  /* Anything left is the world's: act, dig, build, eat (actions.ts).
+     Returns true when the action meant something to the world. */
+  act(action: Action): boolean | void;
 };
 
 /*
@@ -34,7 +35,10 @@ export type PressDeps = {
  * press handler, kept free of React Native so it can be tested with real
  * controller frames (press.test.ts). Everything the player can press
  * funnels through here once (the frame drains the hub's queue), and a
- * press a menu or list already used never arrives (InputHub.press).
+ * press a menu or list already used never arrives (InputHub.press). A
+ * press is every action one button stood for (Enter is `chat` and
+ * `confirm`, a remote's Select `act` and `confirm`); the first that means
+ * something here is the one that happens.
  *
  * Back goes one level up. With something open, it closes (the controls
  * list goes back to the pause menu). In the world it opens the pause menu.
@@ -44,41 +48,52 @@ export type PressDeps = {
  * open, so B pauses, the same as Menu on Apple TV and Back on Android.
  */
 export function createPressRouter(deps: PressDeps) {
-  return (action: Action) => {
+  /* One action: true if it meant something here. */
+  const one = (action: Action): boolean => {
     const open = deps.overlay();
     const back = action === 'pause' || action === 'back' || action === 'cancel';
 
     if (deps.chatting()) {
-      if (back) deps.setChatting(false);
-      return;
+      if (!back) return false;
+      deps.setChatting(false);
+      return true;
     }
 
     if (back) {
       if (open) deps.setOverlay(open === 'help' ? 'pause' : null);
       else deps.setOverlay('pause');
-      return;
+      return true;
     }
     if (action === 'craft' || action === 'pack' || action === 'journal') {
       deps.setOverlay(open === action ? null : action);
-      return;
+      return true;
     }
     if (action === 'help') {
       deps.setOverlay(open === 'help' ? null : 'help');
-      return;
+      return true;
     }
 
     /* Shoulder buttons / bumpers flip between the panels. */
     if ((action === 'prevTab' || action === 'nextTab') && isTab(open)) {
       const at = TABS.indexOf(open);
       deps.setOverlay(TABS[(at + (action === 'nextTab' ? 1 : TABS.length - 1)) % TABS.length]);
-      return;
+      return true;
     }
 
-    if (open) return;
+    if (open) return false;
     if (action === 'chat') {
-      if (deps.canChat) deps.setChatting(true);
-      return;
+      if (!deps.canChat) return false;
+      deps.setChatting(true);
+      return true;
     }
-    deps.act(action);
+    return deps.act(action) === true;
+  };
+
+  /* One press: its actions in order, until one means something. The rest
+     of that press is spent, so one Select while down is one respawn, not
+     an `act` and a `confirm` each asking for one. */
+  return (press: Action | readonly Action[]) => {
+    const actions: readonly Action[] = typeof press === 'string' ? [press] : press;
+    return actions.some(one);
   };
 }

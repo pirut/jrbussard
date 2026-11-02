@@ -186,6 +186,20 @@ doesn't also reach the world and reopen it, and Esc that closes a panel
 doesn't then open the pause menu. For the same reason Menu on a TV remote
 sends `pause` alone.
 
+One button is one press, however many actions it stands for. Enter is
+`chat` and `confirm`; a remote's Select is `act` and `confirm`. The source
+hands the hub all of them together (`hub.hold` with a list), and whoever
+handles one of them spends the whole press: a menu that takes the confirm
+drops the rest, and the press router (`game/press.ts`) does the first
+action that means something and skips the others. So Enter on Resume does
+not also open chat, and one Select while down is one respawn. On TV a menu
+row or panel button is pressed by the platform, and the remote then sends
+that same Select as a TV event; the control's onPress goes through
+`ui/nativePress.ts`, which tells the hub to drop that event
+(`hub.pressedNatively`), so Select on Resume does not also act in the
+world. `game/screen.test.ts` drives these through the real keyboard and TV
+sources, the hub, the pause Menu and the router.
+
 ## Running it
 
 Requires Node 24. Run everything from `apps/commons/`.

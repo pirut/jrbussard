@@ -6,8 +6,10 @@ import type { InputHub } from '../input/hub';
 /*
  * A highlighted row in a list, driven by the input hub: navUp/navDown move
  * it (wrapping) and confirm picks it. A press the list uses is kept from
- * the frame (see InputHub.press), so the confirm that picks "Resume" does
- * not also act in the world.
+ * the frame, with every other action that came with it (see
+ * InputHub.press): the Enter that picks "Resume" is also the chat key, and
+ * it does not then open chat. On TV a row is a native control and is
+ * pressed by the platform (ui/nativePress.ts).
  *
  * Back leaves, on every device (input/back.ts): Menu on Apple TV, Back on
  * Android, Esc (`pause`), Backspace (`back`) and a controller's B or Start.

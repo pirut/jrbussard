@@ -11,6 +11,7 @@ import { TouchStick } from '../input/TouchStick';
 import type { Action } from '../input/types';
 import type { World } from '../net/world';
 import { Menu } from '../ui/Menu';
+import { nativePress } from '../ui/nativePress';
 import { CONTROLS, HINT } from '../ui/controlsText';
 import { colors, margin, size, TV } from '../ui/theme';
 import { WorldScene } from '../world/scene';
@@ -113,9 +114,10 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
   const doAction = useCallback(
     (action: Action) => {
       const player = meRef.current;
-      if (!player) return;
+      if (!player) return false;
       const request = perform(action, player, { call, facing: walking.facingTile });
       request?.then(flash).catch(() => flash('That could not reach the world. Try again.'));
+      return request !== undefined;
     },
     [call, flash, walking],
   );
@@ -144,7 +146,7 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
   const onFrame = useCallback(
     (dt: number) => {
       const input = hub.frame();
-      input.pressed.forEach(onPress);
+      input.presses.forEach(onPress);
       const blocked = overlayRef.current !== null || chattingRef.current;
       /* Panels and chat freeze the stick but not the world: other people
          keep moving, and the body is still drawn. */
@@ -163,7 +165,8 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
       {/* On tvOS, Select only reaches JS from a focused view (the fork's
           select recognizer lives on focusable views), so during play the
           whole screen is one focusable that keeps focus. Its own onPress
-          does nothing: the TV event stream already carries the press. */}
+          does nothing and is not a nativePress: the TV event stream
+          already carries the press, and it is the world's. */}
       {Platform.isTV && !overlay ? (
         <Pressable style={StyleSheet.absoluteFill} hasTVPreferredFocus isTVSelectable onPress={() => {}} accessibilityLabel="The world" />
       ) : null}
@@ -171,7 +174,7 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
       {me && state ? (
         <>
           <Vitals me={me} region={state.region} phase={state.phase} online={state.online} />
-          {quest && !quest.finished ? <QuestTracker quest={quest} onOpen={() => setOverlay('journal')} onClaim={() => run(claimQuest({ call }))} /> : null}
+          {quest && !quest.finished ? <QuestTracker quest={quest} onOpen={nativePress(hub, () => setOverlay('journal'))} onClaim={nativePress(hub, () => run(claimQuest({ call })))} /> : null}
           <ChatBox
             lines={state.chat}
             hub={hub}

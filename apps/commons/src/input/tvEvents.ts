@@ -43,7 +43,9 @@ type Binding = { action: Action; dir?: [number, number]; also?: Action };
    stick. Direction keys do both: in the world they walk (and, held, keep
    walking), and in a menu the same press steps the highlight (navUp…).
    Select is "act" in the world and "confirm" in a menu: the screen decides
-   which one it listens to, so both are sent. Menu sends `pause` alone: the
+   which one it listens to, so both are sent, as one press (InputHub.press):
+   whatever handles one of them handles the Select, so a menu's confirm is
+   not also an act, and the world's act is not also a confirm. Menu sends `pause` alone: the
    world opens the pause menu on it and a menu's Back takes it (back.ts), so
    a second action from the same key would close what the first opened. */
 const BINDINGS: Record<string, Binding> = {
@@ -83,7 +85,7 @@ export type TvEvent = { eventType?: string; eventKeyAction?: number | null };
 
 export type TvSink = {
   setAxis(x: number, y: number): void;
-  hold(action: Action, down: boolean): void;
+  hold(actions: readonly Action[], down: boolean): void;
 };
 
 export type Timers = {
@@ -122,11 +124,11 @@ export function createTvEvents(sink: TvSink, timers: Timers = realTimers, option
     const b = bindings[key];
     if (down) held.add(key);
     else held.delete(key);
-    [b.action, b.also].forEach((a) => {
-      if (!a) return;
-      /* Another key may still hold the same action (longUp after up). */
-      if (down || !holding(a)) sink.hold(a, down);
-    });
+    /* Everything the key stands for goes to the hub as one press, so a
+       menu or the world that uses one of them uses the press. Another key
+       may still hold the same action (longUp after up). */
+    const actions = [b.action, b.also].filter((a): a is Action => !!a && (down || !holding(a)));
+    if (actions.length) sink.hold(actions, down);
     sync();
   };
 
