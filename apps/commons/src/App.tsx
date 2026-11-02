@@ -73,7 +73,9 @@ export default function App() {
 }
 
 const CONTROLS = Platform.isTV
-  ? 'D-pad or controller to walk. Select gathers, play/pause digs, hold select builds a wall, Menu (Back on Android TV) pauses and goes back.'
+  ? Platform.OS === 'android'
+    ? 'D-pad or controller to walk; hold a direction to run. Select gathers, play/pause digs, hold select builds a wall, Back pauses and goes back.'
+    : 'D-pad or controller to walk, hold play/pause to run. Select gathers, play/pause digs, hold select builds a wall, Menu pauses and goes back.'
   : Platform.OS === 'web'
     ? 'WASD or arrows to walk, shift to run. E gathers, F digs, B builds a wall, Esc pauses. On a controller: left stick walks, A gathers, LT digs, X builds a wall, Start pauses, B backs out.'
     : 'Left thumbstick to walk. Buttons on the right gather, dig and build. II pauses.';

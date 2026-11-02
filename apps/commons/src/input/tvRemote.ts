@@ -13,10 +13,15 @@ export function createTvRemote(): InputSource {
     id: 'tv',
     attach(hub) {
       if (!Platform.isTV) return () => {};
-      const events = createTvEvents({
-        setAxis: (x, y) => hub.setAxis('tv', x, y),
-        hold: (action, down) => hub.hold('tv', action, down),
-      });
+      const events = createTvEvents(
+        {
+          setAxis: (x, y) => hub.setAxis('tv', x, y),
+          hold: (action, down) => hub.hold('tv', action, down),
+        },
+        undefined,
+        /* Android TV has no Play/Pause hold, so a held direction runs. */
+        { holdRuns: Platform.OS === 'android' },
+      );
       const sub = TVEventHandler.addListener((evt) => events.handle(evt));
       return () => {
         sub.remove();

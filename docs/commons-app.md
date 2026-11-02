@@ -119,24 +119,31 @@ hub.
 | --- | --- | --- |
 | Keyboard (web) | `keyboard.ts` | WASD/arrows, Shift run, E gather, F dig, B wall, Esc pause, Enter confirm |
 | Gamepad (web) | `gamepad.ts` | The browser Commons' layout (`PAD_LAYOUT`). In the world: left stick walks, A or RT gathers, LT digs, X builds a wall, Start or B opens the pause menu (in the browser B only closes an open window; the app has none open in the world). In a menu: d-pad or stick steps, A confirms, B or Start backs out. Buttons the app has no action for yet (camera, panels, the d-pad's food and journal shortcuts) do nothing. With several pads, the first one touched is used until it is unplugged |
-| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select gathers, play/pause digs, a held select builds a wall, a held play/pause runs, Menu pauses |
+| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select gathers, play/pause digs, a held select builds a wall, Menu (Back on Android TV) pauses. Running: a held play/pause on Apple TV, a held direction on Android TV |
 | Touch (phones, tablets) | `TouchStick.tsx` + buttons in `GameScreen` | Drag-anywhere thumbstick, Gather/Dig/Wall buttons, II pause |
 
-TV events differ by platform, and `tvEvents.ts` handles each case
-(`tvRemote.test.ts` replays the real sequences):
+With the fork's default settings both TVs send TV events the same way, and
+`tvEvents.ts` reads them (`tvRemote.test.ts` replays the real sequences; the
+Android ones go through a port of the fork's Android key handling, fed raw
+key-down, repeat and key-up events):
 
-- **tvOS short presses** (arrows, Select, Play/Pause, Menu) come from tap
-  recognizers. Each sends one key-up and no key-down, so a lone key-up counts
+- **Short presses** send one key-up and no key-down. On tvOS they come from
+  tap recognizers. On Android TV, `ReactAndroidHWInputDeviceHelper` sends
+  key-downs only when the native flag `ReactFeatureFlags.enableKeyDownEvents`
+  is on; it's off by default and the app leaves it off. A lone key-up counts
   as a whole tap: an arrow is held for 250 ms (about one tile), and a button
   presses once.
-- **tvOS holds** come from long-press recognizers (`longUp`, `longSelect`, …),
-  which fire after about 0.5 s and send key-down, then key-up when released.
-  They're held for as long as they last.
-- **Android TV** sends a key-down/key-up pair for every key, repeating the
-  key-down while it is held, and has no long-press events. Arrows are held
-  for as long as the key is down. Select and play/pause wait 500 ms (UIKit's
-  long-press threshold): let go sooner and it's a tap; hold on and it becomes
-  `longSelect` / `longPlayPause`, as on Apple TV.
+- **Holds** arrive as the fork's long events (`longUp`, `longSelect`, …): one
+  key-down when the hold is recognised, one key-up on release, held in
+  between. On tvOS a long-press recognizer starts them after 0.5 s. On
+  Android TV the fork's detector starts them at the first key repeat more
+  than 300 ms after the key went down, which in practice is Android's first
+  auto-repeat (its key-repeat timeout, 400 ms by default on current Android,
+  500 ms on older versions). Until then a held key sends nothing.
+- **Play/Pause hold** exists only on tvOS (`longPlayPause`), where it runs.
+  The fork's Android detector covers only Select and the d-pad, so a held
+  Play/Pause on Android TV sends a single key-up on release, the same as a
+  tap, and digs. On Android TV a held direction runs instead (`holdRuns`).
 - **Swipes** on the Siri Remote touch surface carry no key action and count as
   taps.
 - **Select** on tvOS only reaches JS from a focused view, so during play the game

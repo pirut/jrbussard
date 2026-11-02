@@ -242,7 +242,9 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
       {!TOUCH && !paused ? (
         <Text style={styles.hint} pointerEvents="none">
           {Platform.isTV
-            ? 'd-pad walk · select gather · play/pause dig · hold select wall · menu/back pause'
+            ? Platform.OS === 'android'
+              ? 'd-pad walk, hold to run · select gather · play/pause dig · hold select wall · back pause'
+              : 'd-pad walk · hold play/pause run · select gather · play/pause dig · hold select wall · menu pause'
             : 'WASD walk · shift run · E gather · F dig · B wall · Esc pause · pad: A gather · LT dig · X wall · Start/B pause'}
         </Text>
       ) : null}
