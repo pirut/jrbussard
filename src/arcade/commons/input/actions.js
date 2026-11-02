@@ -137,14 +137,28 @@ export function keyLabel(key) {
  * The full bindings: the defaults with any of the player's own laid over
  * them. `custom` only holds what was changed, so new defaults still reach
  * players who never touched the settings.
+ *
+ * No key may end up on two actions (R's pair aside). The player's own keys
+ * are placed first and win: a default that lands on a key they chose is
+ * dropped, which is what happens when a new action's default (mute on N,
+ * claim on L) arrives after a player already gave that key to something
+ * else. Settings then show the newcomer as having no key. Between two of the
+ * player's own, the one earlier in ACTIONS keeps it.
  */
 export function resolveBindings(custom = {}) {
+  const owners = new Map();
+  const take = (id) => (key) => {
+    const had = owners.get(key) || [];
+    if (!had.every((other) => mayShare(other, id))) return false;
+    owners.set(key, [...had, id]);
+    return true;
+  };
   const out = {};
-  for (const id of ACTION_IDS) {
-    const mine = custom && Array.isArray(custom[id]) ? custom[id].map(normalizeKey).filter(Boolean) : null;
-    out[id] = mine || DEFAULT_KEYS[id].slice();
-  }
-  return out;
+  const stored = (id) => custom && Array.isArray(custom[id]);
+  for (const id of ACTION_IDS)
+    if (stored(id)) out[id] = custom[id].map(normalizeKey).filter(Boolean).filter(take(id));
+  for (const id of ACTION_IDS) if (!stored(id)) out[id] = DEFAULT_KEYS[id].filter(take(id));
+  return Object.fromEntries(ACTION_IDS.map((id) => [id, out[id]]));
 }
 
 /* key → the actions it asks for, for looking up a key press. */
@@ -191,12 +205,31 @@ export function rebind(custom, action, key) {
   return { custom: next, displaced };
 }
 
-/* Put one action back to its default keys, or all of them. */
+/*
+ * Put one action back to its default keys, or all of them. Like rebind, a
+ * default key that something else now has is taken back off it (unless the
+ * two may share), so a reset never leaves one key on two actions. Returns
+ * the new custom overrides and what lost a key.
+ */
 export function resetBinding(custom, action) {
-  if (!action) return {};
+  if (!action) return { custom: {}, displaced: [] };
+  const all = resolveBindings(custom);
   const next = { ...custom };
   delete next[action];
-  return next;
+  const displaced = [];
+  for (const id of ACTION_IDS) {
+    if (id === action || mayShare(id, action)) continue;
+    const kept = all[id].filter((k) => !DEFAULT_KEYS[action].includes(k));
+    if (kept.length === all[id].length) continue;
+    displaced.push(id);
+    next[id] = kept;
+  }
+  return { custom: next, displaced };
+}
+
+/* Whether an action's keys are other than it started with. */
+export function isRebound(bindings, action) {
+  return (bindings[action] || []).join("\n") !== (DEFAULT_KEYS[action] || []).join("\n");
 }
 
 /* Actions left with no key at all, to warn about in the settings. */

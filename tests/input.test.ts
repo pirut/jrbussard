@@ -124,8 +124,59 @@ describe("keyboard bindings", () => {
 
   it("resets one action or all of them", () => {
     const { custom } = rebind({}, "build", "n");
-    expect(resolveBindings(resetBinding(custom, "build")).build).toEqual(["b"]);
-    expect(resetBinding(custom)).toEqual({});
+    expect(resolveBindings(resetBinding(custom, "build").custom).build).toEqual(["b"]);
+    expect(resetBinding(custom).custom).toEqual({});
+  });
+
+  /* Every key on at most one action, R's pair aside. */
+  const clashes = (bindings: Record<string, string[]>) =>
+    [...createKeymap(bindings)].filter(
+      ([, ids]) => ids.length > 1 && !(ids.length === 2 && ids.includes("turnPiece") && ids.includes("respawn")),
+    );
+
+  it("lets keys saved before mute and claim had defaults keep winning over the new defaults", () => {
+    /* What rebind stored for "journal on N, map on L" before N muted and L
+       claimed: those defaults must not land on the same keys. */
+    const legacy = { journal: ["n", "j"], map: ["l", "m"] };
+    const bindings = resolveBindings(legacy);
+    expect(clashes(bindings)).toEqual([]);
+    const keymap = createKeymap(bindings);
+    expect(actionsForKey(keymap, "n")).toEqual(["journal"]);
+    expect(actionsForKey(keymap, "l")).toEqual(["map"]);
+    expect(bindings.sound).toEqual([]);
+    expect(bindings.claimQuest).toEqual([]);
+    expect(unboundActions(bindings)).toEqual(["claimQuest", "sound"]);
+    /* Taking N off the journal gives mute its default back. */
+    expect(resolveBindings({ ...legacy, journal: ["j"] }).sound).toEqual(["n"]);
+  });
+
+  it("keeps a hand-edited copy from putting one key on two of the player's own actions", () => {
+    const bindings = resolveBindings({ eat: ["x", "x"], remove: ["x"] });
+    expect(bindings.eat).toEqual(["x"]);
+    expect(bindings.remove).toEqual([]);
+    expect(clashes(bindings)).toEqual([]);
+  });
+
+  it("takes a reset action's default key back off whatever was given it, as rebinding does", () => {
+    const moved = rebind({}, "build", "e").custom;
+    const { custom, displaced } = resetBinding(moved, "eat");
+    expect(displaced).toEqual(["build"]);
+    const bindings = resolveBindings(custom);
+    expect(clashes(bindings)).toEqual([]);
+    expect(bindings.eat).toEqual(["e"]);
+    expect(bindings.build).toEqual(["b"]);
+    expect(actionsForKey(createKeymap(bindings), "e")).toEqual(["eat"]);
+    /* Resetting mute after a legacy journal-on-N does the same to the journal. */
+    const legacy = resetBinding({ journal: ["n", "j"] }, "sound");
+    expect(legacy.displaced).toEqual(["journal"]);
+    expect(resolveBindings(legacy.custom).journal).toEqual(["j"]);
+    expect(resolveBindings(legacy.custom).sound).toEqual(["n"]);
+  });
+
+  it("leaves R shared by turning and waking after a reset", () => {
+    const { custom, displaced } = resetBinding(rebind({}, "respawn", "y").custom, "respawn");
+    expect(displaced).toEqual([]);
+    expect(actionsForKey(createKeymap(resolveBindings(custom)), "r")).toEqual(["turnPiece", "respawn"]);
   });
 });
 
