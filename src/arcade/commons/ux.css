@@ -1,0 +1,580 @@
+/*
+ * Menus, settings, the tutorial card, connection notices, controller
+ * glyphs, and the switches that change the whole HUD: its size for a TV,
+ * high contrast and reduced motion. Loaded after game.css and touch.css.
+ */
+
+/* ── Size and safe areas ───────────────────────────────────────────── */
+
+/* The HUD scales as one piece: bigger for a controller across the room,
+   or whatever the player picked (see input/settings.js). */
+.commons-game .game-hud,
+.commons-game .game-title {
+  zoom: var(--ui-scale, 1);
+}
+
+/* Keep the HUD off a phone's notch, rounded corners and home bar; the
+   world itself still runs edge to edge underneath. */
+.commons-game .game-hud {
+  top: env(safe-area-inset-top, 0px);
+  right: env(safe-area-inset-right, 0px);
+  bottom: env(safe-area-inset-bottom, 0px);
+  left: env(safe-area-inset-left, 0px);
+}
+.commons-game .game-title {
+  padding: max(24px, env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right, 0px))
+    max(24px, env(safe-area-inset-bottom, 0px)) max(24px, env(safe-area-inset-left, 0px));
+}
+
+/* ── Focus a player can see from the sofa ──────────────────────────── */
+
+/* With a controller there is no pointer, so wherever focus is must be
+   unmistakable. */
+.commons-game[data-input="gamepad"] button:focus,
+.commons-game[data-input="gamepad"] a:focus,
+.commons-game[data-input="gamepad"] input:focus,
+.commons-game .game-overlay button:focus-visible,
+.commons-game .game-overlay a:focus-visible,
+.commons-game .game-overlay input:focus-visible,
+.commons-game .game-title button:focus-visible {
+  outline: 3px solid #f4e7bd;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px #d8b67c40;
+}
+.commons-game[data-input="gamepad"] .game-stage {
+  cursor: none;
+}
+
+/* ── Glyphs ────────────────────────────────────────────────────────── */
+
+.commons-game kbd.glyph--pad {
+  min-width: 1.9em;
+  padding: 0 5px;
+  border-radius: 6px;
+  border-width: 1px;
+  font-weight: 600;
+  color: #f4e7bd;
+  background: #ffffff14;
+}
+.commons-game kbd.glyph--face {
+  min-width: 1.75em;
+  height: 1.75em;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 1.6em;
+  color: #fff;
+}
+.commons-game kbd.glyph--green {
+  background: #2f7d3a;
+  border-color: #6fd47e;
+}
+.commons-game kbd.glyph--red {
+  background: #8a2a26;
+  border-color: #ff8a7d;
+}
+.commons-game kbd.glyph--blue {
+  background: #2a4f8a;
+  border-color: #84b4ff;
+}
+.commons-game kbd.glyph--yellow {
+  background: #7a6420;
+  border-color: #f2d36b;
+}
+.commons-game kbd.glyph--pink {
+  background: #7a2f62;
+  border-color: #f29bd4;
+}
+.commons-game kbd.glyph--word {
+  font-style: italic;
+}
+.game-overlay kbd,
+.game-loading kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 4px;
+  border: 1px solid #ffffff38;
+  border-bottom-width: 2px;
+  border-radius: 2px;
+  font: 10px/1.5 var(--font-mono, monospace);
+  color: var(--hud-key, #e2c895);
+  text-align: center;
+}
+/* Hotbar slots show a controller button the same size as a key. */
+.hud-hotbar kbd.glyph--pad,
+.hud-build kbd.glyph--pad {
+  top: 1px;
+  left: 1px;
+  min-width: 1.5em;
+  height: auto;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+/* ── Title screen menu ─────────────────────────────────────────────── */
+
+.game-title__menu {
+  display: grid;
+  gap: 8px;
+  justify-items: stretch;
+  min-width: min(280px, 80vw);
+}
+.game-title__menu .game-start {
+  margin-top: 8px;
+}
+.game-title__option {
+  padding: 10px 26px;
+  border: 1px solid #ffffff2e;
+  background: #0008;
+  color: var(--ink);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+}
+.game-title__option:hover,
+.game-title__option:focus-visible {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.game-title__touch,
+.game-title__pad {
+  margin: 0;
+  color: var(--dim);
+  font: 12px/1.6 var(--font-mono, monospace);
+}
+.game-title__keys .glyph + .glyph {
+  margin-left: 2px;
+}
+
+/* ── Menu and settings windows ─────────────────────────────────────── */
+
+.game-overlay {
+  z-index: 3;
+}
+/* Settings or the controls list opened from the menu cover it: hide the
+   menu underneath so its text does not show through, and so Tab and the
+   d-pad cannot reach it. */
+.game-overlay > .hud-window:not(:last-child) {
+  visibility: hidden;
+}
+/* The menu sits over the HUD, so it may use nearly the whole height, and
+   scrolls rather than clips when the controller-sized HUD runs it long. */
+.game-overlay > .hud-menu {
+  top: 50%;
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+}
+.hud-menu {
+  width: min(380px, calc(100% - 24px));
+}
+.hud-menu__title,
+.hud-settings h2 {
+  margin: 0 0 12px;
+  font: normal 15px/1.2 var(--font-mono, monospace);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.hud-menu__list {
+  display: grid;
+  gap: 6px;
+}
+.hud-menu__list > button,
+.hud-menu__list > a {
+  display: block;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #ffffff24;
+  background: #0009;
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+  font: 14px/1.4 var(--font-mono, monospace);
+  letter-spacing: 0.06em;
+}
+.hud-menu__list > button:hover,
+.hud-menu__list > a:hover,
+.hud-menu__list > button:focus,
+.hud-menu__list > a:focus {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: #d8b67c14;
+}
+.hud-menu__leave {
+  margin-top: 6px;
+  color: var(--dim) !important;
+}
+.hud-menu__note {
+  margin: 12px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.hud-menu__keys,
+.hud-coach__keys {
+  display: flex;
+  gap: 14px;
+  margin: 10px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.hud-settings {
+  width: min(640px, calc(100% - 24px));
+}
+.settings-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--hud-line, #ffffff1c);
+  flex-wrap: wrap;
+}
+.settings-tabs [role="tab"] {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--dim);
+  font: 12px/1.4 var(--font-mono, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.settings-tabs [role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--gold);
+  color: var(--gold);
+}
+.settings-tabs__bumper {
+  display: none;
+}
+[data-input="gamepad"] .settings-tabs__bumper {
+  display: inline;
+}
+.settings-body {
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 4px 0;
+  border-bottom: 1px solid #ffffff10;
+}
+.setting__label,
+.setting label {
+  display: grid;
+  gap: 2px;
+  color: var(--ink);
+}
+.setting__label small {
+  color: var(--dim);
+  font-size: 11px;
+}
+.setting--slider {
+  display: grid;
+  grid-template-columns: minmax(9em, 1fr) minmax(120px, 2fr) 4.5em;
+}
+.setting--slider input {
+  width: 100%;
+  min-height: 32px;
+  accent-color: var(--gold);
+}
+.setting--slider output {
+  text-align: right;
+  color: var(--gold);
+  font-family: var(--font-mono, monospace);
+}
+.setting-switch {
+  min-width: 64px;
+  min-height: 36px;
+  border: 1px solid #ffffff38;
+  background: #0009;
+  color: var(--dim);
+  font-family: var(--font-mono, monospace);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.setting-switch.is-on {
+  border-color: var(--gold);
+  background: #d8b67c2a;
+  color: var(--gold);
+}
+.setting-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.setting-choice button,
+.setting-action {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid #ffffff2e;
+  background: #0009;
+  color: var(--ink);
+  font-family: var(--font-mono, monospace);
+}
+.setting-choice button[aria-pressed="true"] {
+  border-color: var(--gold);
+  background: #d8b67c2a;
+  color: var(--gold);
+}
+.setting-note {
+  margin: 6px 0;
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.setting-heading {
+  margin: 18px 0 8px;
+  font: normal 11px/1 var(--font-mono, monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.keys-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.keys-list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  border-bottom: 1px solid #ffffff10;
+}
+.keys-list li.is-unbound > span:first-child {
+  color: var(--hud-warn, #f0b45e);
+}
+.keys-list__keys {
+  display: flex;
+  gap: 4px;
+}
+.keys-list__keys em {
+  color: var(--hud-warn, #f0b45e);
+  font-size: 11px;
+}
+.keys-list button {
+  min-height: 32px;
+  padding: 2px 10px;
+  border: 1px solid #ffffff2e;
+  background: #0009;
+  color: var(--ink);
+  font: 11px/1.4 var(--font-mono, monospace);
+}
+.keys-list button[aria-pressed="true"] {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.keys-list__reset {
+  color: var(--dim) !important;
+}
+.pad-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  align-items: center;
+}
+.pad-list dd {
+  margin: 0;
+}
+.pad-list small {
+  color: var(--dim);
+}
+.hud-help .settings-tabs {
+  margin-top: 4px;
+}
+
+/* ── Tutorial card ─────────────────────────────────────────────────── */
+
+.hud-coach {
+  position: absolute;
+  top: calc(var(--hud-pad) + 44px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100% - 2 * 300px - 32px));
+  min-width: 240px;
+  padding: 10px 14px;
+  border-color: #d8b67c66;
+  animation: coach-in 0.35s ease-out;
+}
+.hud-coach .hud-label em {
+  float: right;
+  font-style: normal;
+  color: var(--dim);
+}
+.hud-coach p {
+  margin: 6px 0 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.hud-coach p kbd + kbd {
+  margin-left: 2px;
+}
+.hud-coach__buttons {
+  display: flex;
+  gap: 8px;
+}
+.hud-coach__buttons button {
+  min-height: 32px;
+  padding: 2px 12px;
+  border: 1px solid #ffffff2e;
+  background: #0009;
+  color: var(--dim);
+  font: 11px/1.4 var(--font-mono, monospace);
+}
+.hud-coach__buttons button:first-child {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+@keyframes coach-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes coach-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+}
+
+/* ── Connection ────────────────────────────────────────────────────── */
+
+.hud-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 2;
+}
+.hud-status.is-good {
+  background: #0d2a14ee;
+  border-color: #6fd47e;
+  color: #c9f5d1;
+}
+.hud-status__spin {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: status-spin 0.8s linear infinite;
+}
+@keyframes status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.game-loading p {
+  max-width: 40ch;
+  margin: 0;
+}
+.game-loading__actions {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+.game-loading__dots::after {
+  content: "· · ·";
+  letter-spacing: 0.3em;
+  color: var(--gold);
+  animation: game-pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Phones ────────────────────────────────────────────────────────── */
+
+@media (max-width: 760px) {
+  /* Clear of the dig buttons stacked down the right edge. */
+  .hud-coach {
+    top: auto;
+    bottom: 180px;
+    left: 12px;
+    right: 60px;
+    width: auto;
+    min-width: 0;
+    transform: none;
+    animation-name: coach-fade;
+  }
+  .is-building .hud-coach {
+    display: none;
+  }
+  .setting--slider {
+    grid-template-columns: 1fr 4em;
+  }
+  .setting--slider input {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .keys-list li {
+    grid-template-columns: 1fr auto auto;
+  }
+}
+@media (max-height: 500px) {
+  .hud-coach {
+    top: auto;
+    bottom: 64px;
+    width: min(380px, calc(100% - 2 * min(210px, 32vw) - 24px));
+    padding: 6px 10px;
+  }
+  .hud-coach p {
+    margin: 2px 0 4px;
+    font-size: 11px;
+  }
+}
+@media (pointer: coarse) {
+  .hud-menu__list > button,
+  .hud-menu__list > a,
+  .game-title__menu button {
+    min-height: 48px;
+  }
+  .hud-menu__keys,
+  .settings-tabs__bumper {
+    display: none;
+  }
+}
+
+/* ── High contrast ─────────────────────────────────────────────────── */
+
+.commons-game.is-high-contrast {
+  --dim: #d9dfcf;
+  --ink: #ffffff;
+}
+.commons-game.is-high-contrast .game-hud {
+  --hud-bg: #000000;
+  --hud-line: #ffffff8c;
+  text-shadow: none;
+}
+.commons-game.is-high-contrast .hud-card,
+.commons-game.is-high-contrast .hud-hotbar,
+.commons-game.is-high-contrast .hud-build,
+.commons-game.is-high-contrast .hud-window {
+  background: #000;
+  border-color: #ffffffb3;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.commons-game.is-high-contrast .hud-target,
+.commons-game.is-high-contrast .hud-chat li {
+  background: #000;
+}
+.commons-game.is-high-contrast button {
+  border-color: #ffffff99;
+}
+
+/* ── Reduced motion, from the settings or the device ───────────────── */
+
+.commons-game.is-reduced-motion *,
+.commons-game.is-reduced-motion *::before,
+.commons-game.is-reduced-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}

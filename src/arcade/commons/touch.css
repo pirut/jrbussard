@@ -71,10 +71,6 @@
   .hud-target .build-keys {
     display: none;
   }
-  /* The key lists mean nothing without keys: only the touch one shows. */
-  .hud-help__groups > section:not(.hud-help__touch) {
-    display: none;
-  }
   .hud-help__groups {
     grid-template-columns: 1fr;
   }

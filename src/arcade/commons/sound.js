@@ -14,6 +14,14 @@
  * Browsers refuse to start audio before the page has been touched, so the
  * AudioContext is only made in start(), which useCommonsSound calls from a
  * click, tap or key until it is playing. Muting is remembered.
+ *
+ * Levels come from the player's settings (input/settings.js): `volume` is
+ * the master, `music` the ambience bus (there is no score; the ambience is
+ * the game's music) and `effects` the effects bus, each 0 to 1:
+ *
+ *   ambience ─▶ music bus ─┐
+ *                          ├─▶ compressor ─▶ master (0.7 × volume, 0 muted)
+ *   effects ──▶ effects bus┘
  */
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -72,9 +80,14 @@ export function ambientMix({ phase = "day", weather = "clear", fire = Infinity, 
 /* ── The engine ────────────────────────────────────────────────────────── */
 
 export class CommonsSound {
-    constructor({ muted = false } = {}) {
+    constructor({ muted = false, levels = {} } = {}) {
         this.ctx = null;
         this.muted = muted;
+        this.levels = { volume: 1, music: 1, effects: 1 };
+        this.setLevels(levels);
+        /* Where envelopes go: the effects bus, or the music bus while the
+           ambience is scattering birds and crickets (see onMusic). */
+        this.out = null;
         this.mix = ambientMix();
         this.lastAt = {};
     }
@@ -113,10 +126,46 @@ export class CommonsSound {
 
     setMuted(muted) {
         this.muted = muted;
-        if (!this.ctx) return;
+        this.applyLevels();
+    }
+
+    /* The master, music and effects levels, 0 to 1; any left out stay. Takes
+       effect at once on a playing engine. */
+    setLevels({ volume, music, effects } = {}) {
+        const level = (v, was) => (Number.isFinite(v) ? clamp(v, 0, 1) : was);
+        this.levels = {
+            volume: level(volume, this.levels.volume),
+            music: level(music, this.levels.music),
+            effects: level(effects, this.levels.effects),
+        };
+        this.applyLevels();
+    }
+
+    masterGain() {
+        return this.muted ? 0 : 0.7 * this.levels.volume;
+    }
+
+    applyLevels() {
+        if (!this.ctx || !this.master) return;
         const t = this.ctx.currentTime;
-        this.master.gain.cancelScheduledValues(t);
-        this.master.gain.setTargetAtTime(muted ? 0 : 0.7, t, 0.05);
+        [
+            [this.master, this.masterGain()],
+            [this.music, this.levels.music],
+            [this.effects, this.levels.effects],
+        ].forEach(([node, value]) => {
+            node.gain.cancelScheduledValues(t);
+            node.gain.setTargetAtTime(value, t, 0.05);
+        });
+    }
+
+    /* Run `fn` with its envelopes going to the music bus. */
+    onMusic(fn) {
+        this.out = this.music;
+        try {
+            fn();
+        } finally {
+            this.out = null;
+        }
     }
 
     dispose() {
@@ -141,12 +190,18 @@ export class CommonsSound {
     build() {
         const ctx = this.ctx;
         this.master = ctx.createGain();
-        this.master.gain.value = this.muted ? 0 : 0.7;
+        this.master.gain.value = this.masterGain();
         this.master.connect(ctx.destination);
         this.bus = ctx.createDynamicsCompressor();
         this.bus.threshold.value = -16;
         this.bus.ratio.value = 5;
         this.bus.connect(this.master);
+        this.music = ctx.createGain();
+        this.music.gain.value = this.levels.music;
+        this.music.connect(this.bus);
+        this.effects = ctx.createGain();
+        this.effects.gain.value = this.levels.effects;
+        this.effects.connect(this.bus);
         this.noiseBuffer = this.noise(3);
 
         /* A looping bed of noise through a filter, its gain set by the mix. */
@@ -162,7 +217,7 @@ export class CommonsSound {
             filter.Q.value = q;
             const gain = ctx.createGain();
             gain.gain.value = 0;
-            src.connect(filter).connect(gain).connect(this.bus);
+            src.connect(filter).connect(gain).connect(this.music);
             src.start();
             return { filter, gain };
         };
@@ -191,10 +246,12 @@ export class CommonsSound {
         rain.gain.gain.setTargetAtTime(this.mix.rain * 0.16 * quiet, t, 1.2);
         water.gain.gain.setTargetAtTime(this.mix.water * 0.1 * quiet, t, 1.2);
 
-        if (Math.random() < this.mix.birds * dt * 0.5) this.bird();
-        if (Math.random() < this.mix.crickets * dt * 1.6) this.cricket();
-        const crackles = this.mix.fire * dt * 9;
-        for (let i = 0; i < 3; i += 1) if (Math.random() < crackles / 3) this.crackle(this.mix.fire);
+        this.onMusic(() => {
+            if (Math.random() < this.mix.birds * dt * 0.5) this.bird();
+            if (Math.random() < this.mix.crickets * dt * 1.6) this.cricket();
+            const crackles = this.mix.fire * dt * 9;
+            for (let i = 0; i < 3; i += 1) if (Math.random() < crackles / 3) this.crackle(this.mix.fire);
+        });
     }
 
     /* One sound through a gain envelope: up in `attack`, down over `decay`. */
@@ -204,7 +261,7 @@ export class CommonsSound {
         g.gain.setValueAtTime(0.0001, t);
         g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + attack);
         g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
-        g.connect(this.bus);
+        g.connect(this.out || this.effects);
         return { g, t, end: t + attack + decay + 0.05 };
     }
 
@@ -245,7 +302,7 @@ export class CommonsSound {
 
     /* What happened in the world (see AsciiWorld.emit), at `level` loudness. */
     play(type, detail = {}, level = 1) {
-        if (!this.running || this.muted || level <= 0.01) return;
+        if (!this.running || this.muted || this.levels.effects <= 0 || level <= 0.01) return;
         const v = level;
         const r = () => 0.9 + Math.random() * 0.2;
         switch (type) {
@@ -323,7 +380,7 @@ export class CommonsSound {
             if (pan) {
                 pan.pan.value = Math.random() * 1.6 - 0.8;
                 g.disconnect();
-                g.connect(pan).connect(this.bus);
+                g.connect(pan).connect(this.music);
             }
             const osc = this.ctx.createOscillator();
             osc.type = "sine";

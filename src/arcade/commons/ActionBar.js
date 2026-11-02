@@ -2,16 +2,11 @@ import React from "react";
 import { STRUCTURES, inventoryOf } from "../../lib/survival";
 import { ORIENTED, affordableCount } from "../../lib/building";
 import { buildCost, costText } from "./hud";
+import { Glyph, controlText, useInput } from "./input/InputContext";
+import { relabelHint } from "./input/phrases";
 import "./build.css";
 
 /* On a touch screen, the target line names taps and buttons, not keys. */
-const TOUCH = (() => {
-  try {
-    return window.matchMedia("(pointer: coarse)").matches;
-  } catch {
-    return false;
-  }
-})();
 const TOUCH_WORDS = [
   [/\bclick/g, "tap"],
   [/ · B to build$/, ""],
@@ -20,11 +15,18 @@ const TOUCH_WORDS = [
   [/^G for the shovel · B to build$/, "dig with the shovel, or build on it"],
   [/^Tab opens/, "pack opens"],
   [/X removes( it)?/, "remove it in build mode"],
+  [/Q drinks a potion/, "drink a potion"],
+  [/E to eat/, "eat something"],
 ];
-const say = (verb) =>
-  TOUCH && verb
-    ? TOUCH_WORDS.reduce((text, [from, to]) => text.replace(from, to), verb)
-    : verb;
+/* A hint in the words of the device in hand: taps on a touch screen, the
+   player's own keys on a keyboard, buttons on a controller. */
+export function sayHint(verb, input) {
+  if (!verb) return verb;
+  if (input.device === "touch")
+    return TOUCH_WORDS.reduce((text, [from, to]) => text.replace(from, to), verb);
+  const label = (action) => controlText(input, action);
+  return relabelHint(verb, label, input.device === "gamepad" ? label("act") : "click");
+}
 
 export const BUILD_MENU = Object.keys(STRUCTURES).map((kind, i) => ({
   kind,
@@ -46,6 +48,7 @@ const SHORT = {
  * whether the ghost under the cursor will go up, or why not.
  */
 function BuildLine({ selected, me, ghosts, facing, onTurn, onUndo, onRemove, onStop }) {
+  const pad = useInput().device === "gamepad";
   const spec = STRUCTURES[selected];
   const { parts, affordable } = buildCost(selected, me);
   const run = ghosts || [];
@@ -76,17 +79,31 @@ function BuildLine({ selected, me, ghosts, facing, onTurn, onUndo, onRemove, onS
         {parts.map((p) => `${p.need} ${p.item} (${p.have})`).join(" + ") || "free"}
       </span>
       {verdict}
-      <span className="build-keys">
-        <kbd>drag</kbd> a row
-        {ORIENTED.includes(selected) && (
-          <>
-            {" · "}
-            <kbd>R</kbd> turn {facing === undefined ? "(auto)" : `(${facing * 90}°)`}
-          </>
-        )}
-        {" · "}
-        <kbd>Z</kbd> undo · <kbd>X</kbd> remove · <kbd>Esc</kbd>
-      </span>
+      {pad ? (
+        <span className="build-keys">
+          <Glyph action="prevPiece" /> <Glyph action="nextPiece" /> piece
+          {ORIENTED.includes(selected) && (
+            <>
+              {" · "}
+              <Glyph action="turnPiece" /> turn {facing === undefined ? "(auto)" : `(${facing * 90}°)`}
+            </>
+          )}
+          {" · "}
+          <Glyph action="undo" /> undo · <Glyph action="remove" /> remove · <Glyph action="cancel" /> done
+        </span>
+      ) : (
+        <span className="build-keys">
+          <kbd>drag</kbd> a row
+          {ORIENTED.includes(selected) && (
+            <>
+              {" · "}
+              <Glyph action="turnPiece" /> turn {facing === undefined ? "(auto)" : `(${facing * 90}°)`}
+            </>
+          )}
+          {" · "}
+          <Glyph action="undo" /> undo · <Glyph action="remove" /> remove · <Glyph action="back" />
+        </span>
+      )}
       {/* What the keys do, as buttons, for a touch screen (see game.css). */}
       <span className="build-touch">
         {ORIENTED.includes(selected) && (
@@ -103,13 +120,14 @@ function BuildLine({ selected, me, ghosts, facing, onTurn, onUndo, onRemove, onS
 }
 
 function TargetLine({ aimInfo, building, ...build }) {
+  const input = useInput();
   if (building) return <BuildLine {...build} />;
   return (
     <p className={`hud-target ${aimInfo ? "" : "is-empty"}`}>
       {aimInfo && (
         <>
           <b>{aimInfo.label}</b>
-          <span>{say(aimInfo.verb)}</span>
+          <span>{sayHint(aimInfo.verb, input)}</span>
         </>
       )}
     </p>
@@ -146,7 +164,7 @@ function BuildStrip({ selected, me, onPick }) {
   );
 }
 
-function Slot({ hotkey, glyph, label, count, on, onClick, title, color }) {
+function Slot({ action, glyph, label, count, on, onClick, title, color }) {
   return (
     <button
       className={on ? "is-on" : ""}
@@ -154,7 +172,7 @@ function Slot({ hotkey, glyph, label, count, on, onClick, title, color }) {
       onClick={onClick}
       title={title}
     >
-      <kbd>{hotkey}</kbd>
+      <Glyph action={action} />
       <span className="hud-glyph" style={color ? { color } : undefined}>
         {glyph}
       </span>
@@ -202,7 +220,7 @@ export default function ActionBar({
       {building && <BuildStrip selected={selected} me={me} onPick={onPick} />}
       <div className="hud-hotbar" role="toolbar" aria-label="Actions">
         <Slot
-          hotkey="B"
+          action="build"
           glyph={spec.ch}
           color={spec.color}
           label="build"
@@ -211,7 +229,7 @@ export default function ActionBar({
           title={`Build mode (B) · 1–0 picks · ${spec.label}`}
         />
         <Slot
-          hotkey="E"
+          action="eat"
           glyph="%"
           label="eat"
           count={food}
@@ -219,7 +237,7 @@ export default function ActionBar({
           title="Eat a meal or berries (E)"
         />
         <Slot
-          hotkey="Q"
+          action="drink"
           glyph="!"
           label="potion"
           count={me?.potions || 0}
@@ -227,7 +245,7 @@ export default function ActionBar({
           title="Drink a potion (Q)"
         />
         <Slot
-          hotkey="Tab"
+          action="craft"
           glyph="≡"
           label="pack"
           on={Boolean(panel)}

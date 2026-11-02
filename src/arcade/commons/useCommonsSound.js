@@ -12,14 +12,24 @@ const storage = () => {
 /*
  * Sound for the Commons: listens to the world (AsciiWorld.on) for what
  * happens, and keeps the ambience matched to where the view is. Nothing
- * starts until a click, tap or key, as browsers require. N mutes.
+ * starts until a click, tap or key, as browsers require.
  *
- * Returns [muted, toggle].
+ * Returns [muted, toggle]. The hook listens for no key of its own: the
+ * game calls toggle for its "sound" action (N unless remapped, see
+ * input/actions.js), so muting follows the player's bindings.
+ *
+ * `levels` is { volume, music, effects } from the settings, each 0 to 1;
+ * changes reach the playing engine at once.
  */
-export default function useCommonsSound(fieldApi) {
+export default function useCommonsSound(fieldApi, levels = {}) {
     const [muted, setMuted] = useState(() => loadMuted(storage()));
     const soundRef = useRef(null);
-    if (!soundRef.current) soundRef.current = new CommonsSound({ muted });
+    if (!soundRef.current) soundRef.current = new CommonsSound({ muted, levels });
+
+    const { volume, music, effects } = levels;
+    useEffect(() => {
+        soundRef.current.setLevels({ volume, music, effects });
+    }, [volume, music, effects]);
 
     /* Start on a gesture; stop the clock while the tab is hidden. Every
        gesture tries while the sound is not playing, since a start can be
@@ -82,18 +92,6 @@ export default function useCommonsSound(fieldApi) {
         soundRef.current.setMuted(next);
         setMuted(next);
     }, []);
-
-    useEffect(() => {
-        const onKey = (event) => {
-            if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
-            if (event.key.toLowerCase() !== "n") return;
-            const active = document.activeElement;
-            if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
-            toggle();
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [toggle]);
 
     return [muted, toggle];
 }

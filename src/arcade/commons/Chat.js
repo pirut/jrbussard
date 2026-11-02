@@ -1,4 +1,5 @@
 import React from "react";
+import { Glyph } from "./input/InputContext";
 
 /* Stable colour per name, so you learn to recognise people. */
 export function nameColor(name) {
@@ -56,7 +57,7 @@ export default function Chat({
         </form>
       ) : (
         <button className="hud-chat-open" onClick={onOpen}>
-          <kbd>Enter</kbd> talk
+          <Glyph action="chat" /> talk
         </button>
       )}
     </section>
