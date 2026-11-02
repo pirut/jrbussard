@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { KIND } from "../world/tiles";
 import { material, ownMaterial } from "../arcade/ascii3d/materials";
 import { buildStructure, buildSurvivor } from "../arcade/ascii3d/models";
+import { releaseFigure } from "../arcade/ascii3d/figureGeometry";
 
 /*
  * The things in the workshop you walk up to, as models.
@@ -231,4 +232,6 @@ export function disposeProps(root) {
     root.traverse((node) => {
         if (node.material && node.material.userData?.own) node.material.dispose();
     });
+    /* The statue is a survivor, and shares figure geometry. */
+    releaseFigure(root);
 }

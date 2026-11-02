@@ -11,6 +11,10 @@ export const api = {
     craft: makeFunctionReference("world:craft"),
     eat: makeFunctionReference("world:eat"),
     transfer: makeFunctionReference("world:transfer"),
+    /* The quest chain and crossroads projects, in convex/game.ts. */
+    claimQuest: makeFunctionReference("game:claimQuest"),
+    contribute: makeFunctionReference("game:contribute"),
+    projects: makeFunctionReference("game:projects"),
     state: makeFunctionReference("world:state"),
     leaderboard: makeFunctionReference("world:leaderboard"),
     join: makeFunctionReference("world:join"),

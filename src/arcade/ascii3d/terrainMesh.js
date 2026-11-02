@@ -238,19 +238,33 @@ export function addTree(batch, x, y, h) {
     /* Tall and narrow: a forest should tower over whoever walks in it. */
     const tall = 1.5 + hash(x, y, 15) * 0.9;
     batch.shape("timber", P.trunk(), place(ox, h + 0.5 * size * tall, oz, size, size * tall, size), tint("#7a5a3c", 1));
+    /* Roots flare where the trunk meets the ground. */
+    batch.shape("timber", P.cone(), place(ox, h + 0.13 * size, oz, 0.42 * size, 0.28 * size, 0.42 * size, r * 4), tint("#5f4630", 1));
     const leaf = 0.85 + hash(x, y, 14) * 0.3;
     if (r < 0.6) {
         /* A fir: a stack of cones, each a little narrower. */
         const tiers = 4 + Math.floor(hash(x, y, 16) * 2);
         for (let i = 0; i < tiers; i += 1) {
             const w = (1.1 - i * (0.8 / tiers)) * size;
-            batch.shape("leaves", P.cone(), place(ox, h + (0.9 + i * 0.55) * size * (tall / 1.6), oz, w, 0.95 * size, w, r * 6 + i), tint("#4f8a4a", leaf * (0.88 + i * 0.05)));
+            /* Each tier lighter than the one below, and every other one
+               a shade bluer, so the stack reads as layers of branches. */
+            const tierColor = i % 2 ? "#4a8450" : "#4f8a4a";
+            batch.shape("leaves", P.cone(), place(ox, h + (0.9 + i * 0.55) * size * (tall / 1.6), oz, w, 0.95 * size, w, r * 6 + i), tint(tierColor, leaf * (0.82 + i * 0.07)));
         }
+        const top = h + (0.9 + tiers * 0.55) * size * (tall / 1.6);
+        batch.shape("leaves", P.cone(), place(ox, top, oz, 0.22 * size, 0.6 * size, 0.22 * size), tint("#6aa35c", leaf));
     } else {
         /* A broadleaf: a lumpy crown, high on a long trunk. */
         const crown = h + 1.2 * size * tall;
         batch.shape("timber", P.trunk(), place(ox, crown - 0.4 * size, oz, size * 0.8, 0.8 * size, size * 0.8), tint("#7a5a3c", 0.9));
+        /* Two boughs reach out to either side of the crown. */
+        [-1, 1].forEach((side) =>
+            batch.shape("timber", P.trunk(), place(ox + side * 0.22 * size, crown - 0.25 * size, oz, size * 0.5, 0.7 * size, size * 0.5, 0, 0, side * -0.8), tint("#6e5034", 1)),
+        );
+        /* A shaded underside, the main mass, side lobes and a sunlit top. */
+        batch.shape("leaves", P.blob(), place(ox, crown - 0.3 * size, oz, 1.2 * size, 0.7 * size, 1.2 * size, r * 4), tint("#4f7d3a", leaf));
         batch.shape("leaves", P.blob(), place(ox, crown, oz, 1.3 * size, 1.4 * size, 1.3 * size, r * 9), tint("#6c9c4d", leaf));
+        batch.shape("leaves", P.blob(), place(ox - 0.42 * size, crown + 0.05, oz + 0.15, 0.8 * size, 0.8 * size, 0.8 * size, r * 7), tint("#638f47", leaf));
         batch.shape("leaves", P.blob(), place(ox + 0.18, crown + 0.55 * size, oz - 0.1, 0.9 * size, 1.0 * size, 0.9 * size, r * 5), tint("#7cab58", leaf));
     }
 }
@@ -268,6 +282,18 @@ export function addRock(batch, x, y, h, resource) {
     const s = 0.8 + r * 0.45;
     const base = resource === "coal" ? "#5d6066" : "#9a9f97";
     batch.shape("rock", P.boulder(), place(x, h + 0.32 * s, y, 1.05 * s, 0.85 * s, 0.95 * s, r * 7, r * 3), tint(base, 0.85 + hash(x, y, 22) * 0.25));
+    /* A smaller stone shouldered against it, so the outline is not one lump. */
+    const side = hash(x, y, 23) * Math.PI * 2;
+    batch.shape("rock", P.boulder(), place(x + Math.cos(side) * 0.4 * s, h + 0.14 * s, y + Math.sin(side) * 0.35 * s, 0.45 * s, 0.35 * s, 0.4 * s, r * 11), tint(base, 0.78));
+    if (!resource || resource === "stone") {
+        /* Moss on the shaded top. */
+        batch.shape("grass", P.blob(), place(x - 0.08 * s, h + 0.62 * s, y - 0.05 * s, 0.6 * s, 0.14 * s, 0.5 * s, r * 5), tint("#5e7d45", 0.9 + r * 0.2));
+    } else if (resource === "coal") {
+        for (let i = 0; i < 4; i += 1) {
+            const a = hash(x, y, 80 + i) * Math.PI * 2;
+            batch.shape("rock", P.gem(), place(x + Math.cos(a) * 0.4 * s, h + (0.25 + (i % 2) * 0.2) * s, y + Math.sin(a) * 0.36 * s, 0.14, 0.12, 0.14, a), tint("#26272b", 1));
+        }
+    }
     if (resource === "ore") {
         for (let i = 0; i < 3; i += 1) {
             const a = hash(x, y, 30 + i) * Math.PI * 2;

@@ -1,4 +1,25 @@
 import * as THREE from "three";
+import {
+    BAYER4,
+    BLACK_POINT,
+    CODES,
+    EDGE_BAND,
+    FACE_RAMPS,
+    GAINS,
+    GLYPHS,
+    GLYPH_SETS,
+    HYSTERESIS,
+    LEVELS,
+    MAX_FAMILY,
+    RAMPS,
+    SET_NAMES,
+    STICK,
+    VARIANTS,
+    familyIndices,
+    glyphCode,
+    tierFlags,
+} from "./glyphs";
+import { HistoryTracker, cameraState } from "./history";
 
 /*
  * Turning a 3D render into characters.
@@ -20,6 +41,9 @@ import * as THREE from "three";
  * grid, and writes which character and what colour. The second runs per
  * screen pixel and stamps that character from an atlas.
  *
+ * The tables (sets, families, ramps) and the rules for choosing live in
+ * glyphs.js, without WebGL, so they can be tested and reused.
+ *
  * Materials still have a say. Each writes a small code into alpha naming its
  * set, and a set can limit itself to a family of characters, so water only
  * ever draws in "~-=_" and grass in strokes, whatever the shapes suggest.
@@ -27,89 +51,16 @@ import * as THREE from "three";
  * empty cells so they never melt into what stands behind them.
  */
 
-export const GLYPH_SETS = {
-    /* 0 is the default: anything without an opinion. */
-    solid: 0,
-    water: 1,
-    leaves: 2,
-    grass: 3,
-    fire: 4,
-    rock: 5,
-    timber: 6,
-    path: 7,
-    figure: 8,
-    /* Things that give off light: windows, lanterns, signs. */
-    light: 9,
-};
-const CODES = 16;
+export { GLYPH_SETS, glyphCode };
 
-/* The alpha a material writes to select a glyph set. */
-export function glyphCode(set) {
-    return (set + 0.5) / CODES;
+/* `?crt=1` asks for scanlines, bloom and a vignette. */
+function crtRequested() {
+    try {
+        return new URLSearchParams(window.location.search).get("crt") === "1";
+    } catch {
+        return false;
+    }
 }
-
-/* Every printable character, space first, then two solid squares for
-   things that shine. */
-const GLYPHS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("") + "\u25aa\u25a0";
-
-/* The squares belong to light alone. */
-const SQUARES = "\u25aa\u25a0";
-
-/* Characters a set may draw with. Sets not listed may use any. */
-const FAMILIES = {
-    /* Built things draw in strokes and marks, never letters, so a wall reads
-       as masonry rather than as a page of type. */
-    solid: " .,:;'`\"-_=+*#%|/\\()<>^~!",
-    rock: " .,:;'`\"-_=+*#%@&$|/\\()<>^~!",
-    light: " .:-=+*#\u25aa\u25a0",
-    water: " ~-=_.,'`^:",
-    leaves: " .,:;'`\"*+o%&@#^~()",
-    grass: " /\\|'\",.`:;vVwWyY!il",
-    fire: " *^'\".,:+xX%#&@`",
-    timber: " =-_|:.'#+",
-    path: " .,:;-_='\"`",
-    /* Figures draw in symbols, not letters, so a person stands out from a
-       world written in type. */
-    figure: " .,:;'`\"-_=+*#%@|/\\()<>^~![]{}oO0",
-};
-
-/*
- * Flat stretches, where a cell holds no edge, draw from a ramp instead: ten
- * density levels per set, four interchangeable characters each, picked per
- * cell by a hash of where it sits. A wall then reads as a page of type
- * ("uqeq&%p") rather than one letter repeated. Index by set number.
- */
-const LEVELS = 10;
-const VARIANTS = 4;
-const RAMPS = [
-    /* solid */ ["    ", " .' ", ".,-'", ":;-:", "=:;=", "+=-=", "+*=+", "*#+*", "#%*#", "%#%#"],
-    /* water */ ["    ", " .  ", ".-.,", "-~-.", "~~-~", "~=~~", "=~=~", "~=~=", "==~=", "===="],
-    /* leaves */ ["    ", " .' ", ".,:'", ":;*,", "*+o;", "o*+%", "%&o*", "&%*&", "@&%&", "@@%#"],
-    /* grass */ [" .  ", " .,'", ",'`.", "',/\\", "/|\\'", "/\\|\"", "\\/|v", "|/\\v", "wvWv", "WwVW"],
-    /* fire */ ["    ", " .' ", ".'*.", "*+'*", "+*^*", "*%+*", "%*&*", "&%@*", "@&%@", "@@#@"],
-    /* rock */ ["    ", " .' ", ".:-'", ":-=;", "=;:=", "+=-=", "*=+*", "#*%+", "%#$%", "#@%&"],
-    /* timber */ ["    ", " .  ", ". -.", "-.-.", "-:-=", "=-:-", "=-=+", "+=-=", "=+=#", "#=+="],
-    /* path */ ["    ", "    ", " .  ", ". . ", ".,. ", ",.:.", ":.,:", ";:.:", "=;:=", "=:=;"],
-    /* figure */ ["    ", " .' ", ".:-'", ":-=;", "=+-=", "+*=+", "*o+*", "#*%o", "%#@%", "@#%@"],
-    /* light */ ["    ", " .. ", ".:.:", ":-:-", "=-=+", "+=+*", "*+#*", "#\u25aa#\u25aa", "\u25aa\u25a0\u25aa\u25a0", "\u25a0\u25a0\u25a0\u25a0"],
-];
-
-/*
- * Built things seen from above, where a flat face holds no edge: one
- * character per brightness, chosen by which way the face looks. Roofs and
- * floors are stippled, walls facing left are boarded upright, walls facing
- * right run in courses. Three faces, three textures, so a block reads as a
- * block. No shuffling between neighbours: a face is one even texture.
- */
-const FACE_RAMPS = [
-    /* top */ " ...::;==#",
-    /* left */ " .::!!|||#",
-    /* right */ " .---===##",
-];
-
-/* Brightness gain per set: ground and walls stay airy, figures carry the
-   picture. Index by set number. */
-const GAINS = [1.25, 1.2, 1.15, 1.0, 1.4, 1.15, 1.05, 1.05, 0.9, 1.3];
 
 const REGIONS_X = 2;
 const REGIONS_Y = 3;
@@ -118,13 +69,21 @@ export const SAMPLE_Y = REGIONS_Y * 2;
 
 const FONT = `"JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Courier New", monospace`;
 
-function drawGlyph(ctx, ch, x, cellW, cellH) {
-    ctx.fillText(ch, x + cellW / 2, cellH * 0.55, cellW);
+/* On whole pixels, so a stroke one pixel wide lands on one column of the
+   screen instead of smearing grey across two. */
+function drawGlyph(ctx, ch, x, cellW, cellH, stroke = false) {
+    const cx = Math.round(x + cellW / 2);
+    const cy = Math.round(cellH * 0.55);
+    if (stroke) ctx.strokeText(ch, cx, cy, cellW);
+    ctx.fillText(ch, cx, cy, cellW);
 }
 
 /*
  * The atlas the second pass stamps from: one row, one cell per character,
- * drawn at the size the screen uses.
+ * drawn at the size the screen uses. Red is the character itself. Green is
+ * the character grown by a pixel or so all round: the second pass darkens
+ * the wash under that rim, so a stroke stands clear of the painted colour
+ * behind it however close the two are in brightness.
  */
 export function buildAtlas(cellW, cellH) {
     const canvas = document.createElement("canvas");
@@ -133,10 +92,16 @@ export function buildAtlas(cellW, cellH) {
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `500 ${Math.round(cellH * 0.9)}px ${FONT}`;
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "#0f0";
+    ctx.strokeStyle = "#0f0";
+    ctx.lineWidth = Math.max(1.5, cellH / 7);
+    ctx.lineJoin = "round";
+    Array.from(GLYPHS).forEach((ch, i) => drawGlyph(ctx, ch, i * cellW, cellW, cellH, true));
+    ctx.fillStyle = "#f00";
     Array.from(GLYPHS).forEach((ch, i) => drawGlyph(ctx, ch, i * cellW, cellW, cellH));
     const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.NearestFilter;
@@ -183,22 +148,22 @@ function measureGlyphs() {
 }
 
 /* Shapes and families, as a float texture the first pass reads by index:
-   row 0 holds regions 0–3, row 1 regions 4–5, and row 2 + set is 1 where
-   that set may use the character. */
+   row 0 holds regions 0–3, row 1 regions 4–5, and row 2 + set lists the
+   characters that set may use, so the search only visits those (a set has
+   at most MAX_FAMILY of them). */
 function buildShapeTexture() {
     const shapes = measureGlyphs();
     const n = GLYPHS.length;
-    const names = Object.keys(GLYPH_SETS);
+    const names = SET_NAMES;
     const rows = 2 + names.length * 2;
     const data = new Float32Array(n * rows * 4);
     shapes.forEach((s, i) => {
-        const ch = GLYPHS[i];
         data.set([s[0], s[1], s[2], s[3]], i * 4);
         data.set([s[4], s[5], 0, 0], (n + i) * 4);
-        names.forEach((name) => {
-            const family = FAMILIES[name];
-            const allowed = (family ? family.includes(ch) : !SQUARES.includes(ch)) ? 1 : 0;
-            data[((2 + GLYPH_SETS[name]) * n + i) * 4] = allowed;
+    });
+    names.forEach((name) => {
+        familyIndices(name).forEach((g, k) => {
+            data[((2 + GLYPH_SETS[name]) * n + k) * 4] = g;
         });
     });
     /* Then one row per set of ramp entries: level × variant → character. */
@@ -262,8 +227,20 @@ const pickShader = /* glsl */ `
     uniform mat4 uCamToWorld;
     uniform float uOrtho;
     uniform vec2 uCellShift;
+    /* Last frame's cells, for holding a choice steady, and how many cells
+       the world has slid since (so the same patch of ground is compared). */
+    uniform sampler2D tPrev;
+    uniform float uHistory;
+    uniform vec2 uHistShift;
+    uniform float uDither;
+    uniform float uDepthCue;
 
-    const int COUNT = ${GLYPHS.length};
+    const int MAX_FAMILY = ${MAX_FAMILY};
+    const float FAMILY_SIZE[${SET_NAMES.length}] = float[${SET_NAMES.length}](${SET_NAMES.map((name) => familyIndices(name).length.toFixed(1)).join(", ")});
+    const float BAYER[16] = float[16](${BAYER4.map((v) => v.toFixed(5)).join(", ")});
+    const float BAND = ${HYSTERESIS.toFixed(3)};
+    const float STICK = ${STICK.toFixed(3)};
+    const float EDGE_BAND = ${EDGE_BAND.toFixed(3)};
     const float CODES = ${CODES.toFixed(1)};
     const float FIGURE = ${GLYPH_SETS.figure.toFixed(1)};
     const float WATER = ${GLYPH_SETS.water.toFixed(1)};
@@ -350,6 +327,34 @@ const pickShader = /* glsl */ `
         return floor(texelFetch(tColor, texel, 0).a * CODES);
     }
 
+    /* The character drawn in this patch of world last frame, or -1. */
+    float prevGlyph(vec2 cell) {
+        if (uHistory < 0.5) return -1.0;
+        vec2 c = cell + uHistShift;
+        if (c.x < 0.0 || c.y < 0.0 || c.x >= uCells.x || c.y >= uCells.y) return -1.0;
+        float code = floor(texelFetch(tPrev, ivec2(c), 0).a * 255.0 + 0.5);
+        return code >= 128.0 ? code - 128.0 : code;
+    }
+
+    float rampAt(int setIndex, float level, float variant) {
+        return texelFetch(tShapes, ivec2(int(clamp(level, 0.0, ${LEVELS - 1}.0) * ${VARIANTS}.0 + variant), 2 + ${SET_NAMES.length} + setIndex), 0).r;
+    }
+
+    float faceAt(int f, float level) {
+        int l = int(clamp(level, 0.0, ${LEVELS - 1}.0));
+        return f == 0 ? TOP_RAMP[l] : f == 1 ? LEFT_RAMP[l] : RIGHT_RAMP[l];
+    }
+
+    /* glyphs.js stickyLevel(): keep last frame's level next door unless the
+       reading is clearly past the boundary. Here judged by the character,
+       since that is what last frame kept. */
+    float holdLevel(float x, float level, float prev, float down, float up) {
+        if (prev < 0.0) return level;
+        if (prev == down && x - level < BAND) return level - 1.0;
+        if (prev == up && level + 1.0 - x < BAND) return level + 1.0;
+        return level;
+    }
+
     /* Rain falls in slanted lanes of cells, a short run of / per drop. */
     float rainAt(vec2 cell) {
         float lane = cell.x - floor(cell.y * 0.5);
@@ -383,7 +388,7 @@ const pickShader = /* glsl */ `
             vec3 c = toSrgb(texture(tColor, at).rgb);
             sum += c;
             /* A black point, so the dark stays empty rather than dusted. */
-            lum[i] = max(0.0, dot(c, vec3(0.299, 0.587, 0.114)) - 0.035) * gain;
+            lum[i] = max(0.0, dot(c, vec3(0.2126, 0.7152, 0.0722)) - ${BLACK_POINT}) * gain;
             peak = max(peak, lum[i]);
         }
         vec3 color = sum / 6.0;
@@ -441,6 +446,19 @@ const pickShader = /* glsl */ `
                 }
             }
             face = faces[2] >= 0.0 ? faces[2] : faces[3];
+            /* A crease needs each face on at least two of the six samples:
+               one odd sample is a bump in the rock, not an edge, and
+               drawing it turns a cliff into a scribble of strokes. */
+            float nLo = 0.0;
+            float nHi = 0.0;
+            for (int i = 0; i < 6; i++) {
+                nLo += faces[i] == lo ? 1.0 : 0.0;
+                nHi += faces[i] == hi ? 1.0 : 0.0;
+            }
+            if (hi > lo && (nLo < 2.0 || nHi < 2.0)) {
+                face = nLo >= nHi ? lo : hi;
+                hi = lo;
+            }
             if (hi > lo) {
                 /* A crease inside the cell: a stroke along it, shaped by
                    where the lower-numbered face lies. */
@@ -476,54 +494,82 @@ const pickShader = /* glsl */ `
         }
 
         int choice = 0;
+        float prev = prevGlyph(cell);
+        float mean = (lum[0] + lum[1] + lum[2] + lum[3] + lum[4] + lum[5]) / 6.0 * halo;
+        /* Keyed to the world rather than the screen (uCellShift is how many
+           whole cells the camera has moved), so walking slides textures and
+           dither along with the ground instead of re-rolling them. */
+        vec2 key = cell + uCellShift;
+        vec2 k4 = mod(key, 4.0);
+        float threshold = BAYER[int(k4.y) * 4 + int(k4.x)];
         if (built && face >= 0.0) {
             /* Built, from above: the face's own texture, by brightness. */
-            float mean = (lum[0] + lum[1] + lum[2] + lum[3] + lum[4] + lum[5]) / 6.0 * halo;
-            float level = floor(pow(clamp(mean * uRamp, 0.0, 0.999), uContrast) * ${LEVELS}.0);
+            float x = pow(clamp(mean * uRamp, 0.0, 0.999), uContrast) * ${LEVELS}.0 + (threshold - 0.5) * uDither * 0.6;
+            float level = floor(x);
+            int f = int(face);
+            level = holdLevel(x, level, prev, faceAt(f, level - 1.0), faceAt(f, level + 1.0));
             /* Even a wall in shadow keeps its grain, faint, so it stays
                a wall and not a hole. */
             level = clamp(level, mean > 0.015 ? 2.0 : 0.0, ${LEVELS - 3}.0);
-            int f = int(face);
-            choice = int(f == 0 ? TOP_RAMP[int(level)] : f == 1 ? LEFT_RAMP[int(level)] : RIGHT_RAMP[int(level)]);
+            choice = int(faceAt(f, level));
             if (crease) choice = int(creaseGlyph);
-        } else if (spread > uEdge && peak > 0.08) {
-            /* An edge runs through this cell: find the character shaped
-               most like it. */
-            float best = 1e9;
-            for (int g = 0; g < COUNT; g++) {
-                if (texelFetch(tShapes, ivec2(g, setRow), 0).r < 0.5) continue;
-                vec4 a = texelFetch(tShapes, ivec2(g, 0), 0);
-                vec4 b = texelFetch(tShapes, ivec2(g, 1), 0);
-                vec4 da = a - vec4(lum[0], lum[1], lum[2], lum[3]) * halo;
-                vec2 db = b.xy - vec2(lum[4], lum[5]) * halo;
-                float e = dot(da, da) + dot(db, db);
-                if (e < best) {
-                    best = e;
-                    choice = g;
-                }
-            }
         } else {
-            /* Flat: a density from the ramp, a character from the hash. */
-            float mean = (lum[0] + lum[1] + lum[2] + lum[3] + lum[4] + lum[5]) / 6.0 * halo;
-            /* A curve on the way in: dim faces thin out to dots, so the lit
-               ones and the edges stand clear of them. */
+            /* Flat: a density from the ramp, a character from the hash.
+               A curve on the way in: dim faces thin out to dots, so the
+               lit ones and the edges stand clear of them. */
             float curve = set == FIGURE ? 1.0 : uContrast;
-            float level = floor(pow(clamp(mean * uRamp, 0.0, 0.999), curve) * ${LEVELS}.0);
+            float x = pow(clamp(mean * uRamp, 0.0, 0.999), curve) * ${LEVELS}.0 + (threshold - 0.5) * uDither;
+            float level = floor(x);
+            /* Water turns over a cell at a time, each on its own beat,
+               rather than the whole sea at once. */
+            float shuffle = set == WATER ? floor(uTime * 0.6 + hash(key.yx + 5.3)) : 0.0;
+            float variant = floor(hash(key + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
+            level = holdLevel(x, level, prev, rampAt(setIndex, level - 1.0, variant), rampAt(setIndex, level + 1.0, variant));
             /* And a ceiling, where the curve is on: a sunlit wall stays a
                page of letters rather than a slab of @ and W. */
             if (uContrast > 1.0 && set != FIGURE) level = min(level, set == WATER ? ${LEVELS - 2}.0 : ${LEVELS - 3}.0);
             /* Paving with its joints drawn needs only a light grain between
                them; the joints and the light carry the floor. */
             if (uJoints > 0.0 && set == PATH) level = min(level, uOrtho > 0.5 ? 2.0 : 4.0);
-            /* Keyed to the world rather than the screen (uCellShift is how
-               many whole cells the camera has moved), so walking slides the
-               texture along with the ground instead of re-rolling it. Water
-               turns over a cell at a time, each on its own beat, rather than
-               the whole sea at once. */
-            vec2 key = cell + uCellShift;
-            float shuffle = set == WATER ? floor(uTime * 0.6 + hash(key.yx + 5.3)) : 0.0;
-            float variant = floor(hash(key + shuffle * vec2(3.1, 1.7)) * ${VARIANTS}.0);
-            choice = int(texelFetch(tShapes, ivec2(int(level * ${VARIANTS}.0 + variant), 2 + ${Object.keys(GLYPH_SETS).length} + setIndex), 0).r);
+            level = clamp(level, 0.0, ${LEVELS - 1}.0);
+            float even = rampAt(setIndex, level, variant);
+            choice = int(even);
+
+            /* An edge runs through this cell: find the character shaped
+               most like it, among the set's own. Near the cut, a cell
+               that was flat last frame stays flat, and the character drawn
+               last frame wins a near-tie, so edges do not shimmer. */
+            /* glyphs.js isEdge(); with no history, the plain cut. */
+            bool edge = peak > 0.08 && (prev < 0.0 ? spread > uEdge : spread > uEdge + EDGE_BAND || (spread > uEdge - EDGE_BAND && prev != even));
+            if (edge) {
+                float best = 1e9;
+                int count = int(FAMILY_SIZE[setIndex]);
+                for (int k = 0; k < MAX_FAMILY; k++) {
+                    if (k >= count) break;
+                    int g = int(texelFetch(tShapes, ivec2(k, setRow), 0).r);
+                    vec4 a = texelFetch(tShapes, ivec2(g, 0), 0);
+                    vec4 b = texelFetch(tShapes, ivec2(g, 1), 0);
+                    vec4 da = a - vec4(lum[0], lum[1], lum[2], lum[3]) * halo;
+                    vec2 db = b.xy - vec2(lum[4], lum[5]) * halo;
+                    float e = dot(da, da) + dot(db, db);
+                    if (float(g) == prev) e *= STICK;
+                    if (e < best) {
+                        best = e;
+                        choice = g;
+                    }
+                }
+            }
+        }
+
+        /* Depth: a cell just behind something nearer (beside it, or above
+           it on screen) sits in that thing's shadow and draws dimmer, so
+           every silhouette stands off what lies behind it, not only
+           figures. */
+        float behind = 1.0;
+        if (uDepthCue > 0.0 && set != FIGURE && texture(tDepth, uv).r < 0.99999) {
+            vec2 step = 1.0 / uCells;
+            float jump = max(max(d - viewDepth(uv + vec2(step.x, 0.0)), d - viewDepth(uv - vec2(step.x, 0.0))), d - viewDepth(uv + vec2(0.0, step.y)));
+            behind = 1.0 - uDepthCue * smoothstep(uOutline * 2.5, uOutline * 6.0, depthJump(jump, d));
         }
 
         /* The scene's colour, lifted to read as ink on the dark. Figures keep
@@ -534,6 +580,7 @@ const pickShader = /* glsl */ `
             float top = max(max(color.r, color.g), color.b);
             ink = clamp(color / max(top, 0.03) * (0.62 + top * 0.6), 0.0, 1.0);
         }
+        ink *= behind;
         float glyph = float(choice);
         /* A crease is a line drawn on the block, a shade lighter than its
            faces. */
@@ -743,6 +790,8 @@ const drawShader = /* glsl */ `
     uniform float uFill;
     uniform float uGlow;
     uniform float uRaw;
+    uniform float uRim;
+    uniform float uCrt;
     uniform sampler2D tDepth;
     uniform float uWash;
     uniform sampler2D tGlow;
@@ -765,7 +814,8 @@ const drawShader = /* glsl */ `
         float glyph = code - body * 128.0;
         vec2 local = fract(frag / uCellPx);
         vec2 at = vec2((glyph + local.x) / uCount, local.y);
-        float mask = texture(tGlyphs, at).r;
+        vec2 ink = texture(tGlyphs, at).rg;
+        float mask = ink.r;
         vec3 glow = uGlow > 0.0 ? texelFetch(tGlow, ivec2(cell), 0).rgb * uGlow : vec3(0.0);
         /* The wash behind the type is the scene itself, read at the
            pixel and smoothed, so a wall is a soft painted mass with
@@ -774,7 +824,20 @@ const drawShader = /* glsl */ `
         vec2 suv = frag / (uCells * uCellPx);
         vec3 scene = texture(tDepth, suv).r < 0.99999 ? pow(max(texture(tColor, suv).rgb, 0.0), vec3(1.0 / 2.2)) * uWash : pick.rgb * 0.5;
         vec3 base = mix(uBackground, scene, max(uFill, body * 0.55)) + glow * 0.55;
-        gl_FragColor = vec4(mix(base, min(pick.rgb + glow * 0.35, 1.0), mask), 1.0);
+        /* The rim round each stroke, darkened, so the type reads crisply
+           over a wash of much the same colour. */
+        base *= 1.0 - clamp(ink.g - mask, 0.0, 1.0) * uRim * (1.0 - uCrt * 0.6);
+        vec3 color = mix(base, min(pick.rgb + glow * 0.35, 1.0), mask);
+        if (uCrt > 0.0) {
+            /* An old terminal, if asked for: the rim becomes a phosphor
+               bloom round each stroke, every other line of pixels is a
+               touch darker, and the corners fall away. */
+            color += pick.rgb * clamp(ink.g - mask, 0.0, 1.0) * 0.3 * uCrt;
+            color *= 1.0 - 0.14 * uCrt * step(1.0, mod(gl_FragCoord.y, 2.0));
+            vec2 v = suv * 2.0 - 1.0;
+            color *= 1.0 - uCrt * 0.35 * pow(dot(v * vec2(0.8, 0.9), v * vec2(0.8, 0.9)), 1.5);
+        }
+        gl_FragColor = vec4(color, 1.0);
     }
 `;
 
@@ -833,6 +896,14 @@ export class AsciiPass {
                 uOrtho: { value: 0 },
                 /* Whole cells the camera has moved, from snapIsoCamera(). */
                 uCellShift: { value: new THREE.Vector2(0, 0) },
+                tPrev: { value: null },
+                uHistory: { value: 0 },
+                uHistShift: { value: new THREE.Vector2(0, 0) },
+                /* How far ordered dithering may push a flat cell across a
+                   level, 0 to 1. */
+                uDither: { value: 0.4 },
+                /* How much a cell behind a nearer silhouette dims, 0 to 1. */
+                uDepthCue: { value: 0.45 },
             },
         });
         this.drawMaterial = new THREE.ShaderMaterial({
@@ -852,6 +923,10 @@ export class AsciiPass {
                 uFill: { value: 0.1 },
                 uGlow: { value: 0 },
                 uRaw: { value: 0 },
+                /* How much the wash darkens round each stroke, 0 to 1. */
+                uRim: { value: 0.55 },
+                /* 1 for the old-terminal look; ?crt=1 turns it on. */
+                uCrt: { value: crtRequested() ? 1 : 0 },
                 tDepth: { value: null },
                 /* How bright the scene is in the wash behind the type. */
                 uWash: { value: 0.9 },
@@ -879,6 +954,15 @@ export class AsciiPass {
         this.target = null;
         this.pick = null;
         this.atlas = null;
+        this.tier = tierFlags("full");
+        /* Whether last frame's cells still line up with this one's. */
+        this.history = new HistoryTracker();
+    }
+
+    /* A quality tier from glyphs.js ASCII_TIERS: "full", "lite" or "min". */
+    setTier(name) {
+        this.tier = tierFlags(name);
+        if (!this.tier.stable) this.history.invalidate();
     }
 
     /* Shared uniforms, by name, across both passes. */
@@ -895,6 +979,7 @@ export class AsciiPass {
             this.target.depthTexture.dispose();
             this.target.dispose();
             this.pick.dispose();
+            this.pickPrev.dispose();
             this.glow.dispose();
         }
         const w = cols * SAMPLE_X;
@@ -911,11 +996,17 @@ export class AsciiPass {
         }
         this.ghost = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true });
         this.ghost.depthTexture = new THREE.DepthTexture(w, h);
-        this.pick = new THREE.WebGLRenderTarget(cols, rows, {
-            minFilter: THREE.NearestFilter,
-            magFilter: THREE.NearestFilter,
-            depthBuffer: false,
-        });
+        const cells = () =>
+            new THREE.WebGLRenderTarget(cols, rows, {
+                minFilter: THREE.NearestFilter,
+                magFilter: THREE.NearestFilter,
+                depthBuffer: false,
+            });
+        /* Two, swapped every frame: one being written, last frame's to
+           compare against. */
+        this.pick = cells();
+        this.pickPrev = cells();
+        this.history.invalidate();
         this.glow = new THREE.WebGLRenderTarget(cols, rows, {
             minFilter: THREE.NearestFilter,
             magFilter: THREE.NearestFilter,
@@ -958,7 +1049,59 @@ export class AsciiPass {
         camera.layers.mask = mask;
     }
 
-    render(renderer) {
+    /*
+     * Whether last frame's cells line up with this frame's, and if so how
+     * far they slid (see history.js). A turn, a zoom, a change of camera,
+     * a perspective camera on the move or a lost context and last frame's
+     * cells are ignored; holding on to them would smear, or (after a
+     * context comes back with empty targets) hold cells blank.
+     *
+     * Only a frame drawn with its camera (render(renderer, camera)) can be
+     * compared with the last, so a caller that does not say how its camera
+     * moves never gets history it cannot vouch for.
+     */
+    trackHistory(renderer = null, camera = null) {
+        const p = this.pickMaterial.uniforms;
+        if (renderer) this.history.watch(renderer.domElement);
+        if (camera) {
+            p.uCamToWorld.value.copy(camera.matrixWorld);
+            p.uInvProj.value.copy(camera.projectionMatrixInverse);
+            p.uOrtho.value = camera.isOrthographicCamera ? 1 : 0;
+        }
+        const { valid, dx, dy } = this.history.update(cameraState(camera), p.uCellShift.value, this.tier.stable);
+        p.uHistShift.value.set(dx, dy);
+        p.uHistory.value = valid ? 1 : 0;
+    }
+
+    /* `camera` is the one the scene in `target` was drawn with. Pass it:
+       without it the frame cannot be checked against the last, so it gets
+       no hold-steady history. */
+    render(renderer, camera = null) {
+        this.trackHistory(renderer, camera);
+        /* Last frame's cells become the ones to compare against. */
+        [this.pick, this.pickPrev] = [this.pickPrev, this.pick];
+        this.pickMaterial.uniforms.tPrev.value = this.pickPrev.texture;
+        this.drawMaterial.uniforms.tPick.value = this.pick.texture;
+        const dither = this.pickMaterial.uniforms.uDither;
+        const ditherWas = dither.value;
+        if (!this.tier.dither) dither.value = 0;
+        const cue = this.pickMaterial.uniforms.uDepthCue;
+        const cueWas = cue.value;
+        if (!this.tier.depth) cue.value = 0;
+        const crt = this.drawMaterial.uniforms.uCrt;
+        const crtWas = crt.value;
+        if (!this.tier.crt) crt.value = 0;
+        const glow = this.drawMaterial.uniforms.uGlow;
+        const glowWas = glow.value;
+        if (!this.tier.glow) glow.value = 0;
+        this.drawCells(renderer);
+        dither.value = ditherWas;
+        cue.value = cueWas;
+        crt.value = crtWas;
+        glow.value = glowWas;
+    }
+
+    drawCells(renderer) {
         if (this.drawMaterial.uniforms.uGlow.value > 0) {
             this.quad.material = this.glowMaterial;
             renderer.setRenderTarget(this.glow);
@@ -973,12 +1116,14 @@ export class AsciiPass {
     }
 
     dispose() {
+        this.history.unwatch();
         this.shapes.dispose();
         if (this.atlas) this.atlas.texture.dispose();
         if (this.target) {
             this.target.depthTexture.dispose();
             this.target.dispose();
             this.pick.dispose();
+            this.pickPrev.dispose();
             this.glow.dispose();
         }
         if (this.ghost) {

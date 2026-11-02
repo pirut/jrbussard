@@ -1,4 +1,4 @@
-import { buildSurvivor, pose } from "../arcade/ascii3d/models";
+import { buildSurvivor, disposeModel, pose } from "../arcade/ascii3d/models";
 import { PALETTES, APPEARANCE_OPTIONS } from "../lib/appearance";
 import { KIND } from "../world/tiles";
 
@@ -134,7 +134,10 @@ export class Citizens {
     }
 
     dispose() {
-        this.people.forEach((p) => this.scene.remove(p.model));
+        this.people.forEach((p) => {
+            this.scene.remove(p.model);
+            disposeModel(p.model);
+        });
         this.people = [];
     }
 }
