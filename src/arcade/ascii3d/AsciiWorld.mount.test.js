@@ -145,4 +145,44 @@ describe("puffs and reduced motion", () => {
         expect(puffs).toBe(0);
         expect(events).toEqual(expect.arrayContaining(["harvest", "dig", "build", "demolish"]));
     });
+
+    /* The player's setting arrives after the world is made: Commons.js sets
+       world.reducedMotion whenever it changes. */
+    const live = (world) => world.puffs.seeds.filter(Boolean).length;
+
+    it("throws none once reduced motion is switched on while the world runs", () => {
+        const { world, unmount } = mount();
+        const events = [];
+        world.on((type) => events.push(type));
+        world.reducedMotion = true;
+        work(world);
+        expect(live(world)).toBe(0);
+        expect(world.puffs.mesh.visible).toBe(false);
+        expect(events).toEqual(expect.arrayContaining(["harvest", "dig", "build", "demolish"]));
+        unmount();
+    });
+
+    it("drops the bits in the air when it is switched on, and throws again once it is off", () => {
+        const { world, unmount } = mount();
+        work(world);
+        expect(live(world)).toBeGreaterThan(0);
+        world.reducedMotion = true;
+        expect(live(world)).toBe(0);
+        expect(world.puffs.mesh.visible).toBe(false);
+        world.reducedMotion = false;
+        /* A second tree comes down beside the first. */
+        const chunk = `${Math.floor(3 / CHUNK)}:${Math.floor(3 / CHUNK)}`;
+        world.setState(
+            snapshot({
+                cells: [
+                    { x: 4, y: 4, kind: "stump" },
+                    { x: 5, y: 4, kind: "stump" },
+                ],
+                ground: [{ x: 3, y: 2, edit: -1 }],
+                groundChunks: [chunk],
+            }),
+        );
+        expect(live(world)).toBeGreaterThan(0);
+        unmount();
+    });
 });
