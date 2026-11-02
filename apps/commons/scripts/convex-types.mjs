@@ -10,12 +10,13 @@
  *
  *   rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">
  *
- * Types only: the app never imports convex/_generated at runtime. Does
- * nothing if convex/_generated already exists (from `npx convex dev`),
+ * and api.js gets `components = componentsGeneric()`, as codegen writes it,
+ * so the root's convex-test suites (npm run test:commons) run against it too.
+ * Does nothing if convex/_generated already exists (from `npx convex dev`),
  * unless run with --force.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,5 +50,14 @@ if (used.length && !/export declare const components/.test(api)) {
     ({ name, pkg }) => `  ${name}: import("${pkg}/_generated/component.js").ComponentApi<"${name}">;`,
   );
   appendFileSync(generated, `\nexport declare const components: {\n${lines.join('\n')}\n};\n`);
+  const runtime = generated.replace(/\.d\.ts$/, '.js');
+  const js = readFileSync(runtime, 'utf8');
+  if (!/export const components/.test(js)) {
+    writeFileSync(
+      runtime,
+      js.replace('import { anyApi } from "convex/server";', 'import { anyApi, componentsGeneric } from "convex/server";') +
+        '\nexport const components = componentsGeneric();\n',
+    );
+  }
 }
 console.log(`convex/_generated written offline (components: ${used.map((u) => u.name).join(', ') || 'none'}).`);
