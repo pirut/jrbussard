@@ -240,24 +240,31 @@ export function unboundActions(bindings) {
 /*
  * The walking keys held down, tracked by physical key: letting go of W while
  * ↑ is still down keeps walking up. Each key remembers the action it meant
- * when it went down, so a remap mid-hold cannot strand it. `held` is the
+ * when it went down, so a remap mid-hold cannot strand it; a repeat that
+ * now means another walk swaps the old one for the new. `held` is the
  * walking actions in the order they were first pressed; it is a new array
  * only when it changes.
  */
 export function createHeldMoves() {
   const keys = new Map();
   let held = [];
+  const letGo = (k) => {
+    const action = keys.get(k);
+    keys.delete(k);
+    if (action && ![...keys.values()].includes(action)) held = held.filter((a) => a !== action);
+  };
   return {
     down(key, action) {
-      keys.set(normalizeKey(key), action);
+      const k = normalizeKey(key);
+      /* Remapped while held (a repeat now means something else): let go of
+         what it meant before, or that walk would be stranded. */
+      if (keys.has(k) && keys.get(k) !== action) letGo(k);
+      keys.set(k, action);
       if (!held.includes(action)) held = [...held, action];
       return held;
     },
     up(key) {
-      const k = normalizeKey(key);
-      const action = keys.get(k);
-      keys.delete(k);
-      if (action && ![...keys.values()].includes(action)) held = held.filter((a) => a !== action);
+      letGo(normalizeKey(key));
       return held;
     },
     clear() {

@@ -236,6 +236,23 @@ describe("walking keys", () => {
     expect(moves.up("D")).toEqual(["moveUp"]);
   });
 
+  it("lets go of a key's old walk when a remap changes it mid-hold", () => {
+    const moves = createHeldMoves();
+    moves.down("w", "moveUp");
+    /* W remapped to walk left; its repeat now says so. */
+    expect(moves.down("w", "moveLeft")).toEqual(["moveLeft"]);
+    expect(moves.up("w")).toEqual([]);
+  });
+
+  it("keeps the old walk on a remap while another key still holds it", () => {
+    const moves = createHeldMoves();
+    moves.down("w", "moveUp");
+    moves.down("ArrowUp", "moveUp");
+    expect(moves.down("w", "moveLeft")).toEqual(["moveUp", "moveLeft"]);
+    expect(moves.up("w")).toEqual(["moveUp"]);
+    expect(moves.up("ArrowUp")).toEqual([]);
+  });
+
   it("hands back the same list while nothing changes, and empties on clear", () => {
     const moves = createHeldMoves();
     const first = moves.down("a", "moveLeft");
