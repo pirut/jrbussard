@@ -62,6 +62,11 @@ const STILL = Object.freeze({
  * the game is told to let go of everything it was told is held, and gets
  * one still frame, so nothing stays swinging or walking.
  *
+ * While the window is away (blurred or hidden) the pad reaches nothing, not
+ * the game and not menus. Back again, it waits for the pad to come to rest
+ * first, so a stick still leaning or a button pressed meanwhile is not taken
+ * as a new move or press.
+ *
  *   getContext()   "play", "build" or "dead": what the game is showing
  *   settings       { lookSensitivity, invertY, rumble } (a ref)
  *   onDevice       called with (family) when a controller is picked up
@@ -84,6 +89,11 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
     const gameHeld = new Set();
     let leaning = false;
     let lastContext = "play";
+    /* Why the window is away, if it is; and whether, since it came back,
+       the pad has yet to come to rest. */
+    let blurred = false;
+    let hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+    let settling = false;
     const letGo = () => {
       const h = handlers.current;
       const was = [...gameHeld];
@@ -106,6 +116,7 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
+      if (blurred || hidden) return;
       let pads;
       try {
         pads = [...navigator.getGamepads()].filter((p) => p && p.connected !== false);
@@ -116,7 +127,11 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
       if (!pad && lastPad.current !== null) lose();
       if (!pad) {
         pad = pads.find((p) => padTouched(p));
-        if (!pad) return;
+        if (!pad) {
+          /* Every pad is at rest. */
+          settling = false;
+          return;
+        }
         lastPad.current = pad.index;
       }
       const h = handlers.current;
@@ -128,6 +143,11 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
         sensitivity: settings.lookSensitivity ?? 1,
         invertY: settings.invertY ?? false,
       });
+      if (settling) {
+        /* Read but not acted on, so what is held now is not new later. */
+        if (frame.active) return;
+        settling = false;
+      }
       if (frame.active && !using) {
         using = true;
         h.onDevice?.(controllerFamily(pad.id));
@@ -178,18 +198,38 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
       if (event.gamepad?.index === lastPad.current) lose();
       handlers.current.onConnect?.(false, controllerFamily(event.gamepad?.id));
     };
+    /* The window going away and coming back. Only the window's own focus
+       events count, not those of elements inside it. */
+    const away = (change) => {
+      const was = blurred || hidden;
+      change();
+      const now = blurred || hidden;
+      if (now) letGo();
+      else if (was) settling = true;
+    };
+    const onBlur = (event) => {
+      if (event.target === window) away(() => (blurred = true));
+    };
+    const onFocus = (event) => {
+      if (event.target === window) away(() => (blurred = false));
+    };
+    const onVisibility = () => away(() => (hidden = document.visibilityState === "hidden"));
     window.addEventListener("keydown", putDown);
     window.addEventListener("pointerdown", putDown);
     window.addEventListener("gamepadconnected", connected);
     window.addEventListener("gamepaddisconnected", disconnected);
-    window.addEventListener("blur", letGo);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", putDown);
       window.removeEventListener("pointerdown", putDown);
       window.removeEventListener("gamepadconnected", connected);
       window.removeEventListener("gamepaddisconnected", disconnected);
-      window.removeEventListener("blur", letGo);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
       letGo();
     };
   }, [rootRef, settingsRef]);
