@@ -75,7 +75,7 @@ export default function App() {
 const CONTROLS = Platform.isTV
   ? 'D-pad or controller to walk. Select gathers, play/pause digs, hold select builds a wall, menu pauses.'
   : Platform.OS === 'web'
-    ? 'WASD or arrows to walk, shift to run. E gathers, F digs, B builds a wall, Esc pauses. A gamepad works too.'
+    ? 'WASD or arrows to walk, shift to run. E gathers, F digs, B builds a wall, Esc pauses. On a controller: left stick walks, A gathers, LT digs, X builds a wall, Start pauses, B backs out.'
     : 'Left thumbstick to walk. Buttons on the right gather, dig and build. II pauses.';
 
 const styles = StyleSheet.create({

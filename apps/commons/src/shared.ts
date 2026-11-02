@@ -5,8 +5,9 @@
  * run on the Convex server and in the browser; the app is a third reader.
  * Never copy them in here: a rule that differs between clients is a bug.
  *
- * When the shared `game-rules` and input action-map modules land on the
- * integration branch, re-export them from here too (see docs/commons-app.md).
+ * The controller layout and pad reader come from the browser's input layer
+ * (src/arcade/commons/input/gamepad.js), so a controller does the same
+ * thing in both.
  */
 export { passability } from '@site/arcade/ascii3d/navigation';
 export { createWalker, judgeStep } from '@site/arcade/ascii3d/prediction';
@@ -17,3 +18,4 @@ export { GRASS, TREE, WATER, ROCK, ROAD, SAND } from '@site/lib/terrain';
 export { STRUCTURES } from '@site/lib/survival';
 export { appearanceOf, playerColor, PALETTES } from '@site/lib/appearance';
 export { createBody, stepBody } from '@site/world/motion';
+export { PAD_LAYOUT, BUTTON, createPadReader, padAction, padTouched } from '@site/arcade/commons/input/gamepad';
