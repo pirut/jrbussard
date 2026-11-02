@@ -18,6 +18,24 @@
 .ascii3d__canvas {
   cursor: crosshair;
   touch-action: manipulation;
+  /* The first view is built whole before its first frame; let it come up
+     out of the dark rather than snap on. */
+  animation: ascii3d-in 0.8s ease-out both;
+}
+@keyframes ascii3d-in {
+  from {
+    opacity: 0;
+    filter: brightness(1.6) blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ascii3d__canvas {
+    animation: none;
+  }
 }
 .ascii3d__failed {
   position: absolute;

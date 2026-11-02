@@ -3,11 +3,26 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { survivalStep } from "../src/lib/survival.js";
 import type { Doc } from "./_generated/dataModel";
-import { nearbyCells } from "./survival";
+import { nearbyCells, experience } from "./survival";
+import { projectRows } from "./game";
+import { worldEffects } from "../src/lib/game/projects.js";
+import {
+  creatureStep,
+  biteFor,
+  flees,
+  sidesteps,
+  pickSpawn,
+} from "../src/lib/game/creatures.js";
+import { bumpStats } from "../src/lib/game/stats.js";
+import {
+  isNight as nightPhase,
+  phaseChange,
+  survivorsOf,
+  DAWN_XP,
+} from "../src/lib/game/daycycle.js";
 import { solidAt } from "../src/lib/ground.js";
 import {
   MONSTERS,
-  MONSTER_ORDER,
   BLOCKS,
   WEATHERS,
   SIM_RADIUS,
@@ -34,7 +49,6 @@ import {
  */
 
 const IDLE_MS = 45_000;
-const CHASE_RANGE = 5;
 /* How often a single monster can swing, and the hard floor on how often any
    one player can be hurt. Without the second one, a pack of three still
    deletes a new arrival before they can react. */
@@ -88,7 +102,13 @@ export const run = internalMutation({
     }
 
     const { phase } = phaseAt(now);
-    const isNight = phase === "night" || phase === "dusk";
+    const isNight = nightPhase(phase);
+    /* What the crossroads projects have done for everyone. */
+    const effects = worldEffects(
+      Object.values(await projectRows(ctx))
+        .filter((row) => row.done)
+        .map((row) => row.key),
+    );
 
     /* Weather turns over every couple of minutes. */
     if (now > world.weatherUntil) {
@@ -124,7 +144,29 @@ export const run = internalMutation({
     }
 
     const alive = active.filter((p) => p.hp > 0);
-    const monsters = await ctx.db.query("monsters").take(100);
+    let monsters = await ctx.db.query("monsters").take(100);
+
+    /* Dusk and dawn, once each: shades come with the dark and burn away
+       with the light, and whoever is still out in the wild has lived
+       through the night. */
+    const turn = phaseChange(world.phase, phase);
+    if (world.phase !== phase)
+      await ctx.db.patch("world", world._id, { phase });
+    if (turn.line)
+      await ctx.db.insert("chat", { name: "world", text: turn.line, kind: "weather" });
+    if (turn.event === "dawn") {
+      for (const m of monsters)
+        if (MONSTERS[m.kind]?.night) await ctx.db.delete("monsters", m._id);
+      monsters = monsters.filter((m) => !MONSTERS[m.kind]?.night);
+      for (const player of survivorsOf(alive, inSafeZone)) {
+        const next = {
+          ...experience(player, DAWN_XP),
+          stats: bumpStats(player.stats, { nights: 1 }),
+        };
+        await ctx.db.patch("players", player._id, next);
+        Object.assign(player, next);
+      }
+    }
 
     let survivals = 0;
     for (const player of alive) {
@@ -164,7 +206,7 @@ export const run = internalMutation({
       if (threatened && !inSafeZone(player.x, player.y)) continue;
       const healed = Math.min(
         player.maxHp,
-        player.hp + 1 + Math.floor(player.level / 3),
+        player.hp + 1 + effects.regen + Math.floor(player.level / 3),
       );
       await ctx.db.patch("players", player._id, { hp: healed });
       player.hp = healed;
@@ -230,14 +272,26 @@ export const run = internalMutation({
       return lightCache.get(key)!;
     };
 
+    /* Whether a creature may step onto a tile. */
+    const canEnter = async (x: number, y: number) => {
+      if (occupied.has(`${x},${y}`)) return false;
+      /* The crossroads is a truce, and torchlight holds them off. */
+      if (inSafeZone(x, y)) return false;
+      /* Something built there decides; otherwise the ground does. */
+      const overlay = await cellAt(x, y);
+      if (overlay ? solidCell(overlay) : await solidGround(x, y)) return false;
+      return !(await nearLight(x, y));
+    };
+
     let population = 0;
 
     for (const monster of monsters) {
       const spec = MONSTERS[monster.kind];
       if (!spec) continue;
 
-      /* Forget anything nobody is around to see. */
-      if (!nearAnyone(monster.x, monster.y)) {
+      /* Forget anything nobody is around to see, and any shade that
+         outlived the night while the loop was parked. */
+      if (!nearAnyone(monster.x, monster.y) || (spec.night && !isNight)) {
         await ctx.db.delete("monsters", monster._id);
         continue;
       }
@@ -257,7 +311,8 @@ export const run = internalMutation({
       if (
         nearest &&
         nearestDistance <= 1 &&
-        !inSafeZone(nearest.x, nearest.y)
+        !inSafeZone(nearest.x, nearest.y) &&
+        !flees(monster)
       ) {
         const ready = now - (monster.lastHit || 0) >= SWING_MS;
         const exposed = now - (nearest.lastHurt || 0) >= HURT_COOLDOWN_MS;
@@ -268,17 +323,10 @@ export const run = internalMutation({
 
         /* Night bites harder; the first couple of levels bite less,
                    so arriving on the commons is not an instant death. */
-        const newcomer = nearest.level < 3 ? 0.5 : 1;
-        const bite = Math.max(
-          1,
-          Math.round(
-            (spec.damage -
-              Math.floor(nearest.level / 2) -
-              (nearest.tools?.armor || 0) * 2) *
-              (isNight ? 1.15 : 1) *
-              newcomer,
-          ),
-        );
+        const bite = biteFor(monster.kind, nearest, {
+          night: isNight,
+          soften: effects.nightBite,
+        });
         const hp = nearest.hp - bite;
         if (hp <= 0) {
           await ctx.db.patch("players", nearest._id, { hp: 0 });
@@ -295,51 +343,62 @@ export const run = internalMutation({
         continue;
       }
 
-      let dx = 0;
-      let dy = 0;
-      const chaseRange = isNight ? CHASE_RANGE + 3 : CHASE_RANGE;
-      if (nearest && nearestDistance < chaseRange) {
-        dx = Math.sign(nearest.x - monster.x);
-        dy = Math.sign(nearest.y - monster.y);
-        if (Math.random() < 0.5) dx = 0;
-        else dy = 0;
-      } else if (Math.random() < 0.35) {
-        dx = Math.round(Math.random() * 2 - 1);
-        dy = dx === 0 ? Math.round(Math.random() * 2 - 1) : 0;
-      }
+      /* What it wants is up to its temper (src/lib/game/creatures.js);
+         whether it can have it is up to the ground. */
+      const { dx, dy } = creatureStep({
+        kind: monster.kind,
+        hp: monster.hp,
+        maxHp: monster.maxHp,
+        x: monster.x,
+        y: monster.y,
+        target: nearest
+          ? {
+              x: nearest.x,
+              y: nearest.y,
+              lantern: (nearest.tools?.lantern || 0) > 0,
+            }
+          : null,
+        distance: nearestDistance,
+        night: isNight,
+        rng: Math.random,
+      });
 
       if (dx === 0 && dy === 0) continue;
-      const nx = monster.x + dx;
-      const ny = monster.y + dy;
-      if (occupied.has(`${nx},${ny}`)) continue;
-      /* The crossroads is a truce, and torchlight holds them off. */
-      if (inSafeZone(nx, ny)) continue;
-      /* Something built there decides; otherwise the ground does. */
-      const overlay = await cellAt(nx, ny);
-      if (overlay ? solidCell(overlay) : await solidGround(nx, ny)) continue;
-      if (await nearLight(nx, ny)) continue;
-
-      occupied.delete(`${monster.x},${monster.y}`);
-      occupied.add(`${nx},${ny}`);
-      await ctx.db.patch("monsters", monster._id, { x: nx, y: ny });
+      /* Something running for it tries either side if the way straight
+         back is blocked. */
+      const options = [
+        { dx, dy },
+        ...(flees(monster) ? sidesteps({ dx, dy }, Math.random) : []),
+      ];
+      for (const step of options) {
+        const nx = monster.x + step.dx;
+        const ny = monster.y + step.dy;
+        if (!(await canEnter(nx, ny))) continue;
+        occupied.delete(`${monster.x},${monster.y}`);
+        occupied.add(`${nx},${ny}`);
+        await ctx.db.patch("monsters", monster._id, { x: nx, y: ny });
+        break;
+      }
     }
 
     /* Restock around each player rather than across the whole map. */
     const target = Math.min(
       MAX_MONSTERS,
       active.length *
-        (PER_PLAYER + (isNight ? 5 : 0) + (world.weather === "storm" ? 3 : 0)),
+        (PER_PLAYER +
+          (isNight ? effects.nightSpawn : 0) +
+          (world.weather === "storm" ? 3 : 0)),
     );
 
     if (population < target) {
       const missing = Math.min(4, target - population);
       for (let i = 0; i < missing; i += 1) {
         const anchor = active[Math.floor(Math.random() * active.length)];
-        const ceiling = Math.min(
-          MONSTER_ORDER.length,
-          1 + Math.floor(anchor.level / 2.5),
-        );
-        const kind = MONSTER_ORDER[Math.floor(Math.random() * ceiling)];
+        const kind = pickSpawn({
+          level: anchor.level,
+          night: isNight,
+          rng: Math.random,
+        });
         const spec = MONSTERS[kind];
         const spot = openSpotNear(anchor.x, anchor.y, 14, 30, Math.random);
         if (!spot || occupied.has(`${spot.x},${spot.y}`)) continue;

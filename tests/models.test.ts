@@ -5,6 +5,7 @@ import {
   quadrupedSpec,
   koboldSpec,
   trollSpec,
+  shadeSpec,
   QUADRUPEDS,
   shade,
   mixColor,
@@ -79,6 +80,7 @@ const CREATURE_SPECS = {
   wolf: () => quadrupedSpec(QUADRUPEDS.wolf),
   kobold: koboldSpec,
   troll: trollSpec,
+  shade: shadeSpec,
 };
 
 describe("figure recipes", () => {
@@ -124,7 +126,7 @@ describe("built figures", () => {
     expect(worst.draws).toBeLessThanOrEqual(22);
     expect(worst.triangles).toBeLessThanOrEqual(4800);
 
-    const budgets = { rat: [14, 3500], wolf: [14, 4500], kobold: [24, 6500], troll: [22, 7000] };
+    const budgets = { rat: [14, 3500], wolf: [14, 4500], kobold: [24, 6500], troll: [22, 7000], shade: [22, 5000] };
     Object.entries(CREATURE_SPECS).forEach(([kind, make]) => {
       const stats = figureStats(buildFigure(make(), materialFor).root);
       expect(stats.draws, kind).toBeLessThanOrEqual(budgets[kind][0]);

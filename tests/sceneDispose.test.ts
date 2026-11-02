@@ -27,7 +27,7 @@ function stub(Scene, extra) {
 }
 
 const SCENES = [
-  ["AsciiWorld", AsciiWorld, { chunks: new Map(), players: new Map(), creatures: [], leaving: [], structures: new Map(), ghosts: { dispose: noop }, perf: null, fxLayer: { remove: noop } }],
+  ["AsciiWorld", AsciiWorld, { chunks: new Map(), players: new Map(), creatures: [], leaving: [], structures: new Map(), ghosts: { dispose: noop }, puffs: { dispose: noop }, listeners: new Set(), perf: null, fxLayer: { remove: noop } }],
   ["SiteScene", SiteScene, { chunks: new Map(), compound: [], citizens: { dispose: noop }, visitors: { dispose: noop }, player: new THREE.Group(), props: [], torches: [], labelLayer: { remove: noop }, perf: null }],
   ["Diorama", Diorama, { set: { dispose: noop } }],
 ];

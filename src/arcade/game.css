@@ -92,6 +92,31 @@
   letter-spacing: 0.3em;
   color: var(--gold);
 }
+/* Someone walking out along a dotted path while the world loads. */
+.game-loading::after {
+  content: "@";
+  justify-self: center;
+  width: 12ch;
+  margin-top: 6px;
+  border-bottom: 1px dotted var(--dim);
+  color: var(--gold);
+  text-align: left;
+  text-indent: 0;
+  animation: game-loading-walk 2.4s steps(12, end) infinite;
+}
+@keyframes game-loading-walk {
+  from {
+    text-indent: 0;
+  }
+  to {
+    text-indent: 12ch;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-loading::after {
+    animation: none;
+  }
+}
 
 /* ── HUD frame ─────────────────────────────────────────────────────── */
 

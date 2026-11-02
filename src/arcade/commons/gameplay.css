@@ -1,0 +1,139 @@
+/* The quest tracker (QuestTracker.js), the road in the journal (QuestLog.js)
+   and the crossroads projects (ProjectsPanel.js). */
+
+.quest-tracker__title {
+  display: grid;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.quest-objectives {
+  display: grid;
+  gap: 3px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+.quest-objectives li,
+.commons-project li {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 3px;
+  color: var(--dim, #a4ad97);
+}
+.quest-objectives li.is-done {
+  color: #b7d29a;
+}
+.quest-objectives i,
+.commons-project li i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--gold, #d8b67c);
+  opacity: 0.7;
+}
+.quest-claim {
+  margin-top: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--gold, #d8b67c);
+  background: #d8b67c22;
+  color: #f4e7bd;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.quest-claim:hover,
+.quest-claim:focus-visible {
+  background: #d8b67c44;
+}
+.quest-tracker.is-complete {
+  border-color: #d8b67c99;
+  animation: quest-ready 1.6s ease-in-out infinite alternate;
+}
+@keyframes quest-ready {
+  from {
+    box-shadow: 0 0 0 #d8b67c00;
+  }
+  to {
+    box-shadow: 0 0 14px #d8b67c55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-tracker.is-complete {
+    animation: none;
+  }
+}
+
+.quest-log section + section {
+  margin-top: 14px;
+}
+.quest-log .is-ahead {
+  opacity: 0.55;
+}
+.quest-log .is-current b {
+  color: #f4e7bd;
+}
+.quest-log__progress {
+  color: var(--gold, #d8b67c);
+}
+
+.commons-projects {
+  margin-top: 18px;
+}
+.commons-project {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid #ffffff1c;
+}
+.commons-project.is-current {
+  border-color: #d8b67c66;
+}
+.commons-project.is-ahead {
+  opacity: 0.55;
+}
+.commons-project header {
+  display: flex;
+  justify-content: space-between;
+}
+.commons-project p {
+  margin: 4px 0;
+  color: var(--dim, #a4ad97);
+  font-size: 11px;
+}
+.commons-project ul {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+.commons-project li span:first-child {
+  flex: 1;
+}
+.commons-project li button {
+  padding: 1px 8px;
+  border: 1px solid #ffffff2a;
+  background: #0007;
+  color: var(--ink, #e8e6d3);
+  font: inherit;
+  cursor: pointer;
+}
+.commons-project li button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.commons-project small {
+  color: var(--dim, #a4ad97);
+  font-size: 10px;
+}
