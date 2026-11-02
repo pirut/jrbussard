@@ -17,7 +17,9 @@ const VISIBLE = 4;
  * canned phrases are the way to add that later.
  *
  * While the box is open the hub is told a text field has the keyboard
- * (`hub.typing`), so typing "wasd" doesn't walk the player.
+ * (`hub.typing`), so typing "wasd" doesn't walk the player. Esc still gets
+ * through, as Back, and the press router closes the box (input/keyboard.ts,
+ * game/press.ts).
  */
 export function ChatBox({
   lines,

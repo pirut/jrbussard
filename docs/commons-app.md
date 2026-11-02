@@ -125,7 +125,7 @@ hub.
 
 | Device | Source | Notes |
 | --- | --- | --- |
-| Keyboard (web) | `keyboard.ts` | The browser's key table: WASD/arrows walk, Space act, E eat, G dig, B wall, Tab/C craft, I pack, J journal, L claim a finished task, Enter/T talk, Esc menu, Backspace back. Shift runs. Ignored while the chat box has focus |
+| Keyboard (web) | `keyboard.ts` | The browser's key table: WASD/arrows walk, Space act, E eat, G dig, B wall, Tab/C craft, I pack, J journal, L claim a finished task, Enter/T talk, Esc menu, Backspace back. Shift runs. While the chat box has focus, keys are text; only Esc gets through, and closes the box |
 | Gamepad (web) | `gamepad.ts` | The browser's controller layout (`PAD_LAYOUT`), by layer: walking, building, dead, menu. In the world: left stick walks, A or RT acts, LT digs, X builds a wall, Y crafts, d-pad eat/drink/journal/help, Start or B opens the pause menu (in the browser B only closes an open window; the app has none open in the world). In a menu: d-pad or stick steps, A confirms, B or Start backs out, the bumpers switch panels. With several pads, the first one touched is used until it is unplugged |
 | Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select acts, Play/Pause digs, a held Select builds a wall, Menu (Back on Android TV) pauses; the pause menu opens Craft, Pack and Journal. Running: a held Play/Pause on Apple TV, a held direction on Android TV |
 | Touch (phones, tablets) | `TouchStick.tsx` + buttons in `GameScreen` | Drag-anywhere thumbstick; Act, Dig, Wall, Eat on the right; Craft, Pack, II along the top; Talk opens chat |

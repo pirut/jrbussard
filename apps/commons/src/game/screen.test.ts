@@ -214,6 +214,19 @@ describe('one key press on the web', () => {
     expect(g.s.chatting).toBe(true);
   });
 
+  it('Esc closes the chat box and does not open the pause menu', () => {
+    const g = open('keyboard');
+    g.key('Enter');
+    g.frame();
+    g.keyUp('Enter');
+    expect(g.hub.typing).toBe(true);
+    g.key('Escape');
+    g.frame();
+    expect(g.s.chatting).toBe(false);
+    expect(g.s.overlay).toBeNull();
+    expect(g.hub.typing).toBe(false);
+  });
+
   it('keys typed into the chat box still do not reach the world', () => {
     const g = open('keyboard');
     g.key('Enter');

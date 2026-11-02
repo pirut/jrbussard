@@ -75,11 +75,17 @@ export function createKeyboard(
       };
 
       const onDown = (e: KeyboardEvent) => {
-        /* Browser shortcuts (Ctrl+R, Cmd+F) are not the game's, and keys
-           typed into the chat box are text, not walking. */
-        if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || hub.typing) return;
+        /* Browser shortcuts (Ctrl+R, Cmd+F) are not the game's. */
+        if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
         const key = normalizeKey(e.key);
-        const actions = actionsOf(key).filter((a) => !(a in MOVE_VECTORS));
+        let actions = actionsOf(key).filter((a) => !(a in MOVE_VECTORS));
+        /* Keys typed into the chat box are text, not walking. Esc is the
+           one exception: it is Back, which closes the box (game/press.ts);
+           the box itself has no other way to hear it. */
+        if (hub.typing) {
+          if (!actions.includes('pause')) return;
+          actions = ['pause'];
+        }
         down.add(key);
         /* One key is one press, however many actions it stands for: Enter
            is `chat` and `confirm`, and a menu that takes the confirm takes
