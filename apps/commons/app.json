@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "The Commons",
+    "slug": "commons",
+    "scheme": "commons",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "bundleIdentifier": "com.jrbussard.commons",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "GCSupportsControllerUserInteraction": true
+      }
+    },
+    "android": {
+      "package": "com.jrbussard.commons",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0d0e",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single"
+    },
+    "plugins": [
+      "@react-native-tvos/config-tv"
+    ]
+  }
+}
