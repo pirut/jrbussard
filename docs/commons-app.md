@@ -291,7 +291,7 @@ Evidence for the native runs (commands, log excerpts, screenshots) is in
   through a port of the fork's Android key handling, Back through a mocked
   `BackHandler`.
 - **Hardware:** nothing has run on a real device, remote or controller.
-- Root `npm run test:commons` (229 tests), `CI=true npm test` (169), and
+- Root `npm run test:commons` (234 tests), `CI=true npm test` (171), and
   `CI=true npm run build:frontend` pass.
 
 ## Known gaps and risks

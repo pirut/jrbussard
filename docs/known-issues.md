@@ -42,6 +42,12 @@ stay for a release so the history is easy to follow.
   now lets go of everything it told the game is held whenever it stops
   reaching the game (menu, text field, blur, unplug, unmount)
   (`useGamepad.test.js`).
+- **Fixed** (found in review of the integration branch): `Commons.js`: with a
+  walking key held, Esc opened the menu but the walk carried on under it
+  until the key was let go. The frame loop now stands still under the menu,
+  settings, the controls list and the character screen, and their opening
+  lets go of what was held (`walkLean` in `input/actions.js`,
+  `input.test.ts`).
 - `CharacterSheet.js` closes on a hard-coded `k`; `HelpOverlay.js` and
   `DigControl.js` hard-code default key names in text, wrong after a remap.
   `SettingsPanel.js` says a displaced action "now has no key" though `rebind`
@@ -57,6 +63,14 @@ stay for a release so the history is easy to follow.
 
 ## Renderer
 
+- **Fixed** (found in review of the integration branch): switching reduced
+  motion on in Settings stilled everything but the work puffs, which took the
+  flag once when the world was made. `AsciiWorld.reducedMotion` now passes it
+  on (`Puffs.setStill`; `AsciiWorld.mount.test.js`).
+- **Fixed** (found in review of the integration branch): the troll's club came
+  from `models.js`'s page-lifetime geometry cache, so it was never freed and
+  each renderer left a listener on it. It is part of `trollSpec()` now and
+  freed with the troll (`modelCleanup.test.ts`).
 - `AsciiWorld.js` `updateLighting`: `flash` only decays during a storm, so
   leaving a storm (or toggling reduced motion) within ~0.2 s of a strike leaves
   the sky lightning-tinted.
