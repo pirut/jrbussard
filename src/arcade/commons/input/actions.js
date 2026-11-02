@@ -236,3 +236,73 @@ export function isRebound(bindings, action) {
 export function unboundActions(bindings) {
   return ACTION_IDS.filter((id) => BY_ID[id].remap !== false && !(bindings[id] || []).length);
 }
+
+/*
+ * The walking keys held down, tracked by physical key: letting go of W while
+ * ↑ is still down keeps walking up. Each key remembers the action it meant
+ * when it went down, so a remap mid-hold cannot strand it. `held` is the
+ * walking actions in the order they were first pressed; it is a new array
+ * only when it changes.
+ */
+export function createHeldMoves() {
+  const keys = new Map();
+  let held = [];
+  return {
+    down(key, action) {
+      keys.set(normalizeKey(key), action);
+      if (!held.includes(action)) held = [...held, action];
+      return held;
+    },
+    up(key) {
+      const k = normalizeKey(key);
+      const action = keys.get(k);
+      keys.delete(k);
+      if (action && ![...keys.values()].includes(action)) held = held.filter((a) => a !== action);
+      return held;
+    },
+    clear() {
+      keys.clear();
+      held = [];
+      return held;
+    },
+    get held() {
+      return held;
+    },
+  };
+}
+
+const ARROW_DIRS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+const PANEL_TABS = { craft: "Craft", pack: "Pack", journal: "Journal" };
+
+/*
+ * What a key does while focus is inside a window: the menu, settings, the
+ * controls list, the Fieldcraft panel, any dialog. The window has the
+ * keyboard: Tab and the arrows move between its controls and Esc backs
+ * out. The panel keys switch Fieldcraft's tab (or shut it) only when
+ * Fieldcraft itself has focus, and Tab never does, even while it is bound
+ * to Craft, so a key pressed in Settings or the menu changes nothing
+ * behind it.
+ *
+ *   key        the KeyboardEvent key
+ *   actions    what the bindings make of it
+ *   inPanel    focus is inside the Fieldcraft window
+ *   ownsArrows the focused control takes the arrows itself (a slider)
+ *   helpOpen   the controls list is up
+ *   dead       the player is waiting to wake up
+ *
+ * Returns one of { type: "focus" } (leave Tab to the window's own focus
+ * trap), { type: "step", dir }, { type: "back" }, { type: "panel", tab },
+ * { type: "closeHelp" }, { type: "respawn" }, or null for nothing.
+ */
+export function windowKey({ key, actions = [], inPanel = false, ownsArrows = false, helpOpen = false, dead = false }) {
+  if (key === "Tab") return { type: "focus" };
+  if (ARROW_DIRS[key] && !ownsArrows) return { type: "step", dir: ARROW_DIRS[key] };
+  if (key === "Escape") return { type: "back" };
+  if (inPanel) {
+    const panelAction = ["pack", "journal", "craft"].find((a) => actions.includes(a));
+    if (panelAction) return { type: "panel", tab: PANEL_TABS[panelAction] };
+  }
+  if (helpOpen && actions.includes("help")) return { type: "closeHelp" };
+  if (dead && actions.includes("respawn")) return { type: "respawn" };
+  return null;
+}

@@ -51,11 +51,18 @@ import SettingsPanel from "./commons/SettingsPanel";
 import Coach from "./commons/Coach";
 import { ConnectionBanner, LoadingScreen, useOnline } from "./commons/ConnectionNotice";
 import { InputContext, controlText } from "./commons/input/InputContext";
-import { MOVE_VECTORS, actionsForKey, createKeymap, resolveBindings } from "./commons/input/actions";
+import {
+  MOVE_VECTORS,
+  actionsForKey,
+  createHeldMoves,
+  createKeymap,
+  resolveBindings,
+  windowKey,
+} from "./commons/input/actions";
 import useGamepad, { menuStep } from "./commons/input/useGamepad";
 import { thirdPersonLook } from "./commons/input/gamepad";
 import { settingsStore, useCommonsSettings } from "./commons/input/useSettings";
-import { resolveReducedMotion, resolveUiScale } from "./commons/input/settings";
+import { mouseLook, resolveReducedMotion, resolveUiScale } from "./commons/input/settings";
 import { advanceTutorial, loadTutorial, saveTutorial, skipTutorial, tutorialStep } from "./commons/input/tutorial";
 import "./commons/ux.css";
 
@@ -70,7 +77,6 @@ import "./commons/ux.css";
  */
 
 /* Arrow keys step through an open menu instead of walking. */
-const ARROWS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
 /* Controls that use the arrow keys themselves. */
 const ownsArrows = (el) =>
   el && (el.type === "range" || ["tab", "slider"].includes(el.getAttribute?.("role")));
@@ -511,6 +517,9 @@ function Game({
   const facingRef = useRef({ dx: 0, dy: 1 });
   const planRef = useRef(null);
   const heldRef = useRef([]);
+  /* Which physical keys hold those walks down (see createHeldMoves). */
+  const movesRef = useRef(null);
+  if (!movesRef.current) movesRef.current = createHeldMoves();
   /* Keys pressed and let go between two frames still take their step. */
   const tapRef = useRef(null);
   /* The touch thumbstick's lean, in screen pixels, while a finger drags. */
@@ -669,7 +678,7 @@ function Game({
     const kind = selectedRef.current;
     let text = "";
     if (kind === "sign") {
-      heldRef.current = [];
+      heldRef.current = movesRef.current.clear();
       text = window.prompt("What should the sign say?") || "";
       if (!text) return;
       spots = spots.slice(0, 1);
@@ -1167,22 +1176,30 @@ function Game({
       }
       const { run, back } = runRef.current;
       const actions = actionsForKey(keymapRef.current, event.key);
-      const has = (a) => actions.includes(a);
       /* Inside a window the keyboard belongs to the window: Tab and the
          arrows move between its buttons and Enter or Space presses them.
-         Only Esc and the keys that switch panels still reach the game. */
+         Only Esc, and inside Fieldcraft the keys that switch its tabs,
+         still reach the game (see windowKey). */
       const active = document.activeElement;
       const inWindow = active?.closest?.('[role="dialog"], [role="alertdialog"], [data-pad-menu]');
       if (inWindow) {
-        if (ARROWS[event.key] && !ownsArrows(active)) {
+        const does = windowKey({
+          key: event.key,
+          actions,
+          inPanel: Boolean(panel) && Boolean(active.closest("[data-fieldcraft]")),
+          ownsArrows: ownsArrows(active),
+          helpOpen: help,
+          dead: me?.hp <= 0,
+        });
+        /* Tab is the window's own: HudWindow keeps it inside. */
+        if (!does || does.type === "focus") return;
+        if (does.type === "step") {
           event.preventDefault();
-          menuStep(inWindow, ARROWS[event.key]);
-        } else if (event.key === "Escape") back(false);
-        else if (panel && (has("craft") || has("pack") || has("journal"))) {
-          const tab = has("pack") ? "Pack" : has("journal") ? "Journal" : "Craft";
-          setPanel((p) => (p === tab ? null : tab));
-        } else if (has("help") && help) setHelp(false);
-        else if (has("respawn") && me?.hp <= 0) act("respawn");
+          menuStep(inWindow, does.dir);
+        } else if (does.type === "back") back(false);
+        else if (does.type === "panel") setPanel((p) => (p === does.tab ? null : does.tab));
+        else if (does.type === "closeHelp") setHelp(false);
+        else if (does.type === "respawn") act("respawn");
         return;
       }
       /* The title screen is a menu: its buttons have the keys. */
@@ -1196,10 +1213,9 @@ function Game({
       const move = actions.find((a) => MOVE_VECTORS[a]);
       if (move) {
         event.preventDefault();
-        if (!heldRef.current.includes(move)) {
-          heldRef.current = [...heldRef.current, move];
-          downAtRef.current = performance.now();
-        }
+        const before = heldRef.current;
+        heldRef.current = movesRef.current.down(event.key, move);
+        if (heldRef.current !== before) downAtRef.current = performance.now();
         return;
       }
       if (event.key === "Escape") {
@@ -1224,10 +1240,9 @@ function Game({
       actions.forEach(run);
     };
     const onKeyUp = (event) => {
-      const moves = actionsForKey(keymapRef.current, event.key).filter((a) => MOVE_VECTORS[a]);
-      if (!moves.length) return;
+      /* By physical key: W let go while ↑ is still down keeps walking. */
       const before = heldRef.current;
-      heldRef.current = before.filter((k) => !moves.includes(k));
+      heldRef.current = movesRef.current.up(event.key);
       /* Let go before the step it asked for was taken: take it anyway. */
       if (
         before.length !== heldRef.current.length &&
@@ -1237,7 +1252,7 @@ function Game({
         tapRef.current = before;
     };
     const release = () => {
-      heldRef.current = [];
+      heldRef.current = movesRef.current.clear();
       mouseRef.current.held = false;
     };
     window.addEventListener("keydown", onKeyDown);
@@ -1265,7 +1280,8 @@ function Game({
   useEffect(() => {
     const onMove = (event) => {
       if (!firstPersonRef.current || document.pointerLockElement !== stageRef.current) return;
-      fieldApi.current?.look(event.movementX * 0.0024, event.movementY * 0.0024);
+      const [turn, tilt] = mouseLook(event.movementX, event.movementY, settingsRef.current);
+      fieldApi.current?.look(turn, tilt);
     };
     document.addEventListener("mousemove", onMove);
     return () => document.removeEventListener("mousemove", onMove);
@@ -1578,7 +1594,11 @@ function Game({
   /* Every control, from every device, arrives here by name. */
   const run = (action) => {
     const alive = me?.hp > 0;
-    const toggle = (tab) => setPanel((p) => (p === tab ? null : tab));
+    /* Nothing changes Fieldcraft from behind another window. */
+    const covered = settingsOpen || menuOpen || help || Boolean(sheet);
+    const toggle = (tab) => {
+      if (!covered) setPanel((p) => (p === tab ? null : tab));
+    };
     switch (action) {
       case "act":
         primary(hoverRef.current || facingSpot());
@@ -1876,7 +1896,7 @@ function Game({
           </p>
 
           {panel && (
-            <HudWindow label="Fieldcraft" onClose={() => setPanel(null)}>
+            <HudWindow label="Fieldcraft" onClose={() => setPanel(null)} data-fieldcraft>
               <Fieldcraft
                 me={me}
                 state={state}

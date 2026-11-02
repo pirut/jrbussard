@@ -114,3 +114,13 @@ export function resolveReducedMotion(setting, systemPrefers) {
   if (setting === "off") return false;
   return Boolean(systemPrefers);
 }
+
+/* Radians per pixel of mouse travel at sensitivity 1. */
+export const MOUSE_LOOK = 0.0024;
+
+/* A mouse move in first person as [turn, tilt]: look sensitivity and
+   invert apply to the mouse just as to the right stick. */
+export function mouseLook(dx, dy, { lookSensitivity = 1, invertY = false } = {}) {
+  const k = MOUSE_LOOK * lookSensitivity;
+  return [dx * k, dy * k * (invertY ? -1 : 1)];
+}

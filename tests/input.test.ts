@@ -3,6 +3,7 @@ import {
   ACTION_IDS,
   DEFAULT_KEYS,
   actionsForKey,
+  createHeldMoves,
   createKeymap,
   keyLabel,
   normalizeKey,
@@ -10,6 +11,7 @@ import {
   resetBinding,
   resolveBindings,
   unboundActions,
+  windowKey,
 } from "../src/arcade/commons/input/actions";
 import {
   BUTTON,
@@ -29,6 +31,7 @@ import {
   DEFAULT_SETTINGS,
   createSettingsStore,
   loadSettings,
+  mouseLook,
   resolveReducedMotion,
   resolveUiScale,
   sanitizeSettings,
@@ -179,6 +182,67 @@ describe("keyboard bindings", () => {
     const { custom, displaced } = resetBinding(rebind({}, "respawn", "y").custom, "respawn");
     expect(displaced).toEqual([]);
     expect(actionsForKey(createKeymap(resolveBindings(custom)), "r")).toEqual(["turnPiece", "respawn"]);
+  });
+});
+
+describe("keys inside a window", () => {
+  const keymap = createKeymap(resolveBindings());
+  const inside = (key: string, more = {}) => windowKey({ key, actions: actionsForKey(keymap, key), ...more });
+
+  it("leaves Tab to the window even though Tab is bound to Craft", () => {
+    /* Tab used to shut Fieldcraft instead of moving to its next button. */
+    expect(actionsForKey(keymap, "Tab")).toEqual(["craft"]);
+    expect(inside("Tab", { inPanel: true })).toEqual({ type: "focus" });
+    expect(inside("Tab")).toEqual({ type: "focus" });
+  });
+
+  it("changes nothing behind Settings or the menu", () => {
+    /* Focus in Settings, Fieldcraft open behind it: C, I, J do nothing. */
+    expect(inside("c")).toBe(null);
+    expect(inside("i")).toBe(null);
+    expect(inside("j")).toBe(null);
+  });
+
+  it("switches Fieldcraft's tabs from inside Fieldcraft", () => {
+    expect(inside("c", { inPanel: true })).toEqual({ type: "panel", tab: "Craft" });
+    expect(inside("i", { inPanel: true })).toEqual({ type: "panel", tab: "Pack" });
+    expect(inside("j", { inPanel: true })).toEqual({ type: "panel", tab: "Journal" });
+  });
+
+  it("moves with the arrows unless a slider takes them, and backs out on Esc", () => {
+    expect(inside("ArrowDown")).toEqual({ type: "step", dir: "down" });
+    expect(inside("ArrowLeft", { ownsArrows: true })).toBe(null);
+    expect(inside("Escape")).toEqual({ type: "back" });
+    expect(inside("h", { helpOpen: true })).toEqual({ type: "closeHelp" });
+    expect(inside("r", { dead: true })).toEqual({ type: "respawn" });
+  });
+});
+
+describe("walking keys", () => {
+  it("keeps walking while another key for the same way is still down", () => {
+    /* Letting go of W while ↑ was held used to stop the walk. */
+    const moves = createHeldMoves();
+    moves.down("w", "moveUp");
+    moves.down("ArrowUp", "moveUp");
+    expect(moves.up("w")).toEqual(["moveUp"]);
+    expect(moves.up("ArrowUp")).toEqual([]);
+  });
+
+  it("matches a key let go with Shift down to the one pressed", () => {
+    const moves = createHeldMoves();
+    moves.down("d", "moveRight");
+    moves.down("w", "moveUp");
+    expect(moves.held).toEqual(["moveRight", "moveUp"]);
+    expect(moves.up("D")).toEqual(["moveUp"]);
+  });
+
+  it("hands back the same list while nothing changes, and empties on clear", () => {
+    const moves = createHeldMoves();
+    const first = moves.down("a", "moveLeft");
+    expect(moves.down("a", "moveLeft")).toBe(first);
+    expect(moves.up("x")).toBe(first);
+    expect(moves.clear()).toEqual([]);
+    expect(moves.up("a")).toEqual([]);
   });
 });
 
@@ -355,6 +419,14 @@ describe("settings", () => {
     store.set({ hints: false });
     expect(heard).toBe(2);
     expect(createSettingsStore(storage).get()).toMatchObject({ volume: 0.25, invertY: true, hints: false });
+  });
+
+  it("applies look sensitivity and invert to the mouse", () => {
+    const [turn, tilt] = mouseLook(100, 50, { lookSensitivity: 1, invertY: false });
+    const [fast, flipped] = mouseLook(100, 50, { lookSensitivity: 2, invertY: true });
+    expect(fast).toBeCloseTo(turn * 2);
+    expect(flipped).toBeCloseTo(-tilt * 2);
+    expect(mouseLook(100, 0, { lookSensitivity: 0.5 })[0]).toBeCloseTo(turn / 2);
   });
 
   it("draws the HUD bigger for a controller on a big screen", () => {
