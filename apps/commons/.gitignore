@@ -42,3 +42,6 @@ yarn-error.*
 
 # The repo root ignores *.png (screenshots); these are the app's real icons.
 !assets/*.png
+
+# Native run screenshots are evidence, kept despite the root *.png rule.
+!docs/evidence/*.png

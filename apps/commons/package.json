@@ -38,7 +38,8 @@
     "android": "expo run:android",
     "tvos": "EXPO_TV=1 expo run:ios --device \"Apple TV\"",
     "test": "vitest run",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "types:convex": "node ../../scripts/stub-convex-generated.cjs"
   },
   "private": true
 }

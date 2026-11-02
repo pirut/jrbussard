@@ -541,7 +541,7 @@ export function trollSpec() {
         weapon: 0,
         bulk: 1.35,
     });
-    const { part } = r;
+    const { part, pivot } = r;
     part("head", ["box", 0.3, 0.06, 0.08], "#6f55a0", [0, 0.08, 0.15]);
     part("head", ["sphere", 0.07, 1, 0.8, 1], "#a68ad1", [0, -0.03, 0.18]);
     part("head", ["sphere", 0.14, 1.25, 0.6, 1], skin, [0, -0.12, 0.07]);
@@ -551,6 +551,18 @@ export function trollSpec() {
     part("torso", ["sphere", 0.2, 1.05, 0.95, 0.9], shade(skin, 1.08), [0, 0.12, 0.07]);
     part("torso", ["box", 0.3, 0.22, 0.03], "#6b5b3c", [0, -0.14, 0.13]);
     [-1, 1].forEach((sx) => part("torso", ["dome", 0.1, 1.2, 0.7, 1], "#5f7a3a", [sx * 0.3, 0.52, -0.02], { set: "grass" }));
+    /* A club studded with bone, hung from the right forearm. Part of the
+       recipe, so its geometry is shared and freed with the rest of the
+       figure's (figureGeometry.js), not cached for the life of the page. */
+    pivot("club", "elbowR", [0, -0.27, 0.04], [Math.PI / 2.6, 0, 0]);
+    part("club", ["taper", 0.035, 0.05, 0.55, 6], "#7b5a3a", [0, 0.2, 0], { set: "timber" });
+    part("club", ["sphere", 0.13, 1, 1.4, 1], "#8a6a46", [0, 0.55, 0], { set: "timber" });
+    for (let i = 0; i < 6; i += 1) {
+        const a = (i / 6) * Math.PI * 2;
+        part("club", ["cone", 0.03, 0.1, 4], BONE, [Math.cos(a) * 0.13, 0.5 + (i % 2) * 0.12, Math.sin(a) * 0.13], {
+            rot: [Math.sin(a) * 1.4, 0, -Math.cos(a) * 1.4],
+        });
+    }
     return finished(r);
 }
 

@@ -45,7 +45,9 @@ jobs:
       - run: npm run test:commons
 
   # The multiplatform Commons app (apps/commons) has its own install. Its
-  # typecheck needs the Convex bindings too, so it uses the same stand-in.
+  # typecheck also reads the Convex functions (for their argument and result
+  # types), so the root install is needed too, and convex/_generated is
+  # written offline with the same stand-in: no deployment, no secrets.
   commons-app:
     runs-on: ubuntu-latest
     defaults:
@@ -57,7 +59,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: apps/commons/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/commons/package-lock.json
       - run: npm ci --no-audit --no-fund
       # The typecheck follows type imports into ../../convex, which resolves
       # `convex/server` and friends from the repo root's node_modules.

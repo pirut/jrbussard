@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import useGamepad from "./input/useGamepad";
 
 /*
  * What the player sees while the connection to the world is missing or
@@ -29,9 +30,17 @@ export function useOnline() {
   return online;
 }
 
+const ARCADE = { pathname: "/", state: { room: "arcade" } };
+const NO_SETTINGS = { current: {} };
+
 /*
  * Before the world has arrived: what is happening, and after a while what
  * to do about it, rather than a line of text that never changes.
+ *
+ * The game's own controller polling is not running yet, so the screen
+ * mounts its own: the d-pad or stick moves between "try again" (focused
+ * first) and the way back, the confirm button presses the focused one,
+ * and back (or Esc) leaves for the arcade.
  *
  *   problem  a message from a failed join or heartbeat, or "" for none
  *   online   useOnline()'s answer
@@ -53,8 +62,22 @@ export function LoadingScreen({ problem, online, onRetry }) {
     return () => window.clearTimeout(timer);
   }, []);
   const stuck = problem || !online || slow;
+
+  const rootRef = useRef(null);
+  const navigate = useNavigate();
+  useGamepad({ rootRef, settingsRef: NO_SETTINGS, getContext: () => "menu" });
+  useEffect(() => {
+    if (!stuck) return undefined;
+    /* The controller's back arrives as Esc (see useGamepad). */
+    const onKey = (event) => {
+      if (event.key === "Escape") navigate(ARCADE.pathname, { state: ARCADE.state });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stuck, navigate]);
+
   return (
-    <main className="commons-game commons-game--loading">
+    <main className="commons-game commons-game--loading" ref={rootRef}>
       <div className="game-loading" role="status" aria-live="polite" data-pad-menu>
         <span>THE COMMONS</span>
         <p>
@@ -68,7 +91,7 @@ export function LoadingScreen({ problem, online, onRetry }) {
             <button className="game-start" onClick={onRetry} autoFocus>
               try again
             </button>
-            <Link className="hud-back" to="/" state={{ room: "arcade" }}>
+            <Link className="hud-back" to={ARCADE.pathname} state={ARCADE.state}>
               ← back to the arcade
             </Link>
           </div>

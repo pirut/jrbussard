@@ -5,7 +5,9 @@ import { settingsStore, useCommonsSettings } from "./input/useSettings";
 import { UI_SCALES } from "./input/settings";
 import {
   ACTIONS,
+  DEFAULT_KEYS,
   actionLabel,
+  isRebound,
   keyLabel,
   rebind,
   resetBinding,
@@ -256,11 +258,19 @@ function KeysTab({ settings, set }) {
               >
                 {listening === action.id ? "press a key…" : "change"}
               </button>
-              {settings.keys[action.id] && (
+              {(settings.keys[action.id] || isRebound(bindings, action.id)) && (
                 <button
                   className="keys-list__reset"
                   aria-label={`Reset the key for ${action.label}`}
-                  onClick={() => set({ keys: resetBinding(settings.keys, action.id) })}
+                  onClick={() => {
+                    const result = resetBinding(settings.keys, action.id);
+                    set({ keys: result.custom });
+                    setMessage(
+                      result.displaced.length
+                        ? `${action.label} is back on ${keyLabel(DEFAULT_KEYS[action.id][0])}; ${result.displaced.map(actionLabel).join(", ")} lost it`
+                        : `${action.label}: back to ${keyLabel(DEFAULT_KEYS[action.id][0])}`,
+                    );
+                  }}
                 >
                   reset
                 </button>
@@ -271,7 +281,7 @@ function KeysTab({ settings, set }) {
       </ul>
       <div className="setting">
         <span className="setting__label">All keys</span>
-        <button className="setting-action" onClick={() => set({ keys: resetBinding(settings.keys) })}>
+        <button className="setting-action" onClick={() => set({ keys: resetBinding(settings.keys).custom })}>
           reset to defaults
         </button>
       </div>

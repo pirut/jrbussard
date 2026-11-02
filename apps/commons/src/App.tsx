@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GameScreen } from './game/GameScreen';
 import { createGamepad } from './input/gamepad';
 import { InputHub } from './input/hub';
 import { keyboard } from './input/keyboard';
+import { createTvRemote } from './input/tvRemote';
 import { CONVEX_URL } from './net/convex';
 import { WorldSource } from './net/world';
 import { Menu } from './ui/Menu';
@@ -18,14 +19,15 @@ export default function App() {
   /* EXPO_PUBLIC_AUTOPLAY=1 skips the title screen in development builds,
      for driving simulators that have no remote or keyboard attached. */
   const [screen, setScreen] = useState<Screen>(() => (__DEV__ && process.env.EXPO_PUBLIC_AUTOPLAY === '1' ? 'play' : 'title'));
+  /* Stable, so the Controls menu keeps one hold on Back (input/back.ts). */
+  const toTitle = useCallback(() => setScreen('title'), []);
 
+  /* Every device for the life of the app. The TV source is attached here,
+     not in the game, so the Menu button reaches the Controls screen too;
+     whether Menu stays in the app is up to the screen showing (back.ts). */
   useEffect(() => {
-    const offKeys = hub.use(keyboard);
-    const offPad = hub.use(createGamepad());
-    return () => {
-      offKeys();
-      offPad();
-    };
+    const offs = [hub.use(keyboard), hub.use(createGamepad()), hub.use(createTvRemote())];
+    return () => offs.forEach((off) => off());
   }, [hub]);
 
   /* commons://play goes straight into the world: for links (a Top Shelf
@@ -43,15 +45,15 @@ export default function App() {
     <View style={styles.root}>
       <StatusBar style="light" hidden={screen === 'play'} />
       {screen === 'play' ? (
-        <WorldSource>{(world) => <GameScreen world={world} hub={hub} onQuit={() => setScreen('title')} />}</WorldSource>
+        <WorldSource>{(world) => <GameScreen world={world} hub={hub} onQuit={toTitle} />}</WorldSource>
       ) : screen === 'controls' ? (
         <View style={styles.centre}>
           <Menu
             title="CONTROLS"
             subtitle={CONTROLS}
             hub={hub}
-            onBack={() => setScreen('title')}
-            items={[{ label: 'Back', onSelect: () => setScreen('title') }]}
+            onBack={toTitle}
+            items={[{ label: 'Back', onSelect: toTitle }]}
           />
         </View>
       ) : (

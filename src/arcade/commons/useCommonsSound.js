@@ -14,12 +14,16 @@ const storage = () => {
 /*
  * Sound for the Commons: listens to the world (AsciiWorld.on) for what
  * happens, and keeps the ambience matched to where the view is. Nothing
- * starts until a click, tap or key, as browsers require. N mutes.
+ * starts until a click, tap or key, as browsers require.
  *
- * Returns [muted, toggle].
+ * Returns [muted, toggle]. The hook listens for no key of its own: the
+ * game calls toggle for its "sound" action (N unless remapped, see
+ * input/actions.js), so muting follows the player's bindings.
  *
  *   fieldApi   ref whose `.current` is the AsciiWorld (null until the field
  *              is made, and null forever without WebGL). Read, never written
+ *   levels     { volume, music, effects } from the settings, each 0 to 1;
+ *              changes reach the playing engine at once
  *   muted      boolean, for drawing the speaker icon
  *   toggle     stable function that flips mute, saves it and tells the engine
  *
@@ -28,7 +32,7 @@ const storage = () => {
  * undoes what it started on unmount: listeners removed, intervals cleared,
  * the world unsubscribed, and the AudioContext closed. Used by Commons.js.
  */
-export default function useCommonsSound(fieldApi) {
+export default function useCommonsSound(fieldApi, levels = {}) {
     /* State for rendering the icon; the engine has its own copy of the flag
        (CommonsSound.muted) because it reads it outside React. */
     const [muted, setMuted] = useState(() => loadMuted(storage()));
@@ -36,7 +40,12 @@ export default function useCommonsSound(fieldApi) {
     /* Created during render so the engine exists before any effect runs;
        the guard keeps it to one even if render repeats. The AudioContext
        itself is only made later, from a gesture. */
-    if (!soundRef.current) soundRef.current = new CommonsSound({ muted });
+    if (!soundRef.current) soundRef.current = new CommonsSound({ muted, levels });
+
+    const { volume, music, effects } = levels;
+    useEffect(() => {
+        soundRef.current.setLevels({ volume, music, effects });
+    }, [volume, music, effects]);
 
     /* Start on a gesture; stop the clock while the tab is hidden. Every
        gesture tries while the sound is not playing, since a start can be
@@ -112,20 +121,6 @@ export default function useCommonsSound(fieldApi) {
         soundRef.current.setMuted(next);
         setMuted(next);
     }, []);
-
-    /* N mutes. Ignored with a modifier (browser shortcuts), when the key is
-       auto-repeating (it would flicker), and while typing in a field. */
-    useEffect(() => {
-        const onKey = (event) => {
-            if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
-            if (event.key.toLowerCase() !== "n") return;
-            const active = document.activeElement;
-            if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
-            toggle();
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [toggle]);
 
     return [muted, toggle];
 }

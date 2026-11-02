@@ -13,11 +13,20 @@
  *   server.js / server.d.ts query, mutation, action ... and their contexts
  *   dataModel.d.ts          Doc<> and Id<> from schema.ts
  *
- * What it can't know is the shape of installed components, so `components` is
- * typed `any`. Real codegen output always wins: this script refuses to
- * overwrite a directory that it didn't write itself.
+ * Installed components are read from convex.config.ts (`app.use(x)` or
+ * `app.use(x, { name: "y" })`, with x imported from "<pkg>/convex.config")
+ * and typed the way codegen types an npm component:
+ *
+ *   rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">
+ *
+ * so the functions' calls into a component are type-checked too. Real codegen
+ * output always wins: this script refuses to overwrite a directory that it
+ * didn't write itself.
  *
  *   node scripts/stub-convex-generated.cjs
+ *
+ * apps/commons runs it as `npm run types:convex`; the app's typecheck follows
+ * type imports into convex/.
  */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -44,6 +53,18 @@ const modules = fs
   .filter((m) => m !== "schema" && m !== "convex.config")
   .sort();
 
+/* The components convex.config.ts installs, by the name code reaches them
+   under (`components.<name>`) and the package they come from. */
+const config = fs.readFileSync(path.join(convexDir, "convex.config.ts"), "utf8");
+const packages = new Map(
+  [...config.matchAll(/import\s+(\w+)\s+from\s+["']([^"']+)\/convex\.config(?:\.js)?["']/g)].map((m) => [m[1], m[2]]),
+);
+const components = [...config.matchAll(/app\.use\(\s*(\w+)\s*(?:,\s*\{\s*name:\s*["'](\w+)["']\s*\})?\s*\)/g)].map((m) => {
+  const pkg = packages.get(m[1]);
+  if (!pkg) throw new Error(`convex.config.ts uses ${m[1]}, which is not imported from a package's convex.config`);
+  return { name: m[2] ?? m[1], pkg };
+});
+
 const banner = `/* Written by ${MARKER}. Not real codegen output; do not commit. */\n`;
 const write = (name, text) => fs.writeFileSync(path.join(outDir, name), banner + text);
 
@@ -66,7 +87,9 @@ ${modules.map((m) => `  ${m}: typeof ${m};`).join("\n")}
 }>;
 export declare const api: FilterApi<typeof fullApi, FunctionReference<any, "public">>;
 export declare const internal: FilterApi<typeof fullApi, FunctionReference<any, "internal">>;
-export declare const components: any;
+export declare const components: {
+${components.map(({ name, pkg }) => `  ${name}: import("${pkg}/_generated/component.js").ComponentApi<"${name}">;`).join("\n")}
+};
 `,
 );
 
@@ -139,4 +162,7 @@ export type DataModel = DataModelFromSchemaDefinition<typeof schema>;
 `,
 );
 
-console.log(`Wrote a stand-in convex/_generated (${modules.length} modules: ${modules.join(", ")}).`);
+console.log(
+  `Wrote a stand-in convex/_generated (${modules.length} modules: ${modules.join(", ")}; ` +
+    `components: ${components.map((c) => c.name).join(", ") || "none"}).`,
+);

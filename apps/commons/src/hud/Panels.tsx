@@ -1,14 +1,14 @@
 import React, { useCallback, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { TABS, type Tab } from '../game/press';
 import type { Me } from '../game/walking';
 import type { InputHub } from '../input/hub';
+import { nativePress } from '../ui/nativePress';
 import { colors, size } from '../ui/theme';
 import { useListNav } from '../ui/useListNav';
 import { craftRows, equipmentRows, packRows, questView } from './model';
 import { Objectives } from './QuestCard';
 
-export const TABS = ['craft', 'pack', 'journal'] as const;
-export type Tab = (typeof TABS)[number];
 const TITLES: Record<Tab, string> = { craft: 'Craft', pack: 'Pack', journal: 'Journal' };
 
 /* One selectable row. A row is a native focusable on TV; elsewhere the
@@ -81,11 +81,11 @@ export function Panels({
       <View style={styles.window}>
         <View style={styles.tabs}>
           {TABS.map((t) => (
-            <Pressable key={t} onPress={() => onTab(t)} style={[styles.tab, t === tab && styles.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: t === tab }}>
+            <Pressable key={t} onPress={nativePress(hub, () => onTab(t))} style={[styles.tab, t === tab && styles.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: t === tab }}>
               <Text style={[styles.tabText, t === tab && styles.tabTextOn]}>{TITLES[t]}</Text>
             </Pressable>
           ))}
-          <Pressable onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel="Close">
+          <Pressable onPress={nativePress(hub, onClose)} style={styles.close} accessibilityRole="button" accessibilityLabel="Close">
             <Text style={styles.tabText}>✕</Text>
           </Pressable>
         </View>
@@ -106,7 +106,7 @@ export function Panels({
           {rows.map((row, i) => (
             <Pressable
               key={row.key}
-              onPress={row.onSelect}
+              onPress={nativePress(hub, row.onSelect)}
               onFocus={() => setIndex(i)}
               hasTVPreferredFocus={i === 0}
               disabled={!row.onSelect}

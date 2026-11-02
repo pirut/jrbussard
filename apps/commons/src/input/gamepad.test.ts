@@ -1,23 +1,42 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('react-native', () => ({ Platform: { OS: 'web', isTV: false } }));
+vi.mock('react-native', () => ({
+  Platform: { OS: 'web', isTV: false },
+  BackHandler: { addEventListener: () => ({ remove() {} }) },
+  TVEventControl: { enableTVMenuKey() {}, disableTVMenuKey() {} },
+}));
 
+/* The browser Commons' own controller table, read from the repo. */
+import { BUTTON, padAction } from '@site/arcade/commons/input/gamepad';
+import { attachBack } from './back';
 import { createGamepad } from './gamepad';
 import { InputHub } from './hub';
+import type { PadContext } from './types';
 
 /* A pad in the browser's "standard" layout: 17 buttons, 4 axes. */
-const pad = (axes: number[], pressed: number[] = []) => ({
+const pad = (axes: number[], pressed: number[] = [], index?: number) => ({
+  index,
   connected: true,
   axes,
   buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i) })),
 });
+type Pad = ReturnType<typeof pad>;
 
 /* A hub with a gamepad on it, reading whatever `pads` currently holds. */
-function rig(initial: Array<ReturnType<typeof pad> | null>) {
+function rig(initial: Array<Pad | null>) {
   const state = { pads: initial, now: 0 };
   const hub = new InputHub();
   hub.use(createGamepad(() => state.pads, () => state.now));
   return { state, hub };
+}
+
+/* Press one button on a fresh controller and say what the app heard. */
+function pressAlone(context: PadContext, button: number) {
+  const { state, hub } = rig([pad([0, 0, 0, 0])]);
+  hub.context = context;
+  hub.frame();
+  state.pads = [pad([0, 0, 0, 0], [button])];
+  return hub.frame();
 }
 
 describe('web gamepad', () => {
@@ -89,5 +108,72 @@ describe('web gamepad', () => {
     const f = hub.frame();
     expect(f.held.has('act')).toBe(false);
     expect(f.move).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('several controllers', () => {
+  it('an idle first controller does not shut out a second', () => {
+    const { hub } = rig([pad([0, 0, 0, 0], [], 0), pad([0, -0.9, 0, 0], [], 1)]);
+    hub.context = 'play';
+    expect(hub.frame().move.y).toBeGreaterThan(0.8);
+  });
+
+  it('keeps the controller in use until it is unplugged', () => {
+    const { state, hub } = rig([pad([0, 0, 0, 0], [], 0), pad([0.9, 0, 0, 0], [], 1)]);
+    hub.context = 'play';
+    hub.frame();
+    /* The first pad is touched now too, but the second is the player's. */
+    state.pads = [pad([-0.9, 0, 0, 0], [], 0), pad([0.9, 0, 0, 0], [], 1)];
+    expect(hub.frame().move.x).toBeGreaterThan(0.8);
+    /* Unplug the second: the first takes over once it is touched. */
+    state.pads = [pad([-0.9, 0, 0, 0], [], 0), null];
+    expect(hub.frame().move.x).toBeLessThan(-0.8);
+  });
+});
+
+/* Every button in every layer against the browser's table, so the app
+   cannot drift from it: whatever PAD_LAYOUT says a button means is what
+   reaches the game (menu steps arrive once, through the reader's `nav`). */
+describe('the browser Commons controller layout', () => {
+  it.each(['play', 'build', 'dead', 'menu'] as const)('each button in %s does what the shared table says', (context) => {
+    for (let b = 0; b <= 16; b += 1) {
+      const shared = padAction(context, b) as string | null;
+      const f = pressAlone(context, b);
+      expect({ button: b, pressed: f.pressed }).toEqual({ button: b, pressed: shared ? [shared] : [] });
+      expect(f.move).toEqual({ x: 0, y: 0 });
+    }
+  });
+
+  it('B backs out instead of digging', () => {
+    expect(pressAlone('play', BUTTON.east).pressed).toEqual(['cancel']);
+    expect(pressAlone('menu', BUTTON.east).pressed).toEqual(['back']);
+  });
+
+  it('RT acts, as A does, instead of running', () => {
+    const f = pressAlone('play', BUTTON.rt);
+    expect(f.pressed).toEqual(['act']);
+    expect(f.held.has('run')).toBe(false);
+  });
+
+  it('the d-pad does not walk in the world; it steps through menus', () => {
+    expect(pressAlone('play', BUTTON.up).move).toEqual({ x: 0, y: 0 });
+    expect(pressAlone('menu', BUTTON.up).pressed).toEqual(['navUp']);
+    expect(pressAlone('menu', BUTTON.down).pressed).toEqual(['navDown']);
+  });
+
+  it.each([
+    ['B', BUTTON.east],
+    ['Start', BUTTON.start],
+  ])('%s closes the pause menu, and the world does not then see a pause', (_name, button) => {
+    const { state, hub } = rig([pad([0, 0, 0, 0])]);
+    hub.context = 'menu';
+    hub.frame();
+    let paused = true;
+    const off = attachBack(hub, () => (paused = false));
+    state.pads = [pad([0, 0, 0, 0], [button])];
+    hub.poll();
+    expect(paused).toBe(false);
+    expect(hub.frame().pressed).toEqual([]);
+    off();
   });
 });

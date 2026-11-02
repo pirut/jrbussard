@@ -54,6 +54,7 @@ export {
   PAD_LAYOUT,
   BUTTON,
   padAction,
+  padTouched,
   createPadReader,
   controllerFamily,
   buttonGlyph,

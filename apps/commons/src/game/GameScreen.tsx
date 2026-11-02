@@ -2,27 +2,25 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChatBox } from '../hud/ChatBox';
 import { questView } from '../hud/model';
-import { Panels, TABS, type Tab } from '../hud/Panels';
+import { Panels } from '../hud/Panels';
 import { QuestTracker } from '../hud/QuestCard';
 import { Vitals } from '../hud/Vitals';
+import { claimMenuKey, onHardwareBack } from '../input/back';
 import type { InputHub } from '../input/hub';
-import { createTvRemote } from '../input/tvRemote';
 import { TouchStick } from '../input/TouchStick';
-import type { Action, PadContext } from '../input/types';
+import type { Action } from '../input/types';
 import type { World } from '../net/world';
 import { Menu } from '../ui/Menu';
+import { nativePress } from '../ui/nativePress';
 import { CONTROLS, HINT } from '../ui/controlsText';
 import { colors, margin, size, TV } from '../ui/theme';
 import { WorldScene } from '../world/scene';
 import { World3D } from '../world/World3D';
 import { claimQuest, craft, perform, speak } from './actions';
+import { createPressRouter, padContext, TABS, type Overlay, type Tab } from './press';
 import { createWalking } from './walking';
 
 const TOUCH = !Platform.isTV && Platform.OS !== 'web';
-
-/* What is on top of the world: nothing, one of the three panels, the pause
-   menu, or the controls list. Only one at a time. */
-type Overlay = null | Tab | 'pause' | 'help';
 
 /*
  * The game: the 3D world with the HUD over it, and the input that drives
@@ -36,6 +34,8 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
   const { state, call, status } = world;
   const me = state?.me ?? null;
   const scene = useMemo(() => new WorldScene(), []);
+  /* The scene's GPU resources go with the screen (world/scene.ts dispose). */
+  useEffect(() => () => scene.dispose(), [scene]);
 
   const [overlay, setOverlayState] = useState<Overlay>(null);
   const [chatting, setChattingState] = useState(false);
@@ -76,14 +76,29 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
     [call, flash],
   );
 
-  useEffect(() => hub.use(createTvRemote({ capturesMenu: true })), [hub]);
+  /* Presses made on the title screen are not for the world. */
+  useEffect(() => {
+    hub.frame();
+  }, [hub]);
+
+  /* While in the world, Menu (Apple TV), Back (Android) and a controller's
+     B or Start open the pause menu instead of leaving the app (see
+     press.ts). Each overlay's own Back closes it (useListNav). Android's
+     Back reaches only the newest listener, so the world listens only while
+     nothing is open over it. */
+  useEffect(() => claimMenuKey(), []);
+  useEffect(
+    () => (overlay ? undefined : onHardwareBack(() => (chattingRef.current ? setChatting(false) : setOverlay('pause')))),
+    [overlay, setChatting, setOverlay],
+  );
+  const close = useCallback(() => setOverlay(null), [setOverlay]);
+  const backToPause = useCallback(() => setOverlay('pause'), [setOverlay]);
 
   /* Tell the controller which layer is live: walking, lying dead, or in
      something with a list. Leaving the game hands the hub back to menus. */
   const dead = !!me && me.hp <= 0;
   useEffect(() => {
-    const context: PadContext = overlay || chatting ? 'menu' : dead ? 'dead' : 'play';
-    hub.context = context;
+    hub.context = padContext({ overlay, chatting, dead });
     return () => {
       hub.context = 'menu';
     };
@@ -99,9 +114,10 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
   const doAction = useCallback(
     (action: Action) => {
       const player = meRef.current;
-      if (!player) return;
+      if (!player) return false;
       const request = perform(action, player, { call, facing: walking.facingTile });
       request?.then(flash).catch(() => flash('That could not reach the world. Try again.'));
+      return request !== undefined;
     },
     [call, flash, walking],
   );
@@ -113,47 +129,24 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
     [flash],
   );
 
-  /*
-   * One press, in the context of what is on screen. Everything the player
-   * can press funnels through here, once per press (the frame drains the
-   * hub's queue), so a screen change can never be handled twice.
-   */
-  const onPress = useCallback(
-    (action: Action) => {
-      const open = overlayRef.current;
-      const toggle = (tab: Tab) => setOverlay(open === tab ? null : tab);
-
-      if (chattingRef.current) {
-        if (action === 'back' || action === 'cancel' || action === 'pause') setChatting(false);
-        return;
-      }
-
-      if (action === 'pause' || action === 'back' || action === 'cancel') {
-        /* Esc / Menu: close whatever is open, otherwise open the pause menu. */
-        if (open) setOverlay(open === 'help' ? 'pause' : null);
-        else if (action === 'pause') setOverlay('pause');
-        return;
-      }
-      if (action === 'craft' || action === 'pack' || action === 'journal') return toggle(action);
-      if (action === 'help') return setOverlay(open === 'help' ? null : 'help');
-
-      /* Shoulder buttons / bumpers flip between the panels. */
-      if ((action === 'prevTab' || action === 'nextTab') && open && (TABS as readonly string[]).includes(open)) {
-        const at = TABS.indexOf(open as Tab);
-        return setOverlay(TABS[(at + (action === 'nextTab' ? 1 : TABS.length - 1)) % TABS.length]);
-      }
-
-      if (open) return;
-      if (action === 'chat' && !TV) return setChatting(true);
-      doAction(action);
-    },
+  /* One press, in the context of what is on screen (press.ts). */
+  const onPress = useMemo(
+    () =>
+      createPressRouter({
+        overlay: () => overlayRef.current,
+        chatting: () => chattingRef.current,
+        setOverlay,
+        setChatting,
+        canChat: !TV,
+        act: doAction,
+      }),
     [doAction, setChatting, setOverlay],
   );
 
   const onFrame = useCallback(
     (dt: number) => {
       const input = hub.frame();
-      input.pressed.forEach(onPress);
+      input.presses.forEach(onPress);
       const blocked = overlayRef.current !== null || chattingRef.current;
       /* Panels and chat freeze the stick but not the world: other people
          keep moving, and the body is still drawn. */
@@ -172,7 +165,8 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
       {/* On tvOS, Select only reaches JS from a focused view (the fork's
           select recognizer lives on focusable views), so during play the
           whole screen is one focusable that keeps focus. Its own onPress
-          does nothing: the TV event stream already carries the press. */}
+          does nothing and is not a nativePress: the TV event stream
+          already carries the press, and it is the world's. */}
       {Platform.isTV && !overlay ? (
         <Pressable style={StyleSheet.absoluteFill} hasTVPreferredFocus isTVSelectable onPress={() => {}} accessibilityLabel="The world" />
       ) : null}
@@ -180,7 +174,7 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
       {me && state ? (
         <>
           <Vitals me={me} region={state.region} phase={state.phase} online={state.online} />
-          {quest && !quest.finished ? <QuestTracker quest={quest} onOpen={() => setOverlay('journal')} onClaim={() => run(claimQuest({ call }))} /> : null}
+          {quest && !quest.finished ? <QuestTracker quest={quest} onOpen={nativePress(hub, () => setOverlay('journal'))} onClaim={nativePress(hub, () => run(claimQuest({ call })))} /> : null}
           <ChatBox
             lines={state.chat}
             hub={hub}
@@ -240,7 +234,7 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
           me={me}
           hub={hub}
           onTab={setOverlay}
-          onClose={() => setOverlay(null)}
+          onClose={close}
           onCraft={(recipe) => run(craft({ call }, recipe))}
           onEat={(item) => run(call('eat', { item }).then((r) => (typeof r === 'string' ? r : null)))}
           onClaim={() => run(claimQuest({ call }))}
@@ -252,8 +246,9 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
           <Menu
             title="PAUSED"
             hub={hub}
+            onBack={close}
             items={[
-              { label: 'Resume', onSelect: () => setOverlay(null) },
+              { label: 'Resume', onSelect: close },
               { label: 'Craft', onSelect: () => setOverlay('craft') },
               { label: 'Pack', onSelect: () => setOverlay('pack') },
               { label: 'Journal', onSelect: () => setOverlay('journal') },
@@ -266,7 +261,7 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
 
       {overlay === 'help' ? (
         <View style={styles.overlay}>
-          <Menu title="CONTROLS" subtitle={CONTROLS} hub={hub} items={[{ label: 'Back', onSelect: () => setOverlay('pause') }]} />
+          <Menu title="CONTROLS" subtitle={CONTROLS} hub={hub} onBack={backToPause} items={[{ label: 'Back', onSelect: backToPause }]} />
         </View>
       ) : null}
     </View>
