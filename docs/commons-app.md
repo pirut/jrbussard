@@ -23,14 +23,15 @@ apps/commons/
     shared.ts         every import from the browser game, in one place
     net/convex.ts     Convex client, typed api, per-install session id
     net/world.tsx     "the world": live Convex or the offline stand-in
-    game/GameScreen.tsx  connects the pieces to the screen; decides what a press means now
+    game/GameScreen.tsx  connects the pieces to the screen
+    game/press.ts     what a press means now: back, panels, pause, or the world (unit tested)
     game/walking.ts   body, walker and server steps (no React: unit tested)
     game/actions.ts   action -> server request (no React: unit tested)
     hud/model.ts      what the HUD says, from a snapshot (no React: unit tested)
     hud/              Vitals, QuestCard, Panels (craft / pack / journal), ChatBox
     world/scene.ts    three.js scene: terrain, trees, rocks, builds, people
     world/World3D.tsx GL surface and render loop
-    input/            InputHub and its sources (keyboard, gamepad, TV remote, touch)
+    input/            InputHub and its sources (keyboard, gamepad, TV remote, touch), back.ts
     ui/               Menu, useListNav, theme (sizes scale for TV), controlsText
 ```
 
