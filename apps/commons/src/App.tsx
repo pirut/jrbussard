@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GameScreen } from './game/GameScreen';
 import { createGamepad } from './input/gamepad';
 import { InputHub } from './input/hub';
 import { keyboard } from './input/keyboard';
+import { createTvRemote } from './input/tvRemote';
 import { CONVEX_URL } from './net/convex';
 import { WorldSource } from './net/world';
 import { Menu } from './ui/Menu';
@@ -17,14 +18,11 @@ export default function App() {
   /* EXPO_PUBLIC_AUTOPLAY=1 skips the title screen in development builds,
      for driving simulators that have no remote or keyboard attached. */
   const [screen, setScreen] = useState<Screen>(() => (__DEV__ && process.env.EXPO_PUBLIC_AUTOPLAY === '1' ? 'play' : 'title'));
+  const toTitle = useCallback(() => setScreen('title'), []);
 
   useEffect(() => {
-    const offKeys = hub.use(keyboard);
-    const offPad = hub.use(createGamepad());
-    return () => {
-      offKeys();
-      offPad();
-    };
+    const offs = [hub.use(keyboard), hub.use(createGamepad()), hub.use(createTvRemote())];
+    return () => offs.forEach((off) => off());
   }, [hub]);
 
   /* commons://play goes straight into the world: for links (a Top Shelf
@@ -49,8 +47,8 @@ export default function App() {
             title="CONTROLS"
             subtitle={CONTROLS}
             hub={hub}
-            onBack={() => setScreen('title')}
-            items={[{ label: 'Back', onSelect: () => setScreen('title') }]}
+            onBack={toTitle}
+            items={[{ label: 'Back', onSelect: toTitle }]}
           />
         </View>
       ) : (

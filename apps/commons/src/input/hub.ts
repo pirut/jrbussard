@@ -1,6 +1,7 @@
-import type { Action, Axis, InputFrame, InputSink, InputSource } from './types';
+import type { Action, Axis, InputContext, InputFrame, InputSink, InputSource } from './types';
 
-type Listener = (action: Action) => void;
+/* Returns true when it has dealt with the press, so the game never sees it. */
+type Listener = (action: Action) => boolean | void;
 
 /*
  * Merges every attached source into one frame. The strongest stick wins
@@ -13,6 +14,22 @@ export class InputHub implements InputSink {
   private queue: Action[] = [];
   private listeners = new Set<Listener>();
   private sources: InputSource[] = [];
+  private contexts: { context: InputContext }[] = [];
+
+  /* A menu over the world wins, whenever either was entered. */
+  get context(): InputContext {
+    const has = (c: InputContext) => this.contexts.some((e) => e.context === c);
+    return has('menu') ? 'menu' : has('dead') ? 'dead' : 'play';
+  }
+
+  /* Enter a context until the returned function is called. */
+  enter(context: InputContext) {
+    const entry = { context };
+    this.contexts.push(entry);
+    return () => {
+      this.contexts = this.contexts.filter((e) => e !== entry);
+    };
+  }
 
   /* Attach a device. Returns what detaches it again. */
   use(source: InputSource) {
@@ -41,9 +58,15 @@ export class InputHub implements InputSink {
     } else if (!down) set.delete(action);
   }
 
+  /* A press goes to the listeners first. One that handles it (a menu
+     taking Back) keeps it out of the next frame, so the press that closes
+     the pause menu cannot also reopen it. */
   press(action: Action) {
-    this.queue.push(action);
-    this.listeners.forEach((fn) => fn(action));
+    let taken = false;
+    [...this.listeners].forEach((fn) => {
+      if (fn(action) === true) taken = true;
+    });
+    if (!taken) this.queue.push(action);
   }
 
   /* Hear presses as they happen, for menus that do not run a frame loop. */

@@ -42,8 +42,17 @@ export interface InputSource {
   poll?(): void;
 }
 
+/*
+ * What is on screen, in the shared controller layout's terms
+ * (src/arcade/commons/input/gamepad.js PAD_LAYOUT): walking about, waiting
+ * to wake up, or a menu. Devices whose buttons change meaning with it (the
+ * gamepad) read it from the hub.
+ */
+export type InputContext = 'play' | 'dead' | 'menu';
+
 export interface InputSink {
   setAxis(source: string, x: number, y: number): void;
   hold(source: string, action: Action, down: boolean): void;
   press(action: Action): void;
+  readonly context: InputContext;
 }

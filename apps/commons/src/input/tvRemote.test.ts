@@ -7,14 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * source into a real InputHub, and checks what the game would see.
  */
 type Listener = (evt: { eventType: string; eventKeyAction?: number }) => void;
-const native = vi.hoisted(() => ({ listener: null as Listener | null, menuKey: 0 }));
+const native = vi.hoisted(() => ({ listener: null as Listener | null }));
 
 vi.mock('react-native', () => ({
   Platform: { isTV: true, OS: 'ios' },
-  TVEventControl: {
-    enableTVMenuKey: () => (native.menuKey += 1),
-    disableTVMenuKey: () => (native.menuKey -= 1),
-  },
   TVEventHandler: {
     addListener: (fn: Listener) => {
       native.listener = fn;
@@ -36,7 +32,7 @@ let detach: () => void;
 beforeEach(() => {
   vi.useFakeTimers();
   hub = new InputHub();
-  detach = hub.use(createTvRemote({ capturesMenu: true }));
+  detach = hub.use(createTvRemote());
 });
 afterEach(() => {
   detach();
@@ -122,6 +118,47 @@ describe('Android TV (paired key-down / key-up)', () => {
     send('select', UP);
     expect(hub.frame().pressed.filter((a) => a === 'gather')).toHaveLength(1);
   });
+
+  /* Android repeats the key-down about every 50 ms while a key is held. */
+  const holdFor = (eventType: string, ms: number) => {
+    send(eventType, DOWN);
+    for (let t = 50; t <= ms; t += 50) {
+      vi.advanceTimersByTime(50);
+      send(eventType, DOWN);
+    }
+  };
+
+  it('holding select builds a wall, as a long press does on Apple TV', () => {
+    holdFor('select', 1600);
+    const during = hub.frame();
+    expect(during.held.has('build')).toBe(true);
+    send('select', UP);
+    const pressed = [...during.pressed, ...hub.frame().pressed];
+    expect(pressed.filter((a) => a === 'build')).toHaveLength(1);
+    expect(pressed).not.toContain('gather');
+    expect(pressed).not.toContain('confirm');
+    expect(hub.frame().held.has('build')).toBe(false);
+  });
+
+  it('a quick select (even with a repeat or two) stays a tap', () => {
+    holdFor('select', 150);
+    send('select', UP);
+    const pressed = hub.frame().pressed;
+    expect(pressed.filter((a) => a === 'gather')).toHaveLength(1);
+    expect(pressed).toContain('confirm');
+    expect(pressed).not.toContain('build');
+    vi.advanceTimersByTime(1000);
+    expect(hub.frame().pressed).toEqual([]);
+  });
+
+  it('holding play/pause runs instead of digging, as on Apple TV', () => {
+    holdFor('playPause', 900);
+    const f = hub.frame();
+    expect(f.held.has('run')).toBe(true);
+    expect(f.pressed).not.toContain('dig');
+    send('playPause', UP);
+    expect(hub.frame().held.has('run')).toBe(false);
+  });
 });
 
 it('ignores events it has no binding for and releases everything on detach', () => {
@@ -131,5 +168,16 @@ it('ignores events it has no binding for and releases everything on detach', () 
   detach();
   detach = () => {};
   expect(hub.frame().move).toEqual({ x: 0, y: 0 });
-  expect(native.menuKey).toBe(0);
+  expect(native.listener).toBeNull();
+});
+
+it('lets go of a held select when detached mid-hold', () => {
+  send('select', DOWN);
+  vi.advanceTimersByTime(800);
+  expect(hub.frame().held.has('build')).toBe(true);
+  detach();
+  detach = () => {};
+  expect(hub.frame().held.size).toBe(0);
+  vi.advanceTimersByTime(1000);
+  expect(hub.frame().pressed).toEqual([]);
 });

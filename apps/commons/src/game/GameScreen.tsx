@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { claimMenuKey, onHardwareBack } from '../input/back';
 import type { InputHub } from '../input/hub';
-import { createTvRemote } from '../input/tvRemote';
 import { TouchStick } from '../input/TouchStick';
 import type { Action } from '../input/types';
 import type { World, WorldState } from '../net/world';
@@ -39,7 +39,20 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
 
   pausedRef.current = paused;
 
-  useEffect(() => hub.use(createTvRemote({ capturesMenu: true })), [hub]);
+  /* Presses made on the title screen are not for the world. */
+  useEffect(() => {
+    hub.frame();
+  }, [hub]);
+
+  /* While in the world, Menu (Apple TV) and Back (Android) open the pause
+     menu instead of leaving the app; the pause menu's own Back resumes. */
+  useEffect(() => claimMenuKey(), []);
+  useEffect(() => (paused ? undefined : onHardwareBack(() => setPaused(true))), [paused]);
+
+  const resume = useCallback(() => setPaused(false), []);
+
+  const dead = Boolean(state?.me && state.me.hp <= 0);
+  useEffect(() => (dead ? hub.enter('dead') : undefined), [hub, dead]);
 
   const flash = useCallback((text: string | null | undefined) => {
     if (!text) return;
@@ -247,9 +260,9 @@ export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub
           <Menu
             title="PAUSED"
             hub={hub}
-            onBack={() => setPaused(false)}
+            onBack={resume}
             items={[
-              { label: 'Resume', onSelect: () => setPaused(false) },
+              { label: 'Resume', onSelect: resume },
               { label: 'Leave to title', onSelect: onQuit },
             ]}
           />
