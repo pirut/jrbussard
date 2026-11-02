@@ -27,10 +27,64 @@ import { alleyClutter, oddity, tenement, wallLantern } from "./warren";
  * materials, the same jointed figures — over the same grid the 2D renderer
  * draws. Walking, collisions and what each prop opens all stay in World.js;
  * this only draws them.
+ *
+ * Client-only. Nothing here touches Convex, src/lib's shared game code or the
+ * native app: the city is generated in the browser from the tile world
+ * (world/build.js) plus position hashes (arcade/ascii3d/shapes.js `hash`) and
+ * value noise (lib/noise.js, browser-only), so every visitor sees the same
+ * buildings with no network and nothing to keep in step with the server. The
+ * one piece of shared game code it reads is WATER_LEVEL (lib/ground.js, via
+ * terrainMesh), so the sea sits at the same height as in the Commons. Other people arrive through Presence.js ->
+ * setVisitors; the server there is a relay, not an authority.
+ *
+ * Who calls it: pages/World.js imports this module lazily (so three.js stays
+ * out of the first paint), constructs one scene per (world, phase), drives it
+ * through the setters below, and disposes it on unmount. If the constructor
+ * throws (no WebGL, shader failure) World.js falls back to the 2D renderer in
+ * world/render.js, which is why init() draws a frame immediately: failure
+ * must surface in the constructor, not later in a rAF callback.
+ *
+ * Lifecycle invariants: the constructor cleans up after itself on failure
+ * (abandon, see ascii3d/abandon.js) because the caller never gets an
+ * instance to dispose; dispose() is idempotent; the renderer's material hold
+ * (retainMaterials) is taken only after the point WebGL can fail, so a
+ * failed start never leaks one. Geometry is freed per owner: chunks and
+ * compounds here, figures by releaseFigure, props by disposeProps.
+ *
+ * Budgets (why the numbers below are what they are):
+ * - The city is meshed lazily in 16x16-tile chunks, nearest first, three per
+ *   frame (updateChunks), and never unmeshed, so the first frames are quick
+ *   and a long visit costs memory rather than hitches. Each chunk is merged
+ *   into a few meshes by Batch (one per glyph set), keeping draw calls low.
+ * - Real lights are a fixed pool of MAX_LIGHTS point lights lent to the
+ *   nearest sources; the count never changes because adding or removing a
+ *   light makes three recompile every lit material.
+ * - One directional sun casts shadows into a single 1024px map that follows
+ *   the focus (a 72x72-tile box), not the whole map.
+ * - The renderer's pixel ratio is pinned to 1 and the canvas is sized in
+ *   device pixels (dpr capped at 2) by resize(); the ASCII pass then costs
+ *   in proportion to the character grid (cols x rows), not the page. The
+ *   grid uses 3x6 CSS-pixel cells by default, finer than Diorama's 6x10, so
+ *   a whole city still reads. ?perf=1 shows frame time, draw calls and
+ *   triangles (ascii3d/perf.js).
+ * - Cheap per-frame work is culled by distance: figures (citizens.js,
+ *   visitors.js) beyond 46 tiles are hidden and not posed, labels are only
+ *   projected when near enough to show.
+ *
+ * Coordinates: one tile is one unit; x east, z south, y up, matching the
+ * tile world (a tile (x, y) is drawn at world (x, h, y)).
  */
 
+/* Tiles per side of a mesh chunk, the unit of lazy building. */
 const CHUNK = 16;
+/* The height assumed for a neighbour that is open sea when drawing an
+   embankment, so the bank drops below WATER_LEVEL (-0.22) and no gap shows
+   between the shore and the water. */
 const SEABED = -0.7;
+/* Ground heights in tiles: room floors sit a hair above the roads, which sit
+   a hair above the open ground. Walking ignores these (it is flat in
+   World.js); they exist so kerbs and thresholds are drawn (the embankment
+   pass in buildChunk). */
 const ROOM_FLOOR = 0.1;
 const ROAD = 0.05;
 
@@ -40,8 +94,13 @@ const ROAD = 0.05;
    games, and walls in front of you are cut away so you can always see in.
    The front door is the same view pulled back, drifting over the city. */
 export const ZOOMS = [9, 12.5, 17, 24];
+/* The front door's camera height, wider than the widest zoom (24). */
 const INTRO = { distance: 26 };
+/* Size of the point-light pool (see "Budgets" above). Each is paid for per
+   fragment by every lit material, so this is the lever for GPU cost. */
 const MAX_LIGHTS = 10;
+/* three.js layer holding only JR, drawn again alone for the outline that
+   shows through walls (AsciiPass.renderGhost). Layer 0 is everything. */
 const GHOST_LAYER = 1;
 
 /* JR, as a survivor from the Commons. */
@@ -52,6 +111,8 @@ const JR = {
 const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
 
+/* Ease angle `a` toward `b` by fraction t along the shorter way round, so a
+   turn from +170 degrees to -170 does not swing the long way. Radians. */
 function lerpAngle(a, b, t) {
     let d = b - a;
     while (d > Math.PI) d -= Math.PI * 2;
@@ -59,14 +120,22 @@ function lerpAngle(a, b, t) {
     return a + d * t;
 }
 
+/* A new Color, `k` of the way from colour a to b (anything THREE.Color takes). */
 function mix(a, b, k) {
     return new THREE.Color(a).lerp(new THREE.Color(b), k);
 }
 
+/* A room tint ([r, g, b], 0-255, from world/rooms.js) as a bare hex string,
+   no "#". */
 function rgbHex(rgb) {
     return new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255).getHexString();
 }
 
+/* One 3D view of the workshop. `container` is the element to fill with the
+   canvas and the DOM labels; `world` is the tile world from
+   world/build.js buildWorld(); options are { cellWidth, cellHeight } (CSS
+   px per character cell), reducedMotion, and phase ("dawn" | "day" | "dusk" |
+   "night", see phase.js; unknown names fall back to "dusk"). */
 export default class SiteScene {
     constructor(container, world, options) {
         /* If setting up throws, the caller never gets this to dispose of,
@@ -87,6 +156,8 @@ export default class SiteScene {
         this.phaseName = PHASES[phase] ? phase : "dusk";
         this.time = 0;
         this.clock = new THREE.Clock();
+        /* "intro" is the front door (no JR, title over a drifting city);
+           anything else is exploring. Set by World.js through setMode. */
         this.mode = "intro";
         this.zoom = 1;
         this.distance = INTRO.distance;
@@ -99,6 +170,10 @@ export default class SiteScene {
         this.chunks = new Map();
         this.labels = [];
 
+        /* No antialiasing: the picture is quantised into character cells
+           anyway, so MSAA would be cost with nothing to show for it. The main
+           scene asks for the strong GPU; Diorama, a backdrop, asks for the
+           low-power one. */
         this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
         /* Past the point a missing WebGL throws: from here dispose() runs. */
         this.materials = retainMaterials();
@@ -116,6 +191,8 @@ export default class SiteScene {
         container.appendChild(this.labelLayer);
 
         this.scene = new THREE.Scene();
+        /* Placeholder: updateLighting resets colour, near and far every
+           frame from the phase and camera distance. */
         this.scene.fog = new THREE.Fog(0x0b120d, 30, 60);
         this.camera = createIsoCamera();
 
@@ -125,6 +202,9 @@ export default class SiteScene {
         this.sun.castShadow = true;
         this.sun.shadow.mapSize.set(1024, 1024);
         this.sun.shadow.bias = -0.0015;
+        /* The shadow box: 72x72 tiles round the sun's target, which
+           updateLighting keeps on the focus. Anything outside it casts and
+           receives no shadow. */
         const sc = this.sun.shadow.camera;
         sc.left = -36;
         sc.right = 36;
@@ -133,6 +213,7 @@ export default class SiteScene {
         sc.near = 1;
         sc.far = 100;
         this.scene.add(this.hemi, this.sun, this.sun.target);
+        /* Created once, intensity 0 until lent out (see updateLighting). */
         this.lightPool = [];
         for (let i = 0; i < MAX_LIGHTS; i += 1) {
             const light = new THREE.PointLight(0xffb46b, 0, 8, 2);
@@ -140,6 +221,10 @@ export default class SiteScene {
             this.lightPool.push(light);
         }
 
+        /* A sheet that follows the camera (updateCamera) and ripples in the
+           vertex shader, so it is one draw and nothing is uploaded per frame.
+           It is 110 tiles across and re-centred on the focus each frame, so
+           it only has to cover the view, not the map. */
         this.water = createWater(110);
         this.water.position.y = WATER_LEVEL;
         this.scene.add(this.water);
@@ -151,7 +236,8 @@ export default class SiteScene {
         this.buildProps();
         this.buildLabels();
         this.citizens = new Citizens(this.scene, world, (x, y) => this.standHeight(x, y));
-        /* Everyone else on the site right now, when the server is there. */
+        /* Everyone else on the site right now, when the server is there.
+           Empty (and free) until Presence.js calls setVisitors. */
         this.visitors = new Visitors(this.scene, this.labelLayer, (x, y) => this.standHeight(x, y));
 
         this.player = buildSurvivor(JR);
@@ -161,7 +247,12 @@ export default class SiteScene {
         this.player.traverse((node) => node.layers.enable(GHOST_LAYER));
         this.scene.add(this.player);
         /* Where World.js says JR is this frame: walking is continuous now,
-           so this is a position and a heading, not a tile to ease toward. */
+           so this is a position and a heading, not a tile to ease toward.
+           (x, y) are tile units, facing and yaw radians (0 = south, +z),
+           speed tiles per second. */
+        /* The sub-cell slide, in device pixels, that snapIsoCamera leaves
+           over after rounding the camera to whole character cells; the ASCII
+           pass and the DOM labels both apply it so they stay in register. */
         this.shiftX = 0;
         this.shiftY = 0;
         this.slack = new THREE.Vector2();
@@ -174,7 +265,10 @@ export default class SiteScene {
         this.scene.add(this.cursor);
 
         this.ascii = new AsciiPass();
-        /* ?perf=1: frame time, draw calls and triangles in the corner. */
+        /* ?perf=1: frame time, draw calls and triangles in the corner.
+           three resets its counters on every render() by default, and this
+           frame renders several times (scene, ghost, ASCII pass); with the
+           overlay on, frame() resets once and the counts cover the lot. */
         this.perf = perfEnabled() ? new PerfOverlay(container) : null;
         this.renderer.info.autoReset = !this.perf;
 
@@ -190,12 +284,17 @@ export default class SiteScene {
 
     /* ── Ground ─────────────────────────────────────────────────────────── */
 
+    /* The room containing tile (x, y), or null outdoors. world.zones holds
+       0 for outdoors and n for rooms[n - 1] (walls included). */
     roomOf(x, y) {
         const zone = this.world.zones[y * this.world.w + x];
         return zone ? this.world.rooms[zone - 1] : null;
     }
 
-    /* Height of the ground at a tile, or null where there is only sea. */
+    /* Height of the ground at a tile, or null where there is only sea (open
+       water, the void off the map, and the star tiles of the 2D map's
+       backdrop, which have no ground). Pure function of the tile world, so
+       identical for everyone. */
     groundAt(x, y) {
         const kind = this.world.kindAt(x, y);
         if (kind === KIND.VOID || kind === KIND.STAR || kind === KIND.WATER) return null;
@@ -204,17 +303,22 @@ export default class SiteScene {
         return 0;
     }
 
+    /* Where a foot rests at a tile: the ground, or the water's surface over
+       the sea. Used for every figure and prop. */
     standHeight(x, y) {
         const h = this.groundAt(x, y);
         return h === null ? WATER_LEVEL : h;
     }
 
+    /* On the outermost ring of a room's rectangle: the compound's wall. */
     isBorder(room, x, y) {
         return x === room.x || y === room.y || x === room.x + room.w - 1 || y === room.y + room.h - 1;
     }
 
-    /* Open ground: where people can walk, and so where a building in
-       front must not stand taller than the sightline. */
+    /* Open ground, as seen from a building: somewhere a face looks onto
+       and so deserves windows. Anything walkable, plus a room's wall tiles
+       (the compound's wall is not a building, so a tenement facing one still
+       shows windows to the room). */
     isOpen(x, y) {
         const kind = this.world.kindAt(x, y);
         return !this.world.isSolid(x, y) || kind === KIND.WALL;
@@ -225,6 +329,14 @@ export default class SiteScene {
      * so neighbouring tiles rise as one building, over a slow field that
      * swells into districts of taller and lower blocks; the ring at the
      * edge of the world climbs highest, a wall of towers all round.
+     *
+     * Fills this.heights (Float32Array, one per tile, 0 where not city). The
+     * numbers are authored: a base of 4.2 tiles, plus up to 7 from the slow
+     * district field (fbm over lot coordinates at 0.035, so districts span
+     * roughly 30 tiles), up to 3 per lot, and +-0.7 per tile so a lot's four
+     * tiles do not match exactly; within 7 tiles of the map edge each tile
+     * nearer adds 1.8. Salt 81 is shared with cityAt's `lot`, so a lot's
+     * height and its identity (cornice pattern, oddity choice) go together.
      */
     measureCity() {
         const { w, h } = this.world;
@@ -245,11 +357,18 @@ export default class SiteScene {
         }
     }
 
+    /* Building height (tiles) at a city tile, from measureCity; 0 elsewhere.
+       Not the ground height: that is groundAt/standHeight. */
     heightAt(x, y) {
         return this.heights[y * this.world.w + x] || 0;
     }
 
-    /* A lamp every few tiles down each side of every road. */
+    /* A lamp every few tiles down each side of every road, and a lantern on
+       a bracket now and then down the alleys. Fills this.lamps (the list
+       the light pool draws from) and this.lampAt ("x,y" -> lamp, for
+       buildChunk to place the fitting). Lamps are chosen by position and
+       hash alone, so they are the same for everyone; the light itself is
+       lent from the pool, so a lamp costs nothing until you are near it. */
     findLamps() {
         const world = this.world;
         this.lamps = [];
@@ -265,6 +384,7 @@ export default class SiteScene {
                         [0, 1],
                         [0, -1],
                     ].find(([dx, dy]) => this.isCity(x + dx, y + dy));
+                    /* About one alley tile in six that touches a building. */
                     if (!wall || hash(x, y, 12) > 0.16) continue;
                     const spot = { x: x + wall[0] * 0.3, y: y + wall[1] * 0.3, wall, light: { y: 2.5, range: 5, color: 0xffb46b } };
                     this.lamps.push(spot);
@@ -277,6 +397,8 @@ export default class SiteScene {
                     [-1, 0],
                     [1, 0],
                 ].find(([dx, dy]) => world.kindAt(x + dx, y + dy) !== KIND.FLOOR && !this.roomOf(x + dx, y + dy));
+                /* Every fifth tile along the road's edge, counted along the
+                   road: y when the edge faces east-west, x otherwise. */
                 if (!out || (out[0] ? y : x) % 5) continue;
                 const spot = { x: x + out[0] * 0.42, y: y + out[1] * 0.42, light: { y: 2.9, range: 7, color: 0xffc77a } };
                 this.lamps.push(spot);
@@ -285,6 +407,8 @@ export default class SiteScene {
         }
     }
 
+    /* The Kremlin compounds, built once up front (a handful of rooms, so not
+       chunked). A border tile is a door where it is not a WALL kind. */
     buildCompounds() {
         const batch = new Batch();
         this.world.rooms.forEach((room) => {
@@ -294,7 +418,9 @@ export default class SiteScene {
         this.compound.forEach((m) => this.scene.add(m));
     }
 
-    /* One lot of the city: the tenement that fills a solid outdoor tile. */
+    /* One tile of the city: the tenement that fills a solid outdoor tile,
+       called per tile but seeded per 2x2 lot (`lot`), so the four tiles of
+       a lot read as one building. `h` is the ground height. */
     cityAt(batch, x, y, h) {
         const world = this.world;
         const lx = x >> 1;
@@ -303,7 +429,10 @@ export default class SiteScene {
         const edge = Math.min(x, y, world.w - 1 - x, world.h - 1 - y);
         const whole = [0, 1].every((dy) => [0, 1].every((dx) => this.isCity(lx * 2 + dx, ly * 2 + dy) && !this.reserved.has(`${lx * 2 + dx},${ly * 2 + dy}`)));
 
-        /* Now and then a lot holds something that does not quite make sense. */
+        /* Now and then a lot holds something that does not quite make sense:
+           5% of lots, only where the whole 2x2 lot is city, none of it is
+           reserved for a landmark, and it is well in from the edge ring. Drawn
+           once, from the lot's first tile; the other three draw nothing. */
         if (whole && edge > 8 && hash(lx, ly, 89) < 0.05) {
             if (x === lx * 2 && y === ly * 2) oddity(batch, lx * 2 + 0.5, ly * 2 + 0.5, h, hash(lx, ly, 82), 14 + lot * 12);
             return;
@@ -317,11 +446,18 @@ export default class SiteScene {
         tenement(batch, x, y, h, this.heightAt(x, y), open, Math.floor(lot * 997));
     }
 
+    /* A tile the city fills: the solid outdoor kinds (BLOCK, TREE and
+       MOUNTAIN all become tenement here), outside every room. */
     isCity(x, y) {
         const kind = this.world.kindAt(x, y);
         return (kind === KIND.BLOCK || kind === KIND.TREE || kind === KIND.MOUNTAIN) && !this.roomOf(x, y);
     }
 
+    /* Mesh the 16x16 tiles of chunk (cx, cy): ground, kerbs, then whatever
+       stands on each tile. Returns a Group of merged meshes; the caller adds
+       it to the scene and owns its disposal. Pure in the tile world, so
+       chunks can be built in any order, which is what lets updateChunks
+       build them nearest-first. */
     buildChunk(cx, cy) {
         const world = this.world;
         const batch = new Batch();
@@ -333,6 +469,9 @@ export default class SiteScene {
                 if (h === null) continue;
                 const kind = world.kindAt(x, y);
                 const room = this.roomOf(x, y);
+                /* tint() hands back one shared Color that the next call
+                   overwrites, so any colour kept across another tint() (the
+                   floor `top` below, then the bank) is cloned. */
                 let set = "path";
                 let top;
                 if (room) {
@@ -350,7 +489,10 @@ export default class SiteScene {
                 }
                 batch.quad(set, [x - 0.5, h, y - 0.5], [x - 0.5, h, y + 0.5], [x + 0.5, h, y + 0.5], [x + 0.5, h, y - 0.5], top);
 
-                /* Embankments and kerbs wherever the neighbour sits lower. */
+                /* Embankments and kerbs wherever the neighbour sits lower:
+                   room floor over road, road over open ground, anything over
+                   the sea. Each entry is [dx, dy, a, b]: the neighbour's
+                   offset and the two ends of the shared edge. */
                 const bank = tint(room ? "#6d6858" : "#77716a", 0.8).clone();
                 [
                     [0, 1, [x - 0.5, y + 0.5], [x + 0.5, y + 0.5]],
@@ -377,6 +519,10 @@ export default class SiteScene {
                 } else if (!room && !world.isSolid(x, y)) {
                     /* An alley: walls either side, and the city strung
                        across the gap overhead. */
+                    /* A two-tile-wide lane running along (dx, dy): city on one
+                       side, then two open tiles, then city. True on the first
+                       of the pair only, so the strung clutter is placed once,
+                       between the two. */
                     const lane = (dx, dy) => this.isCity(x - dx, y - dy) && !this.isCity(x + dx, y + dy) && this.isCity(x + 2 * dx, y + 2 * dy);
                     if (this.isCity(x - 1, y) && this.isCity(x + 1, y)) alleyClutter(batch, x, y, h, "x", Math.min(this.heightAt(x - 1, y), this.heightAt(x + 1, y)));
                     else if (this.isCity(x, y - 1) && this.isCity(x, y + 1)) alleyClutter(batch, x, y, h, "z", Math.min(this.heightAt(x, y - 1), this.heightAt(x, y + 1)));
@@ -393,8 +539,15 @@ export default class SiteScene {
         return group;
     }
 
+    /* Mesh any chunks that are now in reach but not yet built, nearest the
+       focus first, a few per frame. `all` builds the lot at once (nothing
+       calls it today; handy for a still capture or a test). Never removes
+       chunks. */
     updateChunks(all = false) {
-        /* Enough to fill the screen, and the tall blocks just below it. */
+        /* Enough to fill the screen, and the tall blocks just below it:
+           buildings run past 20 tiles high (measureCity), so chunks a
+           little beyond the view still put their upper storeys on screen. A
+           distance in tiles, from the focus to the chunk's centre. */
         const reach = this.distance * 1.3 + 26;
         const wanted = [];
         const cols = Math.ceil(this.world.w / CHUNK);
@@ -418,6 +571,11 @@ export default class SiteScene {
 
     /* ── Props and labels ───────────────────────────────────────────────── */
 
+    /* One model per world marker (books, machines, stars, cabinets ...; see
+       props.js) and one per torch. Each prop gets `.marker`, `.seed` (a
+       hashed phase so neighbours do not pulse together) and, later,
+       `.lit`. Markers come from world/build.js with a per-room, per-kind
+       `index`, which is what ties them to content (updateProps). */
     buildProps() {
         this.props = [];
         this.world.markers.forEach((marker) => {
@@ -425,6 +583,7 @@ export default class SiteScene {
             if (!prop) return;
             prop.group.position.set(marker.x, this.standHeight(marker.x, marker.y), marker.y);
             prop.marker = marker;
+            /* 0-6, about one full turn of the props' sine animations. */
             prop.seed = hash(marker.x, marker.y, 1) * 6;
             this.scene.add(prop.group);
             this.props.push(prop);
@@ -433,6 +592,8 @@ export default class SiteScene {
             const g = buildTorch();
             g.position.set(x, this.standHeight(x, y), y);
             this.scene.add(g);
+            /* The flame meshes to flicker in updateProps, found by the flag
+               the Commons' torch model puts on them. */
             const flames = [];
             g.traverse((node) => {
                 if (node.userData.flame) flames.push(node);
@@ -442,7 +603,12 @@ export default class SiteScene {
     }
 
     /* The words written on the floor of each room in the character world
-       float over it here, in the page's own type, so they stay readable. */
+       float over it here, in the page's own type, so they stay readable.
+       These are real DOM spans in labelLayer, moved by transform in
+       updateLabels rather than drawn through the ASCII pass, so text stays
+       crisp and selectable at any cell size. `room: true` marks a room's
+       name (high, shown from afar); the rest sit on the floor and show only
+       when you are close. */
     buildLabels() {
         this.world.rooms.forEach((room) => {
             const el = document.createElement("span");
@@ -464,6 +630,13 @@ export default class SiteScene {
         });
     }
 
+    /* Project every label to the page each frame. The anchor is converted
+       from clip space into the ASCII grid's own pixel frame, including the
+       centring margin (offX/offY) and the sub-cell slide (shiftX/shiftY), so
+       labels sit exactly where the characters do and do not swim as the
+       camera snaps. `label.shown` remembers who is visible, so the common
+       case, a label out of range, does no DOM writes. Visitors' names are
+       placed by the same projection through Visitors.updateLabels. */
     updateLabels() {
         const g = this.grid;
         const w = g.cols * g.cellW;
@@ -474,6 +647,8 @@ export default class SiteScene {
             /* Room names mark rooms you are not in; the floor text belongs
                to the room around you. The front door shows neither, so the
                title has the picture to itself. */
+            /* Room names fade in from 12 to 18 tiles away; floor text fades
+               out from 6 to 9 tiles. */
             const show = !intro && (label.room ? d > 12 : d < 9);
             const opacity = label.room ? Math.min(1, (d - 12) / 6) : Math.min(1, (9 - d) / 3);
             if (!show || opacity <= 0) {
@@ -483,6 +658,7 @@ export default class SiteScene {
                 }
                 return;
             }
+            /* Room names hang at 4.2 tiles, above the compound's wall. */
             tmp.set(label.x, label.room ? 4.2 : label.y, label.z).project(this.camera);
             if (tmp.z > 1 || Math.abs(tmp.x) > 1.1 || Math.abs(tmp.y) > 1.1) {
                 label.el.style.visibility = "hidden";
@@ -503,12 +679,17 @@ export default class SiteScene {
 
     /* ── Inputs from React ─────────────────────────────────────────────── */
 
+    /* "intro" (the front door: wide, drifting, no JR) or any other string
+       for exploring. The camera eases to the matching distance. */
     setMode(mode) {
         this.mode = mode;
         this.distanceGoal = mode === "intro" ? INTRO.distance : ZOOMS[this.zoom];
     }
 
-    /* Where JR stands and which way they face, every frame. */
+    /* Where JR stands and which way they face, every frame. `x`, `y` are
+       tile coordinates (continuous), `facing` radians, `speed` tiles per
+       second, from World.js's body (world/motion.js). Position is
+       authoritative in World.js; this only follows it. */
     setPose({ x, y, facing, speed = 0, running = false }) {
         const w = this.walker;
         w.x = x;
@@ -518,7 +699,10 @@ export default class SiteScene {
         w.running = running;
     }
 
-    /* Put JR somewhere outright: arriving, or travelling between rooms. */
+    /* Put JR somewhere outright: arriving, or travelling between rooms.
+       Anything over 2.5 tiles from the current spot (or `snap`) is a jump,
+       so the figure and the camera focus are placed at once instead of
+       sliding across the map; smaller moves are left to updatePlayer. */
     setPlayer({ x, y }, { snap = false } = {}) {
         const w = this.walker;
         const far = snap || Math.hypot(w.x - x, w.y - y) > 2.5;
@@ -531,12 +715,16 @@ export default class SiteScene {
         }
     }
 
+    /* Step 0-3 into ZOOMS, clamped. Returns the step actually set. */
     setZoom(zoom) {
         this.zoom = Math.max(0, Math.min(ZOOMS.length - 1, zoom));
         if (this.mode !== "intro") this.distanceGoal = ZOOMS[this.zoom];
         return this.zoom;
     }
 
+    /* How much content backs each kind of prop, as { [KIND]: n }, from
+       World.js (notes, repos, projects, games). A prop whose `index` is below
+       its kind's count is lit; kinds absent from the map are always lit. */
     setCounts(counts) {
         this.counts = counts || {};
     }
@@ -546,17 +734,30 @@ export default class SiteScene {
         this.highlight = marker;
     }
 
-    /* Other visitors, from convex/site.ts, as often as they change. */
+    /* Other visitors, from convex/site.ts via Presence.js, as often as they
+       change: [{ id, name, x, y, facing, running, appearance?, lastSeen }].
+       The full list each time; Visitors diffs it by id. */
     setVisitors(list) {
         this.visitors.set(list || []);
     }
 
+    /* Toggle (the V key in World.js, as in the Commons): show the plain
+       shaded scene with no characters, to see what the ASCII pass is turning
+       into type. */
     setRaw(raw) {
         this.ascii.uniforms.uRaw.value = raw ? 1 : 0;
     }
 
     /* ── Size and the character grid ───────────────────────────────────── */
 
+    /* Called by the ResizeObserver on the container and once at start. Works
+       in device pixels: the grid is the whole canvas divided into character
+       cells (a cell is cellCss x dpr device pixels, with a floor of 3x5 so
+       type stays legible at tiny sizes), with at least 8x6 cells; whatever
+       does not divide evenly is split into a margin (offX/offY) around the
+       grid. `this.grid` is also what updateLabels and the ASCII pass share,
+       so they agree on where a cell is. The camera's aspect is the grid's,
+       not the canvas's, so the picture is not stretched by the margin. */
     resize() {
         const box = this.container.getBoundingClientRect();
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -574,6 +775,9 @@ export default class SiteScene {
 
     /* ── Per frame ─────────────────────────────────────────────────────── */
 
+    /* Follow the walker state World.js supplied: ease height onto the ground
+       (so kerbs are stepped up, not popped), turn and stride. Position is
+       taken as given, not eased; World.js already moves smoothly. */
     updatePlayer(dt) {
         const w = this.walker;
         const moved = Math.hypot(w.x - this.player.position.x, w.y - this.player.position.z);
@@ -581,8 +785,13 @@ export default class SiteScene {
         const ground = this.standHeight(Math.round(w.x), Math.round(w.y));
         const h = this.player.position.y + (ground - this.player.position.y) * Math.min(1, dt * 18);
         this.player.position.set(w.x, h, w.y);
+        /* Counts as walking once speed passes 0.4 tiles/s (WALK is 4, RUN
+           5.6, in world/motion.js); `moving` eases 0..1 so the pose blends
+           between standing and striding. */
         w.moving += ((w.speed > 0.4 ? 1 : 0) - w.moving) * Math.min(1, dt * 12);
-        /* A longer, quicker stride when running. */
+        /* A longer, quicker stride when running: the phase advances less per
+           tile, so each step covers more ground. Shared with citizens.js and
+           visitors.js (4.6 walking, 3.6 running per tile). */
         w.stride += moved * (w.running ? 3.6 : 4.6);
         /* Turn quickly but not instantly, so changing direction reads as a
            turn rather than a flicker. */
@@ -604,16 +813,24 @@ export default class SiteScene {
         return this.yawGoal;
     }
 
+    /* Ease the focus, yaw and zoom toward their goals, place the isometric
+       camera, snap it to the character grid, and aim the wall cutaway at JR.
+       All easing is exponential in dt (a fraction of the gap per frame,
+       capped at 1), so it is frame-rate independent and cannot overshoot. */
     updateCamera(dt) {
         const intro = this.mode === "intro";
         if (intro) {
-            /* The front door drifts slowly across the middle of the city. */
+            /* The front door drifts slowly across the middle of the city: a
+               looping path round a point six tiles north of spawn, 10 tiles
+               wide and 6 deep (0.05 rad/s; the two axes run at 1 and 0.7 so
+               the loop keeps changing). Reduced motion parks it at t = 0. */
             const t = this.reducedMotion ? 0 : this.time * 0.05;
             tmp.set(this.world.spawn.x + Math.sin(t) * 10, 0, this.world.spawn.y - 6 + Math.cos(t * 0.7) * 6);
             this.focus.lerp(tmp, Math.min(1, dt * 0.8));
         } else {
             /* Stay on JR, leaning a little into where they are heading so
-               more of the way ahead is on screen. */
+               more of the way ahead is on screen: up to 1.2 tiles, reached
+               at 5 tiles/s (between WALK and RUN). */
             const w = this.walker;
             const lead = Math.min(1, w.speed / 5) * 1.2;
             tmp.set(this.player.position.x + Math.sin(w.facing) * lead, this.player.position.y, this.player.position.z + Math.cos(w.facing) * lead);
@@ -628,12 +845,20 @@ export default class SiteScene {
         this.shiftX = Math.round(this.slack.x * this.grid.cellW);
         this.shiftY = Math.round(this.slack.y * this.grid.cellH);
         this.ascii.setShift(this.shiftX, this.shiftY);
-        /* Open up whatever stands between the camera and JR. */
+        /* Open up whatever stands between the camera and JR. The oval grows
+           with the camera distance (the zoom). Off at the front door, where
+           there is no JR. */
         aimCutaway(this.camera, this.player.position, { on: !intro, width: 3.2 + this.distance * 0.1, height: 3 + this.distance * 0.08 });
         this.water.position.x = Math.round(this.focus.x);
         this.water.position.z = Math.round(this.focus.z);
     }
 
+    /* Per-frame light and look. Most of this is constant for a given phase
+       (and so cheap), but it is set every frame because the sun and fog
+       follow the camera and the light pool is re-dealt. The ASCII pass
+       numbers (gain, ink, fill, glow, ramp, contrast) are authored values for
+       this scene (see AsciiPass for what each uniform does); changing them
+       changes how much of the city reads as type versus as solid colour. */
     updateLighting() {
         const p = PHASES[this.phaseName];
         const bg = new THREE.Color(p.bg);
@@ -658,10 +883,11 @@ export default class SiteScene {
         this.hemi.color.set(p.sky);
         this.hemi.groundColor.set(p.ground);
         this.scene.fog.color.copy(bg);
-        /* A haze that starts early and lets the towers fade into it. */
-        /* Everything is about as far from an isometric camera, so the haze
-           is measured from where it hangs: the top of the screen, further
-           off, fades a little into the dark. */
+        /* A haze that starts early and lets the towers fade into it.
+           Everything is about as far from an isometric camera, so the haze
+           is measured from where it hangs: ISO_BACK (the camera's distance
+           from the focus) plus a share of the zoom height, so the top of the
+           screen, further off, fades a little into the dark. */
         this.scene.fog.near = ISO_BACK + this.distance * 0.2;
         this.scene.fog.far = ISO_BACK + this.distance * 2.2 + 12;
         this.renderer.setClearColor(bg, glyphCode(0));
@@ -672,7 +898,12 @@ export default class SiteScene {
         this.sun.position.set(this.focus.x - 14 * Math.cos(a), this.focus.y + 24 * Math.sin(a) + 4, this.focus.z + 10);
         this.sun.target.position.copy(this.focus);
 
-        /* Torches and lit props near you get the real lights. */
+        /* Torches and lit props near you get the real lights. Gather every
+           candidate with its distance from the focus (lamps get +2 so a prop
+           or torch at the same distance wins, and only lamps within 30 tiles
+           are considered), sort, and deal the nearest MAX_LIGHTS to the
+           pool. Spare lights are switched off by intensity 0, never
+           removed. */
         const lit = [];
         this.torches.forEach((t) => lit.push({ pos: t.group.position, light: t.light, d: t.group.position.distanceTo(this.focus) }));
         this.props.forEach((prop) => {
@@ -683,6 +914,7 @@ export default class SiteScene {
             if (d < 30) lit.push({ pos: tmp2.set(lamp.x, ROAD, lamp.y).clone(), light: lamp.light, d: d + 2 });
         });
         lit.sort((x, y) => x.d - y.d);
+        /* Point lights matter most in the dark, least at midday. */
         const glow = night ? 2 : this.phaseName === "day" ? 0.6 : 1.4;
         this.lightPool.forEach((light, i) => {
             const entry = lit[i];
@@ -692,6 +924,9 @@ export default class SiteScene {
             }
             const flicker = this.reducedMotion ? 1 : 0.88 + Math.sin(this.time * 13 + i * 3) * 0.07 + Math.sin(this.time * 7.3 + i) * 0.05;
             light.color.setHex(entry.light.color);
+            /* `range` is where the light is meant to feel like it ends; the
+               hard cutoff is 1.5x that so the falloff is not clipped
+               visibly. */
             light.distance = entry.light.range * 1.5;
             /* Falling off with the square of distance, so each lamp lights a pool
                and the stone between lamps stays dark. */
@@ -701,6 +936,13 @@ export default class SiteScene {
         });
     }
 
+    /* Feed the ASCII pass's sky (drawn into cells the scene does not cover):
+       stars, clouds, moon and horizon colour, per phase. The sky is a
+       screen-space effect, not geometry, so it is shifted by the camera's
+       yaw (uSkyShift) to appear fixed in the world as the view turns: every
+       1.4 radians of turn pans it one grid width (an authored rate), and
+       uSkyTurn is the width, in cells, of one full revolution. Note uTime is the scene clock, which is
+       not frozen under reduced motion (the sky keeps drifting). */
     updateSky() {
         const u = this.ascii.uniforms;
         u.uTime.value = this.time;
@@ -713,6 +955,12 @@ export default class SiteScene {
         u.uHorizon.value.setHex({ night: 0x3a2a48, dusk: 0x5a3238, dawn: 0x4a3a3a, day: 0x4a6890 }[this.phaseName]);
     }
 
+    /* Animate props and torches, set the highlight bracket. A prop is lit
+       when its kind has no entry in `counts` (always on: terminals, signs,
+       the beacon) or its per-room `index` is below the count; this is the
+       "lit means there is something behind it" rule of props.js. Under
+       reduced motion props see t = 0, so they hold a still pose but keep
+       their lit/cold colour. */
     updateProps() {
         const t = this.reducedMotion ? 0 : this.time;
         this.props.forEach((prop) => {
@@ -737,6 +985,13 @@ export default class SiteScene {
         }
     }
 
+    /* One tick of the whole scene; also run once from the constructor. The
+       order is: advance the clock (dt capped at 0.1 s so a stalled tab does
+       not teleport everything), JR, camera, light, lazy chunks, animated
+       things, then draw: scene into the ASCII pass's target, an optional
+       second pass of JR alone for the outline, then the pass itself, which
+       turns the picture into characters on the canvas. Labels are placed
+       last because they depend on the final camera. */
     frame() {
         this.raf = requestAnimationFrame(this.frame);
         const begin = performance.now();
@@ -748,10 +1003,15 @@ export default class SiteScene {
         this.updateLighting();
         this.updateChunks();
         this.updateProps();
+        /* dt 0 freezes the crowd (citizens.js) under reduced motion; real
+           visitors still ease to their reported spots, as that is where they
+           are, not decoration. */
         this.citizens.update(this.reducedMotion ? 0 : dt, this.time, this.focus);
         this.visitors.update(dt, this.time, this.focus);
         this.updateSky();
         wind.uTime.value = this.reducedMotion ? 0 : this.time;
+        /* Under reduced motion the sea is laid flat once (still = true) and
+           then left alone, rather than being re-set every frame. */
         if (!this.reducedMotion || !this.waterStill) {
             rippleWater(this.water, this.time, this.reducedMotion);
             this.waterStill = this.reducedMotion;
@@ -759,8 +1019,13 @@ export default class SiteScene {
         this.renderer.setRenderTarget(this.ascii.target);
         this.renderer.render(this.scene, this.camera);
         const u = this.ascii.uniforms;
+        /* The see-through outline of JR is on only when there is a JR. */
         u.uGhost.value = this.mode === "intro" ? 0 : 1;
         if (u.uGhost.value) this.ascii.renderGhost(this.renderer, this.scene, this.camera, GHOST_LAYER);
+        /* Flags and camera matrices the pass needs to read depth: uJoints
+           is the pass's joined-ground-path look, uOrtho switches its depth
+           maths to the orthographic camera, and the two matrices turn a
+           depth sample back into a world position (the ghost outline). */
         u.uJoints.value = 1;
         u.uOrtho.value = 1;
         u.uInvProj.value.copy(this.camera.projectionMatrixInverse);
@@ -776,6 +1041,9 @@ export default class SiteScene {
         if (this.disposed) return;
         this.disposed = true;
         cancelAnimationFrame(this.raf);
+        /* The cutaway uniforms are module-global, shared with every scene
+           that uses cut-away materials (the Commons too), so a closing site
+           must turn the cut off or it would keep slicing the next scene. */
         CUT.uCutOn.value = 0;
         this.observer.disconnect();
         this.chunks.forEach((group) => {
@@ -786,6 +1054,9 @@ export default class SiteScene {
         });
         this.chunks.clear();
         this.compound.forEach((m) => m.geometry.dispose());
+        /* Materials are not disposed per mesh: they are shared and cached
+           (materials.js), and freed by the retainMaterials hold released
+           below once no scene is using them. */
         this.citizens.dispose();
         this.visitors.dispose();
         disposeModel(this.player);

@@ -16,8 +16,38 @@ import { PALETTES, appearanceOf } from "../../lib/appearance";
  *
  * Coordinates: one tile is one unit, x runs east, z runs south, y is up.
  * A model faces +z (south, toward the default camera) at rotation 0.
+ *
+ * Callers: AsciiWorld.js (players, creatures, placed structures, the cursor,
+ * pose/flash/dispose), ghost.js (structures drawn as ghosts) and site3d/*
+ * (survivors, props). Position, rotation about y, and facing of a structure
+ * are set by the caller; the builders here only return a group at the
+ * origin of its tile.
+ *
+ * Ownership, which tests/modelCleanup.test.ts and figureOwnership.test.ts
+ * pin:
+ *  - Figure geometry (people, creatures) is shared and reference counted in
+ *    figureGeometry.js. disposeModel() gives it back (and frees the model's
+ *    own materials). A model that went through mergeModel() also needs
+ *    mergeModel.js disposeMerged() for the geometry that merge made; the
+ *    scene calls both and each is safe after the other.
+ *  - Materials from material()/figureMaterial()/asFigure()/hitFlash() are
+ *    cached in materials.js and freed by its retain/release holds, never per
+ *    model. Materials flagged userData.own are freed per model by
+ *    disposeModel(); ownMaterial() does not set the flag itself, flame()
+ *    sets it by hand, and buildCursor()'s material is not flagged (so the
+ *    scene that owns the cursor must free it).
+ *  - Structure and prop geometry (`geo` below) is cached for the life of the
+ *    page and never disposed; do not dispose it from a model.
+ *
+ * The `userData` contract with other modules: rig (pivots, read by pose),
+ * seed (blink phase), hunch (forward lean), cape, kind, and on structures
+ * hinge/open (doors), light ({ y, range, color }) and flame (a flicker
+ * target), which AsciiWorld and SiteScene look for.
  */
 
+/* Geometry for structures and a few extras, cached by a key built from its
+   parameters so every wall, crowd member or campfire shares one copy. These
+   live as long as the page, hence are never disposed. */
 const geometryCache = new Map();
 function geo(key, make) {
     if (!geometryCache.has(key)) geometryCache.set(key, make());
@@ -25,6 +55,8 @@ function geo(key, make) {
 }
 const boxGeo = (w, h, d) => geo(`box${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d));
 
+/* A mesh at (x, y, z) in its parent. Shadows: it receives them always and
+   casts them unless `cast` is false (flames and the cursor cast none). */
 function part(geometry, mat, x = 0, y = 0, z = 0, cast = true) {
     const mesh = new THREE.Mesh(geometry, mat);
     mesh.position.set(x, y, z);
@@ -33,6 +65,8 @@ function part(geometry, mat, x = 0, y = 0, z = 0, cast = true) {
     return mesh;
 }
 
+/* A box part with a shared (cached) material; `set` is a glyph set name
+   (see asciiPass.js GLYPH_SETS) and `options` those of material(). */
 function box(w, h, d, color, set, x, y, z, options) {
     return part(boxGeo(w, h, d), material(color, set, options), x, y, z);
 }
@@ -45,13 +79,16 @@ const taperGeo = (rt, rb, h, seg = 10, sz = 1) =>
     geo(`tap${rt},${rb},${h},${seg},${sz}`, () => new THREE.CylinderGeometry(rt, rb, h, seg).scale(1, 1, sz));
 const coneGeo = (r, h, seg = 8) => geo(`cone${r},${h},${seg}`, () => new THREE.ConeGeometry(r, h, seg));
 
+/* Build a part with a shared material and add it to `parent`. */
 function add(parent, geometry, color, x, y, z, set = "solid", options) {
     const mesh = part(geometry, material(color, set, options), x, y, z);
     parent.add(mesh);
     return mesh;
 }
 
-/* People and creatures draw in the figure set; see asciiPass.js. */
+/* People and creatures draw in the figure set; see asciiPass.js. Swaps each
+   mesh's material for the figure-set clone (asFigure leaves vertex-coloured
+   figure parts and parts that chose another set alone). */
 function figurize(root) {
     root.traverse((node) => {
         if (node.isMesh) node.material = asFigure(node.material);
@@ -60,7 +97,8 @@ function figurize(root) {
 }
 
 /* Merged figure parts draw with figureMaterial() (materials.js), which
-   disposeMaterials() frees with the rest. */
+   disposeMaterials() frees with the rest. This adapts its (set, unlit)
+   signature to the { set, unlit } object that buildFigure passes. */
 function figureMaterial({ set, unlit }) {
     return figureVertexMaterial(set, unlit);
 }
@@ -72,6 +110,10 @@ function figureMaterial({ set, unlit }) {
  * still reads when the whole figure is a dozen characters high. The recipe
  * is humanoidSpec(); the rig keeps the names posing has always used.
  */
+/* Wraps a built humanoid spec in a group and records the rig that pose()
+   drives. The pivot names looked up here come from figureKit.js (the
+   keep-the-rig test in tests/models.test.ts guards them); tail/tailTip and
+   cape exist only on some specs, so those entries may be undefined. */
 function humanoidModel(spec) {
     const { root: body, pivots: p } = buildFigure(spec, figureMaterial);
     const model = new THREE.Group();
@@ -91,7 +133,9 @@ function humanoidModel(spec) {
         tailTip: p.tailTip,
     };
     if (p.cape) model.userData.cape = p.cape;
-    /* Where in its blink cycle this figure is, so a crowd does not blink as one. */
+    /* Where in its blink cycle this figure is, so a crowd does not blink as one.
+       Derived from the colours, so the same look always blinks in step with
+       itself; two players with the same look share a phase. */
     model.userData.seed = seedOf(spec.parts.map((p) => p.color).join());
     return model;
 }
@@ -100,7 +144,10 @@ function buildHumanoid(look) {
     return humanoidModel(humanoidSpec(look));
 }
 
-/* The look of a survivor, from what they chose and what they have earned. */
+/* The look of a survivor, from what they chose (appearance, via
+   lib/appearance) and what they have earned (player.tools.armor/weapon
+   tiers). Colours not chosen are fixed here. Anything read here must also be
+   in lookKey(), or a change will not rebuild the model. */
 export function survivorLook(player) {
     const a = appearanceOf(player);
     const outfit = PALETTES.outfit[a.outfit];
@@ -123,11 +170,16 @@ export function survivorLook(player) {
     };
 }
 
+/* A string that changes exactly when survivorLook() would: AsciiWorld
+   compares it to decide whether to rebuild a player's model. */
 export function lookKey(player) {
     const a = appearanceOf(player);
     return [a.skin, a.hair, a.hairstyle, a.headwear, a.cloak, a.outfit, player?.tools?.armor || 0, player?.tools?.weapon || 0].join("|");
 }
 
+/* A person's model for `player` (a server player record, or anything
+   appearanceOf accepts). The caller owns the result: hand it to
+   disposeModel() (and disposeMerged() if it was mergeModel'd) when done. */
 export function buildSurvivor(player) {
     const model = figurize(buildHumanoid(survivorLook(player)));
     model.userData.kind = "survivor";
@@ -136,7 +188,8 @@ export function buildSurvivor(player) {
 
 /* ── Creatures ──────────────────────────────────────────────────────────── */
 
-/* Four-legged animals; the recipe is quadrupedSpec(). */
+/* Four-legged animals; the recipe is quadrupedSpec(). `rig.quad` is how
+   pose() tells this rig from a humanoid's. */
 function buildQuadruped(options) {
     const spec = quadrupedSpec(options);
     const { root: body, pivots: p } = buildFigure(spec, figureMaterial);
@@ -151,10 +204,17 @@ function buildQuadruped(options) {
         tailTip: p.tailTip,
         quad: true,
     };
+    /* Per kind, not per animal. poseQuadruped does not read it today (only
+       the humanoid blink does). */
     model.userData.seed = seedOf(JSON.stringify(options));
     return model;
 }
 
+/* Creature kinds the registry can build: the keys of CREATURES in
+   src/lib/game/creatures.js. Humanoid creatures are the recipe from
+   figureKit.js scaled as a whole (kobold 0.74, troll 1.4, shade 1.08);
+   `userData.hunch` is an extra forward lean in radians that poseHumanoid
+   adds to the torso. */
 const CREATURES = {
     rat: () => buildQuadruped(QUADRUPEDS.rat),
     wolf: () => buildQuadruped(QUADRUPEDS.wolf),
@@ -192,6 +252,9 @@ const CREATURES = {
     },
 };
 
+/* A creature's model by kind; an unknown kind draws as a rat rather than
+   nothing. userData.kind records the requested kind. Disposal as for
+   buildSurvivor. */
 export function buildCreature(kind) {
     const make = CREATURES[kind] || CREATURES.rat;
     const model = figurize(make());
@@ -206,6 +269,8 @@ export function creatureKinds() {
 
 /* ── Animation ──────────────────────────────────────────────────────────── */
 
+/* Animation: all angles are radians, rotations are about the pivot's own
+   axes (x swings a limb forward/back, z leans it sideways, y twists it). */
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const smooth = (v) => {
     const x = clamp01(v);
@@ -228,6 +293,10 @@ function attackBeats(k) {
 
 const mix = (a, b, t) => a + (b - a) * t;
 
+/* Poses a humanoid rig for one frame. Writes absolute values to every
+   rotation it touches (nothing accumulates between frames), so it may be
+   called at any rate. `a` is how much the figure is moving (0 idle .. 1
+   walking), `idle` its complement; `t` is seconds, used for idle motion. */
 function poseHumanoid(model, rig, { stride, moving: a, t, attack, hurt }) {
     const s = Math.sin(stride);
     const c = Math.cos(stride);
@@ -308,11 +377,15 @@ function poseHumanoid(model, rig, { stride, moving: a, t, attack, hurt }) {
     }
 }
 
+/* True for the first 0.13 s of each cycle of 3.7 to 5.9 s, the cycle length
+   and start offset both set by the figure's seed. */
 function blinking(t, seed = 0) {
     const cycle = 3.7 + seed * 2.2;
     return (t + seed * 10) % cycle < 0.13;
 }
 
+/* Poses a quadruped rig for one frame; same conventions as poseHumanoid.
+   The stride phase is doubled (`p`) for the trot. */
 function poseQuadruped(rig, { stride, moving: a, t, attack, hurt }) {
     const p = stride * 2;
     const s = Math.sin(p);
@@ -376,8 +449,11 @@ function poseQuadruped(rig, { stride, moving: a, t, attack, hurt }) {
 /*
  * One pose function for every rig. `stride` is a running phase advanced by
  * distance walked, so feet keep pace with the ground instead of a clock.
- * `attack` runs 0 to 1 through a swing (negative when not swinging), `down`
- * 0 to 1 as a figure falls, `hurt` 1 to 0 after a hit.
+ * `moving` is 0 (standing) to 1 (full walk), `t` is seconds, `attack` runs
+ * 0 to 1 through a swing (negative when not swinging), `down` 0 to 1 as a
+ * figure falls, `hurt` 1 to 0 after a hit. Does nothing for a model with no
+ * rig. It sets model.rotation.z (the hurt shudder), so callers must not use
+ * that axis for anything else; rotation.y and position stay the caller's.
  */
 export function pose(model, { stride, moving, t, attack = -1, down = 0, hurt = 0 }) {
     const rig = model.userData.rig;
@@ -397,7 +473,9 @@ export function pose(model, { stride, moving, t, attack = -1, down = 0, hurt = 0
     }
 }
 
-/* Swap a figure to solid white for the instant it is hit, and back. */
+/* Swap a figure to solid white for the instant it is hit, and back. Idempotent
+   per state, and remembers each mesh's own material in
+   userData.baseMaterial so `off` restores it exactly. */
 export function flashModel(model, on) {
     if (Boolean(model.userData.flashing) === on) return;
     model.userData.flashing = on;
@@ -412,8 +490,11 @@ export function flashModel(model, on) {
     });
 }
 
-/* Free a model's own materials and give back the figure geometry it shares;
-   call it when a model leaves the scene for good. */
+/* Free a model's own materials (those flagged userData.own, e.g. flames) and
+   give back the figure geometry it shares; call it when a model leaves the
+   scene for good. Shared cached materials and `geo` geometry are left alone.
+   A model that went through mergeModel() also needs disposeMerged() for the
+   geometry that merge made (AsciiWorld calls both). */
 export function disposeModel(model) {
     model.traverse((node) => {
         if (node.material && node.material.userData?.own) node.material.dispose();
@@ -427,10 +508,15 @@ const TIMBER = "#a07850";
 const TIMBER_DARK = "#7a5a3c";
 const STONE = "#8f978f";
 
+/* A cylinder part (radiusTop, radiusBottom, height, radial segments). */
 function cyl(rt, rb, h, seg, color, set, x, y, z, options) {
     return part(geo(`cyl${rt},${rb},${h},${seg}`, () => new THREE.CylinderGeometry(rt, rb, h, seg)), material(color, set, options), x, y, z);
 }
 
+/* A two-cone flame with materials of its own (ownMaterial, not the shared
+   cache), flagged userData.own so disposeModel frees them. The group's
+   userData.flame lets the scene find it to flicker (AsciiWorld scales and
+   spins it every frame). */
 function flame(scale = 1) {
     const group = new THREE.Group();
     const outer = part(geo("flameOuter", () => new THREE.ConeGeometry(0.16, 0.42, 6)), ownMaterial("#ffb347", "fire", { unlit: true }), 0, 0.21, 0, false);
@@ -445,8 +531,14 @@ function flame(scale = 1) {
 
 /*
  * Each builder returns a group sitting on the ground at the origin of its
- * tile. `cell` is the server's record, so doors know if they are open and
- * campfires whether they are lit.
+ * tile. `cell` is the server's record (kind, open, ...); `ctx` is
+ * { lit, overWater, deck } from the scene, so campfires know whether they
+ * are lit and floors whether they are a jetty (at `deck` height) over
+ * water. The kinds here are those of lib/survival.js STRUCTURES plus stump
+ * and rubble (what harvesting leaves); a kind with no builder gets no model
+ * (buildStructure returns null). Heights are tile units; a wall's finial
+ * reaches about 2.5, above a person (about 1.7). userData.light
+ * ({ y, range, color }) marks a light source for the scene's light pool.
  */
 const STRUCTURE_BUILDERS = {
     /* Half-timbered, as in an old Slavic town: a stone footing, white
@@ -620,10 +712,18 @@ const STRUCTURE_BUILDERS = {
     },
 };
 
+/* What a built structure depends on. The scene keeps a structure's group
+   while this is unchanged (an open door only turns its hinge); when it
+   changes the group is rebuilt. Anything a builder reads from cell/ctx
+   must appear here. */
 export function structureKey(cell, ctx) {
     return `${cell.kind}|${ctx.lit ? 1 : 0}|${ctx.overWater ? 1 : 0}`;
 }
 
+/* The model for a structure, or null for a kind with no model. Groups
+   built here hold only cached geometry and materials, so dropping one
+   needs no disposal beyond flames' own materials (disposeModel). Rotation
+   by `facing` is applied by the caller, not here. */
 export function buildStructure(cell, ctx) {
     const make = STRUCTURE_BUILDERS[cell.kind];
     if (!make) return null;

@@ -4,6 +4,28 @@
  * anybody, from what they carry there; each finished one changes the world
  * for everyone. The server keeps one row per project with what has been
  * given so far.
+ *
+ * Responsibility: the list of projects and what each needs, how one hand-in
+ * is judged (planContribution), progress as a fraction, and what finished
+ * projects do to the world (worldEffects). It deliberately does not store
+ * progress, rate-limit, move items or pay xp: convex/game.ts does that with
+ * the `projects` table, and convex/tick.ts applies worldEffects.
+ *
+ * Callers: convex/game.ts (PROJECTS, activeProject, planContribution),
+ * convex/tick.ts (worldEffects) and the browser's projects panel
+ * (src/arcade/commons/ProjectsPanel.js: projectFraction, activeProject,
+ * STORES_ITEMS). The native app does not show projects yet.
+ *
+ * Invariants:
+ * - Dependency-free, deterministic plain JavaScript shared with the server
+ *   and the clients. The server is authoritative: a client can preview a
+ *   hand-in with planContribution, but game:contribute re-runs it against
+ *   the stored row. Changes reach the live game after `npm run commons:deploy`.
+ * - `key`s are persisted as the `projects` table's by_key rows. The order of
+ *   PROJECTS is the build order and the order game:projects returns.
+ *   Reordering or inserting a project changes which one is "active" for
+ *   every player at once. Raising a `need` after a project is finished does
+ *   not un-finish it (done is stored); raising it mid-build moves the goal.
  */
 
 /**
@@ -12,6 +34,11 @@
  * @typedef {{ regen: number, nightSpawn: number, nightBite: number }} Effects
  */
 
+/*
+ * In build order: only the first unfinished project takes gifts. `need` is
+ * the total of each supply (keys are item ids from survival.js ITEMS), and
+ * the `effect` sentence is shown to players and must match worldEffects.
+ */
 /** @type {Project[]} */
 export const PROJECTS = [
   {
@@ -37,7 +64,9 @@ export const PROJECTS = [
   },
 ];
 
-/* The most of one supply taken in a single hand-in. */
+/* The most of one supply taken in a single hand-in. Together with the 600 ms
+   per-player limit on game:contribute this bounds how fast one player can
+   drain their pack into a project. */
 export const CONTRIBUTE_MAX = 10;
 
 /* Once every project is finished, basic supplies still go somewhere: the
@@ -47,7 +76,8 @@ export const CONTRIBUTE_MAX = 10;
 export const STORES_ITEMS = ["wood", "stone", "fiber"];
 
 /**
- * The first project not yet finished, or null when all are.
+ * The first project not yet finished, or null when all are. A project with
+ * no row yet (nobody has given anything) counts as unfinished.
  * @param {Record<string, { done: boolean }>} rows by project key
  */
 export function activeProject(rows) {
@@ -55,7 +85,15 @@ export function activeProject(rows) {
 }
 
 /**
- * Hand in some of one supply to the active project.
+ * Hand in some of one supply to the active project. Judges the gift only;
+ * the caller moves the items, saves `progress` and announces completion.
+ * `have` is how many of `item` the player holds. Checks, in order: standing
+ * at the crossroads; (no active project) the item being one of STORES_ITEMS;
+ * the item being one this project needs, by own property so inherited names
+ * like "constructor" are refused; room left for that item; and having some.
+ * The amount is the lesser of CONTRIBUTE_MAX, what is held and what is still
+ * needed, so a project never overflows. `done` is true when this gift
+ * completes every need. Errors are text safe to show as is.
  * @param {{
  *   project: Project | null,
  *   progress: Record<string, number> | undefined,
@@ -102,7 +140,9 @@ export function planContribution({ project, progress, item, have, atCrossroads }
 }
 
 /**
- * Fraction of a project done, 0 to 1.
+ * Fraction of a project done, 0 to 1: the supply counts added up, each capped
+ * at its need, over the total need (so wood and ingots count by unit, not by
+ * rarity). For the progress bar; it does not decide completion.
  * @param {Project} project
  * @param {Record<string, number> | undefined} progress
  */
@@ -117,7 +157,12 @@ export function projectFraction(project, progress) {
 }
 
 /**
- * What finished projects do to the world.
+ * What finished projects do to the world, as plain numbers for the tick:
+ * `regen` is extra hp healed per regen beat for everyone (the well);
+ * `nightSpawn` is the extra creatures allowed per online player at night, 5
+ * by default and 2 once the watchtower stands; `nightBite` multiplies night
+ * bite damage, 1 by default and 0.75 with the beacon (passed to biteFor as
+ * `soften`). Unknown keys are ignored, so a stale row cannot break the tick.
  * @param {Iterable<string>} done keys of finished projects
  * @returns {Effects}
  */

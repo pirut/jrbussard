@@ -6,7 +6,22 @@ import { Glyph, controlText, useInput } from "./input/InputContext";
 import { relabelHint } from "./input/phrases";
 import "./build.css";
 
-/* On a touch screen, the target line names taps and buttons, not keys. */
+/*
+ * The bottom-middle HUD: the line naming what you are aiming at (or, in
+ * build mode, the piece, its cost and whether the ghost will go up), the
+ * build strip, and the hotbar. Used by Commons.js.
+ *
+ * It is a view only. Every button calls back into Commons.js, which owns the
+ * build/selection/panel state; nothing here sends to the server. The words
+ * for keys are never hard-coded in what the player reads: <Glyph> and
+ * sayHint pull the player's current bindings and device from InputContext,
+ * so a remapped key or a controller shows the right thing. (Hotbar `title`
+ * tooltips still name the default keys, and are only seen with a mouse.)
+ */
+
+/* On a touch screen, the target line names taps and buttons, not keys.
+   Applied in order to the verb strings from target.js / hud.js, so each
+   pattern has to match their exact wording. */
 const TOUCH_WORDS = [
   [/\bclick/g, "tap"],
   [/ · B to build$/, ""],
@@ -28,6 +43,9 @@ export function sayHint(verb, input) {
   return relabelHint(verb, label, input.device === "gamepad" ? label("act") : "click");
 }
 
+/* The build strip's pieces in STRUCTURES order, each with the hotbar digit
+   that picks it: 1 to 9, then 0 for the tenth. Commons.js binds these digits
+   (they are in RESERVED_KEYS in input/actions.js, so never remappable). */
 export const BUILD_MENU = Object.keys(STRUCTURES).map((kind, i) => ({
   kind,
   key: String((i + 1) % 10),
@@ -46,6 +64,21 @@ const SHORT = {
 /*
  * While building: the piece, what it costs against what you have, and
  * whether the ghost under the cursor will go up, or why not.
+ *
+ *   selected  the chosen piece's kind
+ *   me        your player, for the pack counts shown in brackets
+ *   ghosts    ghostsFor() output: the tiles about to be placed, each with
+ *             ok / near / error. One ghost is a single tile; several is a
+ *             dragged row, summarised as "n of m fit".
+ *   facing    quarter turns (0-3) for doors, signs and benches, or undefined
+ *             for "auto" (picked from neighbouring walls)
+ *   onTurn, onUndo, onRemove, onStop   the touch-screen buttons; the
+ *             keyboard and pad do the same through Commons.js's own handlers
+ *
+ * The help line has three variants: pad glyphs or keyboard keycaps (chosen
+ * here by input.device), and the touch buttons, which are always rendered
+ * and shown by CSS only on coarse pointers (touch.css), where the keycap
+ * line is hidden.
  */
 function BuildLine({ selected, me, ghosts, facing, onTurn, onUndo, onRemove, onStop }) {
   const pad = useInput().device === "gamepad";
@@ -119,6 +152,8 @@ function BuildLine({ selected, me, ghosts, facing, onTurn, onUndo, onRemove, onS
   );
 }
 
+/* The status line above the hotbar: the aim target normally, BuildLine
+   while building. `...build` carries BuildLine's props straight through. */
 function TargetLine({ aimInfo, building, ...build }) {
   const input = useInput();
   if (building) return <BuildLine {...build} />;
@@ -134,6 +169,11 @@ function TargetLine({ aimInfo, building, ...build }) {
   );
 }
 
+/* The row of buildable pieces, shown only in build mode. `count` is how many
+   the pack could pay for (affordableCount), capped at "99+" for the badge;
+   the aria-label spells out cost and count because the badge alone is
+   visual. A piece you cannot afford still stays pickable (`is-short` only
+   dims it), so you can look at its ghost and see what is missing. */
 function BuildStrip({ selected, me, onPick }) {
   const bag = inventoryOf(me);
   return (
@@ -164,6 +204,9 @@ function BuildStrip({ selected, me, onPick }) {
   );
 }
 
+/* One hotbar button: the control glyph for `action` in the player's current
+   scheme, the item's ASCII `glyph` (tinted by `color`), a caption and an
+   optional count. `on` undefined means "not a toggle" (no aria-pressed). */
 function Slot({ action, glyph, label, count, on, onClick, title, color }) {
   return (
     <button
@@ -182,7 +225,21 @@ function Slot({ action, glyph, label, count, on, onClick, title, color }) {
   );
 }
 
-/* Bottom middle: what you are aiming at, and the hotbar under it. */
+/*
+ * Bottom middle: what you are aiming at, and the hotbar under it.
+ *
+ *   aimInfo   { label, verb } from describeTarget (or a creature/player
+ *             variant), or null when nothing is aimed at
+ *   building  build mode on
+ *   selected  kind chosen in the build strip; also decides the build slot's
+ *             glyph, so it must always name a real STRUCTURES entry
+ *   ghosts, facing   see BuildLine
+ *   me        your player (null before the first snapshot)
+ *   panel     the open craft/pack panel's name or null; only its truthiness
+ *             lights the pack slot
+ *   onPick(kind)   choose a piece (Commons.js also turns build mode on)
+ *   onBuild, onEat, onDrink, onPanel   the hotbar buttons
+ */
 export default function ActionBar({
   aimInfo,
   building,
@@ -202,6 +259,8 @@ export default function ActionBar({
   onStop,
 }) {
   const spec = STRUCTURES[selected];
+  /* The eat slot's badge counts meals and berries together; Commons.js
+     eats a meal first when you have one. */
   const food = (me?.inventory?.meal || 0) + (me?.inventory?.berries || 0);
   return (
     <section className="hud-bottom" aria-label="Actions">

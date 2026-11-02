@@ -2,8 +2,11 @@
 
 From commit `f58e517` on `commons-polish/app` (Back handling, figure
 disposal, shared pad layout). Input changes since then are covered by
-tests only; none of the runs below were repeated for them. Mac with Xcode 27.2
-(Build 27B52), Apple Swift 6.4.2. Run from `apps/commons/`.
+tests only; none of the runs below were repeated for them. Nor were they
+repeated after `commons-polish/integration` merged `main`'s app work (native
+HUD, panels, chat, the shared action names), so the screenshots show the
+earlier HUD. Mac with Xcode 27.2 (Build 27B52), Apple Swift 6.4.2. Run from
+`apps/commons/`.
 
 ## iOS simulator: built, ran, screenshots
 

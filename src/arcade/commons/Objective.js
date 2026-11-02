@@ -1,6 +1,14 @@
 import React from "react";
 
-/* The next step of the journey, under the world panel. Opens the journal. */
+/*
+ * The next step of the journey, under the world panel. Opens the journal.
+ * Not imported anywhere at present: QuestTracker.js took over this job. Kept
+ * only as the older, journey-based version; check before building on it.
+ *
+ *   journey  entries of { title, detail, done } in order (as journeyOf in
+ *            src/lib/survival.js returns)
+ *   onOpen   open the journal
+ */
 export default function Objective({ journey, onOpen }) {
   const next = journey.find((q) => !q.done);
   if (!next) return null;

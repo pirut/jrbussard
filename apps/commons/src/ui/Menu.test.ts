@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /*
- * Back on every platform, through the real Menu, InputHub, TV source and
- * back.ts, with React and react-native replaced by small fakes: Menu is
- * called like a component and its effects run as on mount.
+ * Back on every platform, through the real Menu, useListNav, InputHub, TV
+ * source and back.ts, with React and react-native replaced by small fakes:
+ * Menu is called like a component and its effects run as on mount.
  *
  * The fakes behave as react-native-tvos does (read from the locked fork):
  * - Apple TV: the Menu button reaches JS as a TV event only while
@@ -22,7 +22,12 @@ const h = vi.hoisted(() => ({
 
 vi.mock('react', () => ({
   default: {},
-  useState: (initial: unknown) => [initial, () => {}],
+  /* A setter that runs updater functions, as React would, on its own copy. */
+  useState: (initial: unknown) => {
+    let value = initial;
+    return [value, (next: unknown) => (value = typeof next === 'function' ? (next as (v: unknown) => unknown)(value) : next)];
+  },
+  useCallback: (fn: unknown) => fn,
   useEffect: (fn: () => void | (() => void)) => {
     h.effects.push(fn);
   },
@@ -183,7 +188,7 @@ describe('Android Back button', () => {
 });
 
 describe('keyboard and controller', () => {
-  it.each(['back', 'pause'] as const)('%s closes a menu and the world never sees it', (action) => {
+  it.each(['back', 'cancel', 'pause'] as const)('%s closes a menu and the world never sees it', (action) => {
     h.platform.isTV = false;
     h.platform.OS = 'web';
     hub = new InputHub();
@@ -196,13 +201,29 @@ describe('keyboard and controller', () => {
     unmount();
   });
 
-  it('a menu puts the controller in its menu layout until it closes', () => {
+  it('the title and Controls screens run with the controller in its menu layout', () => {
+    /* In the world GameScreen sets the layer from what is open over it
+       (game/press.ts padContext); outside it, the hub's own layer is the
+       menu one, so B backs out of Controls and A confirms. */
+    expect(new InputHub().context).toBe('menu');
+  });
+
+  it('a step or confirm the menu uses is not passed on to the world', () => {
+    h.platform.isTV = false;
+    h.platform.OS = 'web';
     hub = new InputHub();
     detachTv = () => {};
-    expect(hub.context).toBe('play');
-    const unmount = mount({ onBack: () => {} }, hub);
-    expect(hub.context).toBe('menu');
-    unmount();
-    expect(hub.context).toBe('play');
+    let picked = 0;
+    h.effects = [];
+    Menu({ title: 'T', items: [{ label: 'Resume', onSelect: () => (picked += 1) }], hub });
+    const cleanups = h.effects.map((fn) => fn()).filter(Boolean) as (() => void)[];
+    hub.press('navDown');
+    hub.press('confirm');
+    expect(picked).toBe(1);
+    expect(hub.frame().pressed).toEqual([]);
+    /* What it does not use still reaches the world. */
+    hub.press('act');
+    expect(hub.frame().pressed).toEqual(['act']);
+    cleanups.forEach((c) => c());
   });
 });

@@ -1,3 +1,22 @@
+/*
+ * How a survivor looks, drawn in the same ASCII as the rest of the game.
+ *
+ *   CharacterPortrait  the large paper doll (rows of coloured characters),
+ *                      used in the creator, the character sheet and the
+ *                      inspect card
+ *   CharacterCreator   the form for the nametag and the look, as a modal
+ *                      dialog or embedded in another window
+ *   WorldCharacter     the three-line ASCII figure for a player in the world
+ *
+ * Deliberately not here: the palettes and the layers of the doll (that is
+ * lib/appearance.js, which also has appearanceValid), and
+ * saving (the parent's onSave does the mutation). The creator keeps its edits in local state and only reports them on Save, so
+ * closing it discards a half-made look.
+ *
+ * Used by commons/CharacterSheet.js (creator embedded in its Profile tab and
+ * the portrait) and commons/Inspect.js (portrait). Browser only: React DOM.
+ */
+
 import React, { useRef, useState } from "react";
 import {
   PALETTES,
@@ -8,6 +27,13 @@ import {
 import { TOOL_NAMES } from "../lib/survival";
 import useDialogFocus from "../hooks/useDialogFocus";
 
+/*
+ * The portrait for `player`. Only `player.appearance`, `player.name` and
+ * `player.tools` (armor and weapon layers) are read; missing ones take
+ * defaults, so a partial object, or a preview with unsaved edits, works. `small` is a CSS size
+ * variant. Announced to screen readers as one image; the glyphs inside
+ * are decoration, so none of them is read out one by one.
+ */
 export function CharacterPortrait({ player, small = false }) {
   return (
     <div
@@ -27,15 +53,33 @@ export function CharacterPortrait({ player, small = false }) {
     </div>
   );
 }
+/*
+ * Edit your nametag and look.
+ *
+ *   me        your player record; read for the starting name and look, and
+ *             for the level and equipment shown beside the preview
+ *   onClose   close the dialog (not used for saving when `embedded`)
+ *   onSave    async ({ name, appearance }); a rejection shows an error and
+ *             leaves the form open so the edits are not lost
+ *   embedded  render only the form, for a host that supplies its own dialog,
+ *             backdrop and focus handling (the Profile tab of the character
+ *             sheet). Then saving does not close anything; it just re-enables
+ *             the button. Otherwise it renders its own modal.
+ */
 export default function CharacterCreator({ me, onClose, onSave, embedded = false }) {
   const [appearance, setAppearance] = useState(() => appearanceOf(me));
   const [name, setName] = useState(me.name);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  /* Only attached to the modal's section. When embedded the ref stays
+     null, and useDialogFocus then does nothing, so the host keeps the focus
+     trap. The hook must still be called unconditionally. */
   const ref = useRef(null);
   useDialogFocus(ref);
   const set = (key, value) =>
     setAppearance((current) => ({ ...current, [key]: value }));
+  /* The portrait is drawn from the unsaved edits laid over your record, so
+     it changes as you click, before anything is sent. */
   const preview = { ...me, name, appearance };
   const save = async (e) => {
     e.preventDefault();
@@ -43,6 +87,8 @@ export default function CharacterCreator({ me, onClose, onSave, embedded = false
     setError("");
     try {
       await onSave({ name, appearance });
+      /* Embedded, the host stays open, so release the button; otherwise
+         leave `saving` set while the dialog closes to block a second click. */
       if (embedded) setSaving(false);
       else onClose();
     } catch {
@@ -50,6 +96,11 @@ export default function CharacterCreator({ me, onClose, onSave, embedded = false
       setSaving(false);
     }
   };
+  /* The form is built once and either returned bare or wrapped in the modal
+     below. Palette fieldsets and option fieldsets are generated from
+     PALETTES and APPEARANCE_OPTIONS, so a new swatch or choice in
+     lib/appearance.js appears here without editing this file. The name is
+     limited to 18 characters, the same limit convex/world.ts enforces. */
   const form = (
     <form onSubmit={save}>
           <div className="character-preview">
@@ -133,6 +184,9 @@ export default function CharacterCreator({ me, onClose, onSave, embedded = false
     </form>
   );
   if (embedded) return form;
+  /* The backdrop swallows key presses so the game's shortcuts do not fire
+     while you type a name. Esc and clicking outside close it, but not while
+     a save is in flight. */
   return (
     <div
       className="character-backdrop"
@@ -171,9 +225,17 @@ export default function CharacterCreator({ me, onClose, onSave, embedded = false
   );
 }
 
+/*
+ * A three-line ASCII figure for `player` in the world: headwear on top, a
+ * body whose brackets show the armor tier (none "/@\", 1 "(@)", 2 and up
+ * "[@]", with the sigil in the middle), and legs. Colours come from the
+ * appearance palettes. Hidden from screen readers. Currently not imported
+ * anywhere in src/, though commons.css still has `.world-character` rules.
+ */
 export function WorldCharacter({ player }) {
   const look = appearanceOf(player);
   const armor = player.tools?.armor || 0;
+  /* One character per headwear option; hairstyle is not drawn at this size. */
   const cap = { none: "o", hood: "^", brim: "=", crown: "W" }[look.headwear];
   const coat = PALETTES.outfit[look.outfit];
   return (

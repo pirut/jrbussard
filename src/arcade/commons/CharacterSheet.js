@@ -10,8 +10,16 @@ import { Bar } from "./Vitals";
  * Character shows the numbers and the gear, Inventory what is in the bag
  * (and the shared chest, when one is in reach), Profile your nametag and
  * look. Everything here goes through calls the game already has.
+ *
+ * A modal dialog opened from Commons.js (Commons.js owns which tab is open
+ * and passes it down). It draws from the live snapshot and sends nothing of
+ * its own except through `act` and `onSave`. role="dialog" and role="tablist"
+ * matter beyond accessibility: the controller code finds the topmost dialog
+ * to drive it as a menu, and bumpers step the tablist (input/useGamepad.js,
+ * input/focus.js).
  */
 
+/* Tab names double as the ids Commons.js stores and compares. */
 export const SHEET_TABS = ["Character", "Inventory", "Profile"];
 
 /* Tools and armour, in the order you would look for them. */
@@ -24,6 +32,8 @@ const GEAR = [
   ["rod", "Rod"],
 ];
 
+/* Read-only numbers. Bars fall back to 30 max health and a full meter when
+   the snapshot lacks a field, so an older server still draws sensibly. */
 function CharacterTab({ me }) {
   const journey = journeyOf(me);
   const done = journey.filter((entry) => entry.done).length;
@@ -87,6 +97,13 @@ function CharacterTab({ me }) {
   );
 }
 
+/*
+ * The pack, plus the shared chest when one is within reach (REACH tiles,
+ * src/lib/terrain.js: the same test the server applies to a transfer).
+ * `act(name, args)` is Commons.js's server call; it is used for "eat",
+ * "drink" and "transfer". Buttons are disabled while dead, since the server
+ * refuses those too.
+ */
 function InventoryTab({ me, state, act }) {
   const bag = inventoryOf(me);
   const dead = me.hp <= 0;
@@ -159,6 +176,17 @@ function InventoryTab({ me, state, act }) {
   );
 }
 
+/*
+ *   me        your player; the sheet is only mounted once it exists
+ *   state     the snapshot, for nearby chests
+ *   tab       one of SHEET_TABS; setTab changes it (state lives in Commons.js)
+ *   onClose   close the sheet (Esc, K, the backdrop or the × button)
+ *   onSave    forwarded to CharacterCreator on the Profile tab
+ *   act       server call, see InventoryTab
+ *
+ * useDialogFocus moves focus into the dialog, traps Tab, and puts focus
+ * back where it was when the sheet unmounts.
+ */
 export default function CharacterSheet({ me, state, tab, setTab, onClose, onSave, act }) {
   const ref = useRef(null);
   useDialogFocus(ref);
@@ -167,7 +195,9 @@ export default function CharacterSheet({ me, state, tab, setTab, onClose, onSave
       className="character-backdrop"
       onKeyDown={(e) => {
         const typing = ["INPUT", "TEXTAREA"].includes(e.target.tagName);
-        /* The game's keys stay out of the sheet; the sheet's own stay in. */
+        /* The game's keys stay out of the sheet; the sheet's own stay in.
+           (Closing on "k" is the default key for the character action, not
+           the player's binding.) */
         e.stopPropagation();
         if (e.key === "Escape" || (!typing && e.key.toLowerCase() === "k")) onClose();
       }}

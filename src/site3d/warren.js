@@ -12,24 +12,59 @@ import { P, place, hash } from "../arcade/ascii3d/shapes";
  *
  * One tile is one unit; x east, z south, y up. Everything writes into a
  * Batch, as the rest of the city does.
+ *
+ * Client-only and purely visual: the server and the tile world never see
+ * these buildings (a "city" tile is just solid ground to world/build.js), so
+ * nothing here has to stay in step with convex or src/lib. Used by
+ * SiteScene.buildChunk (tenement, alleyClutter, wallLantern, oddity) and by
+ * Diorama (oddity, for the skylines behind the arcade and the lost page).
+ *
+ * Invariant: deterministic. No Math.random or clock; every choice is
+ * hash(x, z, salt) from the shared kit (arcade/ascii3d/shapes.js), keyed by
+ * tile position or by a lot number. The numeric salts (201-252 here) are
+ * used so that separate decisions about the same tile, such as "is this
+ * window lit" and "does it get a cage", are uncorrelated; give a new
+ * decision its own number rather than reusing one. Changing any hash, salt
+ * or threshold re-rolls the whole city for every visitor, which is harmless
+ * (nothing is stored) but makes old screenshots stop matching.
+ *
+ * Performance: all geometry goes through Batch.shape / Batch.quad, which
+ * merges it by glyph set ("solid", "timber", "rock", "leaves", "light", ...),
+ * so a chunk of the city is a few meshes however many boxes this emits. A
+ * ":glow" suffix on the set (e.g. "light:glow") makes that bucket unlit, so
+ * windows, lanterns and signs stay bright at night and feed the ASCII
+ * pass's glow wash. Each tile of tenement emits many small boxes, so keep
+ * additions cheap: the cost is paid once per chunk build (SiteScene builds a
+ * few chunks a frame as you move), not per frame.
  */
 
+/* One storey, in tiles; the window panels and cornices below are sized
+   against it. */
 const STOREY = 0.9;
+/* A single shared scratch colour. `col` returns it, so the result is only
+   valid until the next call: it is safe because Batch copies r, g, b out
+   immediately. Never hold on to one, and never call col twice in one
+   argument list expecting two colours. */
 const c = new THREE.Color();
 const col = (hex, k = 1) => c.set(hex).multiplyScalar(k);
 
-/* Concrete, stained plaster, sooty stone and brick: what the city patches
+/* Palettes. Concrete, stained plaster, sooty stone and brick: what the city patches
    itself with. */
 const SKINS = ["#8d877c", "#a39a86", "#7c7f7d", "#9b8c7a", "#b3a68c", "#857565", "#96826a", "#6f7270"];
 /* Window light: mostly lamp-warm, some cold tube light, now and then red. */
 const LIGHTS = [WINDOW, WINDOW, "#f0c27a", "#d8a060", "#bfe0c8", "#e08070"];
 const CLOTH = ["#c8bfae", "#a84a3c", "#5a6f8f", "#d9c27a", "#6f8a5a", "#e4dfd2"];
 
+/* An axis-aligned box standing on y (not centred on it), colour `hex`
+   scaled by `k` for shading. `b` is the Batch. */
 function box(b, set, x, y, z, w, h, d, hex, k = 1) {
     b.shape(set, P.cube(), place(x, y + h / 2, z, w, h, d), col(hex, k));
 }
 
-/* A flat panel on one face of a tile, just proud of it. */
+/* A flat panel on one face of a tile, just proud of it (0.012 off the wall
+   so it does not z-fight). `face` is "n" "s" "e" or "w"; `half` is the
+   wall's distance from the tile centre; `along` slides the panel along that
+   wall; the quad winding differs per face so each one faces outward. */
 function panel(b, set, face, x, y, z, half, along, w, h, hex, k = 1) {
     const o = half + 0.012;
     const color = col(hex, k);
@@ -41,9 +76,14 @@ function panel(b, set, face, x, y, z, half, along, w, h, hex, k = 1) {
     else b.quad(set, [x - o, y0, z + along - w / 2], [x - o, y0, z + along + w / 2], [x - o, y1, z + along + w / 2], [x - o, y1, z + along - w / 2], color);
 }
 
+/* Outward direction of each face, as [dx, dz]. */
 const OUT = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] };
 
-/* A spire that does not stand quite straight. */
+/* A spire that does not stand quite straight. `h` and `r` are its height
+   and base half-width; `lean` is the largest tilt in radians, and the actual
+   tilt is a hash of the position, so the same spire always leans the same
+   way. Returns where the tip ends up ({x, y, z}), for anything that wants to
+   sit on it (nothing outside this file does yet). */
 export function crookedSpire(b, x, z, y, h, r, lean, hex = GOLD) {
     const ax = (hash(Math.round(x * 13), Math.round(z * 7), 201) - 0.5) * lean;
     const az = (hash(Math.round(x * 5), Math.round(z * 11), 202) - 0.5) * lean;
@@ -56,9 +96,16 @@ export function crookedSpire(b, x, z, y, h, r, lean, hex = GOLD) {
  * faces look onto somewhere you can walk; only those get windows and the
  * cages and boxes people bolt on. `lot` seeds what the tile shares with its
  * neighbours (where the cornices fall), so a lot reads as one building.
+ * It is an integer the caller derives from the 2x2 lot (SiteScene.cityAt),
+ * so all four tiles of a lot agree on band splits, jut and colour while
+ * window lighting still varies per tile. `crown: false` skips the roofline
+ * (oddities carry their own top). Returns the height of the roof.
  */
 export function tenement(b, x, z, y, h, open, lot, { crown = true } = {}) {
     const storeys = Math.max(2, Math.round(h / STOREY));
+    /* A building is built in "bands" of 2-4 storeys, each with its own skin
+       and (above the first) a small hashed jut, as if added by different
+       hands. */
     let s = 0;
     let band = 0;
     while (s < storeys) {
@@ -86,12 +133,14 @@ export function tenement(b, x, z, y, h, open, lot, { crown = true } = {}) {
             const cz = z + jz / 2;
             for (let k = 0; k < n; k += 1) {
                 const sy = by + k * STOREY;
+                /* The ground storey stays blank (no windows, cages or boxes);
+                   lit windows start at the first floor up. */
                 if (s + k === 0) continue;
                 for (let i = 0; i < 2; i += 1) {
                     const along = i ? 0.24 : -0.24;
                     const r = hash(x * 7 + i + k * 3, z * 5 + s, f.charCodeAt(0) + band);
-                    /* Few enough lit that each reads as a window, not a wall
-                       of light seen edge on down a lane. */
+                    /* Few enough lit (about one in four) that each reads as a
+                       window, not a wall of light seen edge on down a lane. */
                     const lit = r < 0.24;
                     const hex = lit ? LIGHTS[Math.floor(hash(x + k, z + i, 215) * LIGHTS.length)] : "#24242a";
                     panel(b, lit ? "light:glow" : "light", f, cx, sy + 0.24, cz, half, along, 0.2, 0.42, hex, lit ? 0.5 + r * 1.5 : 1);
@@ -120,7 +169,11 @@ export function tenement(b, x, z, y, h, open, lot, { crown = true } = {}) {
 }
 
 /* What sits on a tenement's roof. Most are plain; the rest are why the
-   skyline bristles. */
+   skyline bristles. `pick` is a 0-1 hash the caller supplies; the bands
+   below are its thresholds, so the odds of each rooftop are the width of its
+   band (parapet 30%, shack 10%, tank 8%, dome 8%, leaning spire 10%, mast
+   6%, star 5%, cross 3%, and 20% nothing). `top` is the roof height, `lot`
+   keeps the choice of colour consistent across a lot. */
 export function roofline(b, x, z, top, pick, lot) {
     if (pick < 0.3) {
         /* A parapet with four pinnacles. */
@@ -161,7 +214,11 @@ export function roofline(b, x, z, top, pick, lot) {
  * The street furniture strung across an alley: what makes a lane feel lived
  * over rather than merely walked. `across` is "x" when the walls are east
  * and west (so things span along x), "z" when they are north and south.
- * `room` is how high the walls either side stand, `width` how far apart.
+ * `room` is how high the walls either side stand, `width` how far apart
+ * (1 for a one-tile lane, 2 for the two-tile alleys, which SiteScene
+ * calls once per pair of tiles with a half-tile offset to centre it). What
+ * each spot gets is a hash of its position, so lanes differ but are the
+ * same on every load.
  */
 export function alleyClutter(b, x, z, y, across, room, width = 1) {
     const pick = hash(Math.floor(x), Math.floor(z), 231);
@@ -205,7 +262,13 @@ export function alleyClutter(b, x, z, y, across, room, width = 1) {
 
 /*
  * The odd buildings: a few lots in the warren hold something that does not
- * quite make sense. Each stands on a 2x2 lot centred at (x, z).
+ * quite make sense. Each stands on a 2x2 lot centred at (x, z). `y` is the
+ * ground, `pick` (0-1) chooses which of the four oddities (quarters of the
+ * range) and `room` is the notional height available, which scales the
+ * base, spires, stack and drum (SiteScene passes 14 to 26, Diorama roughly
+ * 14 to 23). SiteScene only places one where a whole 2x2 lot is city and
+ * unreserved by a landmark, more than 8 tiles in from the map edge (the
+ * outer ring is already the tallest towers), at about 5% of lots.
  */
 export function oddity(b, x, z, y, pick, room) {
     const base = tenement(b, x, z, y, Math.min(room * 0.4, 6), { n: true, s: true, e: true, w: true }, Math.floor(pick * 1000), { crown: false });
@@ -241,8 +304,12 @@ export function oddity(b, x, z, y, pick, room) {
     }
 }
 
-/* A lantern on an iron bracket, hung from the wall at (x - dx, z - dz)'s
-   side of the tile: the light the alleys get by. */
+/* A lantern on an iron bracket, hung on the wall that lies toward
+   (x + dx, z + dz): (dx, dz) is the unit step from this tile to the wall it
+   is fixed to. `y` is the bracket height (SiteScene passes ground + 2.5,
+   the same height it gives this lamp's real point light). The glowing box
+   is cosmetic and unlit; actual illumination comes from the shared light
+   pool in SiteScene. This is the light the alleys get by. */
 export function wallLantern(b, x, z, y, dx, dz) {
     const iron = "#3a3a40";
     box(b, "solid", x + dx * 0.1, y + 0.28, z + dz * 0.1, dx ? 0.22 : 0.04, 0.04, dz ? 0.22 : 0.04, iron);

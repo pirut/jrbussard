@@ -13,6 +13,18 @@ import "./gameplay.css";
  * The shared work at the crossroads: what is being built, how far along it
  * is, and a hand-in button for each supply it still needs. Anyone can give;
  * you have to be standing at the crossroads to do it.
+ *
+ *   projects      the server's project rows ({ key, done, progress,
+ *                 contributors }), or undefined while loading (renders
+ *                 nothing)
+ *   me            your player; giving needs you alive and in the safe zone
+ *   onContribute  called with an item key; Commons.js sends it to the server
+ *
+ * Only the current project (the first unfinished one, from activeProject)
+ * shows hand-in rows; later ones are listed as "ahead". Once every project is
+ * done the panel switches to open "stores" that take basic supplies. The
+ * buttons are disabled client-side to match the server's checks; the server
+ * still enforces them. Rendered inside the journal panel (CommonsPanels.js).
  */
 export default function ProjectsPanel({ projects, me, onContribute }) {
   if (!projects) return null;

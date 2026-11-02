@@ -2,25 +2,49 @@ import { useCallback, useEffect, useRef } from "react";
 import { controllerFamily, createPadReader, padTouched, rumbleFor } from "./gamepad";
 import { ensureFocus, moveFocus, stepTabs } from "./focus";
 
-/* The menu or window on top inside `root`, if any: the last one drawn. */
+/*
+ * The browser half of controller support: polls the Gamepad API once a
+ * frame, feeds createPadReader (gamepad.js, DOM-free and shared with the
+ * native app) and routes what it reports. This file is browser only: it
+ * uses navigator.getGamepads, requestAnimationFrame, window events and the
+ * DOM (to drive menus like a TV remote). Used by Commons.js.
+ *
+ * Deliberately not here: what an action does (Commons.js's onAction), or
+ * which button means what (PAD_LAYOUT).
+ */
+
+/* The menu or window on top inside `root`, if any: the last one drawn
+   (last in document order, taken to be on top). A window is anything
+   with role dialog or alertdialog, or marked data-pad-menu for menus that
+   are not dialogs. */
 export function topMenu(root) {
   const list = root?.querySelectorAll('[role="dialog"], [role="alertdialog"], [data-pad-menu]');
   return list?.length ? list[list.length - 1] : null;
 }
 
+/* True while a text field has focus, so the pad does not fight the on-screen
+   keyboard. Range inputs are excluded: they take arrow keys, not text. */
 const typing = () => {
   const el = document.activeElement;
   return Boolean(el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && el.type !== "range"));
 };
 
-/* Controls that take left and right themselves, like a slider. */
+/* Controls that take left and right themselves, like a slider. A radio is
+   included so its arrow-key handling (if any) is used instead of moving
+   focus off it. */
 const takesArrows = (el) =>
   el && (el.getAttribute?.("role") === "slider" || el.type === "range" || el.getAttribute?.("role") === "radio");
 
+/* Send a synthetic keydown, to reuse the keyboard handlers the controls
+   already have. It is untrusted (isTrusted is false), which `putDown` below
+   relies on to ignore it. */
 const press = (el, key) =>
   el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
 
-/* One step through a menu: sliders take left and right, the rest moves focus. */
+/* One step through a menu: sliders take left and right, the rest moves focus.
+   If focus is outside `menu` the first step only pulls focus in (no
+   movement), so the first press lands somewhere visible. Exported because
+   Commons.js's keyboard handler also steps windows with the arrow keys. */
 export function menuStep(menu, dir) {
   const active = document.activeElement;
   const inside = menu.contains(active);
@@ -67,15 +91,34 @@ const STILL = Object.freeze({
  * first, so a stick still leaning or a button pressed meanwhile is not taken
  * as a new move or press.
  *
+ *   rootRef        ref to the element whose dialogs the pad may drive
  *   getContext()   "play", "build" or "dead": what the game is showing
- *   settings       { lookSensitivity, invertY, rumble } (a ref)
+ *   onAction       (action, context) for each new press while no menu is open
+ *   onRelease      (action, context) for each button let go while no menu is
+ *                  open; the action is the one reported on press
+ *   onFrame        (frame, dt, context) every frame with a pad present;
+ *                  `dt` is seconds, capped at 0.1 so a stalled tab does not
+ *                  make a huge step. While a menu is open or a text field
+ *                  has focus the sticks are zeroed or the call skipped
+ *   settingsRef    ref to { lookSensitivity, invertY, rumble }; a ref so the
+ *                  loop reads the latest values without restarting
  *   onDevice       called with (family) when a controller is picked up
  *   onConnect      called with (connected, family) as pads come and go
+ *
+ * Returns { rumble(event), hasPad() }. rumble is stable between renders.
+ *
+ * The callbacks are held in a ref that is overwritten every render, so the
+ * caller may pass fresh closures each time without re-subscribing; the
+ * effect below depends only on the two refs, which are stable. The loop
+ * therefore runs for the life of the component, and everything it set up is
+ * undone in the effect's cleanup.
  */
 export default function useGamepad({ rootRef, getContext, onAction, onRelease, onFrame, onDevice, onConnect, settingsRef }) {
   const handlers = useRef({});
   handlers.current = { getContext, onAction, onRelease, onFrame, onDevice, onConnect };
-  /* The index of the player's pad, once one has been touched. */
+  /* The `index` of the player's pad: the first one touched, kept until it
+     is unplugged (null until one is touched), so a second controller does
+     not also drive the game. A ref: nothing renders from it. */
   const lastPad = useRef(null);
 
   useEffect(() => {
@@ -83,6 +126,7 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
     const reader = createPadReader();
     let raf;
     let last = performance.now();
+    /* Whether the pad is the device in hand; onDevice fires on the change. */
     let using = false;
     /* What the game has been told is held, and whether it was last told
        the sticks lean, so it can be told to let go. */
@@ -123,6 +167,8 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
       } catch {
         return;
       }
+      /* The player's pad, else the first one touched. The rAF is re-armed
+         above before any early return, so the loop never dies. */
       let pad = pads.find((p) => p.index === lastPad.current);
       if (!pad && lastPad.current !== null) lose();
       if (!pad) {
@@ -152,12 +198,17 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
         using = true;
         h.onDevice?.(controllerFamily(pad.id));
       }
+      /* A text field has focus: only B/back leaves it. The rest of the frame
+         is dropped on purpose: no actions or frames reach the game while typing. */
       if (typing()) {
         letGo();
         /* The on-screen keyboard has the pad; B gives it back. */
         if (frame.pressed.includes("cancel") || frame.pressed.includes("back")) document.activeElement.blur();
         return;
       }
+      /* A menu is open: the pad is a remote. Presses were read in the "menu"
+         context, so they are confirm/back/tab verbs, not game actions, and
+         `released` is not forwarded (see the onFrame call below). */
       if (menu) {
         letGo();
         if (frame.nav) menuStep(menu, frame.nav);
@@ -189,10 +240,12 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
     raf = requestAnimationFrame(loop);
 
     /* Someone else touched the keyboard or screen: the next pad touch
-       counts as picking it up again. */
+       counts as picking it up again. Only real (trusted) events count, so
+       the synthetic keydowns from press() above do not flip it. */
     const putDown = (event) => {
       if (event.isTrusted) using = false;
     };
+    /* Reported to the caller so the HUD can say "controller connected". */
     const connected = (event) => handlers.current.onConnect?.(true, controllerFamily(event.gamepad?.id));
     const disconnected = (event) => {
       if (event.gamepad?.index === lastPad.current) lose();
@@ -234,7 +287,9 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
     };
   }, [rootRef, settingsRef]);
 
-  /* Shake the controller in use, if it can and the player wants it. */
+  /* Shake the controller in use, if it can and the player wants it. `event`
+     is a name from RUMBLE in gamepad.js. Errors and a pad without a
+     vibrationActuator are swallowed: rumble is only garnish. */
   const rumble = useCallback(
     (event) => {
       const settings = settingsRef.current || {};

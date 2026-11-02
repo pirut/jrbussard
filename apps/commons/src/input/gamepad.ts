@@ -1,101 +1,115 @@
 import { Platform } from 'react-native';
 import { createPadReader, padTouched } from '../shared';
-import type { Action, InputSink, InputSource } from './types';
+import { isAction } from './types';
+import type { Action, InputSource } from './types';
 
 /*
- * Gamepads through the browser's Gamepad API ("standard" mapping), on the
- * web build. On tvOS and Android TV, controllers reach the app as TV
- * remote events instead (see tvRemote.ts); analog sticks on native need a
- * GameController module, which is listed as remaining work.
+ * Game controllers through the browser's Gamepad API ("standard" mapping),
+ * on the web build. Xbox, PlayStation, Switch Pro and MFi pads all report
+ * the same button numbers there.
  *
- * Which button does what is the browser Commons' own table
- * (src/arcade/commons/input/gamepad.js, PAD_LAYOUT), read through the same
- * reader the browser uses, so the two cannot drift: A and RT act, X
- * builds, Start pauses, B arrives as `back` (GameScreen opens the pause
- * menu with it, see game/playActions.ts), B and Start back out of a menu,
- * the d-pad steps through menus. APP_ACTIONS only says what each of the shared actions is
- * called in this app. The shared actions the app has nothing for yet (the
- * camera, panels, food, the d-pad's shortcuts) do nothing here.
+ * What a button means is the browser Commons' table (PAD_LAYOUT), picked by
+ * the layer the hub says is live (walking, building, dead, in a menu), and
+ * the reading of sticks and edges is the browser's own `createPadReader`.
+ * This file only carries the reader's answers into the hub. In the world B
+ * arrives as `cancel` and Start as `pause`, and both open the pause menu
+ * (game/press.ts); in a menu both are `back`.
+ *
+ * With several controllers, the first one touched (a button down or a stick
+ * past its dead zone) is the player's until it is unplugged, so an idle pad
+ * never shuts out a second one.
+ *
+ * On tvOS and Android TV, controllers arrive as TV remote events instead
+ * (see tvRemote.ts), and analog sticks on native phones need a
+ * GameController / InputDevice module: both are listed as remaining work.
  */
-export const APP_ACTIONS: Record<string, Action> = {
-  act: 'gather',
-  shovel: 'dig',
-  build: 'build',
-  pause: 'pause',
-  cancel: 'back',
-  /* In a menu. */
-  confirm: 'confirm',
-  back: 'back',
-  /* Waiting to wake up: GameScreen wakes you on confirm. */
-  respawn: 'confirm',
+
+/* The slice of a Gamepad the reader needs. `index` is the browser's slot
+   number; without one, the pad's place in the list stands in. */
+type PadSnapshot = {
+  index?: number;
+  connected?: boolean;
+  id?: string;
+  axes: readonly number[];
+  buttons: ReadonlyArray<{ pressed: boolean; value?: number }>;
 };
 
-type Pad = { index: number; connected?: boolean; buttons: readonly unknown[]; axes: readonly number[] };
+/* A menu step arrives as 'up' | 'down' | …; the hub's name is navUp… */
+const NAV: Record<string, Action> = { up: 'navUp', down: 'navDown', left: 'navLeft', right: 'navRight' };
 
-export function createGamepad(): InputSource {
-  let hub: InputSink | null = null;
+export function createGamepad(
+  /* Injected so a test can feed it pads and a clock. */
+  getPads: () => ArrayLike<PadSnapshot | null> = () => (typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []),
+  now: () => number = () => Date.now(),
+): InputSource {
   const reader = createPadReader();
-  /* The controller being played with: the first to be touched, kept until
-     it is unplugged, so an idle pad never shuts out a second one. */
+  let hub: Parameters<InputSource['attach']>[0] | null = null;
+  /* What this source is holding on the hub, so a change can be diffed and a
+     disconnect can release it. */
+  let held = new Set<Action>();
+  /* The slot of the controller being played with, or null before one is
+     touched. */
   let chosen: number | null = null;
-  const held = new Set<Action>();
 
-  const letGo = () => {
-    hub?.setAxis('gamepad', 0, 0);
-    held.forEach((action) => hub?.hold('gamepad', action, false));
-    held.clear();
+  const releaseAll = () => {
+    if (!hub) return;
+    hub.setAxis('gamepad', 0, 0);
+    held.forEach((a) => hub!.hold('gamepad', a, false));
+    held = new Set();
     reader.reset();
   };
 
   return {
     id: 'gamepad',
     attach(sink) {
-      if (Platform.OS !== 'web' || typeof navigator === 'undefined' || !navigator.getGamepads) return () => {};
+      if (Platform.OS !== 'web') return () => {};
       hub = sink;
       return () => {
-        letGo();
+        releaseAll();
         hub = null;
       };
     },
     poll() {
       if (!hub) return;
-      const pads = (Array.from(navigator.getGamepads()) as (Pad | null)[]).filter(
-        (p): p is Pad => Boolean(p) && p!.connected !== false,
-      );
-      let pad = pads.find((p) => p.index === chosen);
-      if (!pad && chosen !== null) {
+      const pads = Array.from(getPads())
+        .map((p, i) => (p && p.connected ? { pad: p, slot: p.index ?? i } : null))
+        .filter((p): p is { pad: PadSnapshot; slot: number } => p !== null);
+      let mine = pads.find((p) => p.slot === chosen);
+      if (!mine && chosen !== null) {
         /* Unplugged mid-walk: let go of everything it was holding. */
         chosen = null;
-        letGo();
+        releaseAll();
       }
-      if (!pad) {
-        pad = pads.find((p) => padTouched(p));
-        if (!pad) return;
-        chosen = pad.index;
+      if (!mine) {
+        mine = pads.find((p) => padTouched(p.pad));
+        if (!mine) return;
+        chosen = mine.slot;
       }
-
       const context = hub.context;
-      const frame = reader.read(pad, performance.now(), context);
-      const now = new Set<Action>();
-      frame.held.forEach((shared: string) => {
-        const action = APP_ACTIONS[shared];
-        if (action) now.add(action);
-      });
-      held.forEach((action) => {
-        if (!now.has(action)) hub!.hold('gamepad', action, false);
-      });
-      now.forEach((action) => hub!.hold('gamepad', action, true));
-      held.clear();
-      now.forEach((action) => held.add(action));
+      const frame = reader.read(mine.pad, now(), context);
 
-      /* The left stick walks; in a menu it and the d-pad step instead. */
-      if (context === 'menu') {
-        hub.setAxis('gamepad', 0, 0);
-        if (frame.nav) hub.press(frame.nav as Action);
-      } else {
-        const [x, y] = frame.move;
-        hub.setAxis('gamepad', x, -y);
-      }
+      /* The left stick walks; in a menu it steps through the list instead,
+         so the highlight isn't also a character running off. */
+      if (context === 'menu') hub.setAxis('gamepad', 0, 0);
+      else hub.setAxis('gamepad', frame.move[0], -frame.move[1]);
+
+      /* Buttons: hold what is down, release what came up. The reader has
+         already chosen each button's meaning for this layer. */
+      const next = new Set<Action>();
+      frame.held.forEach((id: string) => {
+        /* A menu's d-pad steps arrive through `nav`, which repeats while
+           held; taking them here too would step twice. */
+        if (isAction(id) && !id.startsWith('nav')) next.add(id);
+      });
+      held.forEach((a) => {
+        if (!next.has(a)) hub!.hold('gamepad', a, false);
+      });
+      next.forEach((a) => {
+        if (!held.has(a)) hub!.hold('gamepad', a, true);
+      });
+      held = next;
+
+      if (frame.nav && context === 'menu') hub.press(NAV[frame.nav]);
     },
   };
 }

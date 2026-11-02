@@ -52,7 +52,7 @@ describe('Apple TV taps (lone key-up from a tap recognizer)', () => {
     send('up', UP);
     const f = hub.frame();
     expect(f.move).toEqual({ x: 0, y: 1 });
-    expect(f.pressed).toContain('up');
+    expect(f.pressed).toContain('navUp');
     vi.advanceTimersByTime(100);
     expect(hub.frame().move).toEqual({ x: 0, y: 1 });
     vi.advanceTimersByTime(400);
@@ -60,8 +60,8 @@ describe('Apple TV taps (lone key-up from a tap recognizer)', () => {
   });
 
   it.each([
-    ['select', 'gather'],
-    ['playPause', 'dig'],
+    ['select', 'act'],
+    ['playPause', 'shovel'],
     ['menu', 'pause'],
   ])('a tapped %s presses %s', (eventType, action) => {
     send(eventType, UP);
@@ -70,14 +70,19 @@ describe('Apple TV taps (lone key-up from a tap recognizer)', () => {
 
   it('select also confirms, for menus', () => {
     send('select', UP);
-    expect(hub.frame().pressed).toEqual(expect.arrayContaining(['gather', 'confirm']));
+    expect(hub.frame().pressed).toEqual(expect.arrayContaining(['act', 'confirm']));
+  });
+
+  it('Menu presses pause alone, so one press cannot both open and close the pause menu', () => {
+    send('menu', UP);
+    expect(hub.frame().pressed).toEqual(['pause']);
   });
 
   it('two quick taps press twice', () => {
     send('playPause', UP);
     vi.advanceTimersByTime(50);
     send('playPause', UP);
-    expect(hub.frame().pressed.filter((a) => a === 'dig')).toHaveLength(2);
+    expect(hub.frame().pressed.filter((a) => a === 'shovel')).toHaveLength(2);
   });
 });
 
@@ -100,7 +105,7 @@ describe('Apple TV holds (long-press recognizers: began, then ended)', () => {
     send('longPlayPause', DOWN);
     const f = hub.frame();
     expect(f.held.has('run')).toBe(true);
-    expect(f.pressed).not.toContain('dig');
+    expect(f.pressed).not.toContain('shovel');
     send('longPlayPause', UP);
     expect(hub.frame().held.has('run')).toBe(false);
   });
@@ -222,12 +227,12 @@ describe('Android TV (the fork with key-down events off, its default)', () => {
   };
   const release = (code: string) => key(code, UP, clock);
 
-  it('a quick center press arrives as a lone key-up and gathers once', () => {
+  it('a quick center press arrives as a lone key-up and acts once', () => {
     holdKey('DPAD_CENTER', 120);
     release('DPAD_CENTER');
     expect(sent).toEqual([['select', UP]]);
     const pressed = hub.frame().pressed;
-    expect(pressed.filter((a) => a === 'gather')).toHaveLength(1);
+    expect(pressed.filter((a) => a === 'act')).toHaveLength(1);
     expect(pressed).toContain('confirm');
     expect(pressed).not.toContain('build');
   });
@@ -250,7 +255,7 @@ describe('Android TV (the fork with key-down events off, its default)', () => {
     ]);
     const pressed = [...during.pressed, ...hub.frame().pressed];
     expect(pressed.filter((a) => a === 'build')).toHaveLength(1);
-    expect(pressed).not.toContain('gather');
+    expect(pressed).not.toContain('act');
     expect(hub.frame().held.size).toBe(0);
   });
 
@@ -262,7 +267,7 @@ describe('Android TV (the fork with key-down events off, its default)', () => {
     release('MEDIA_PLAY_PAUSE');
     expect(sent).toEqual([['playPause', UP]]);
     const after = hub.frame();
-    expect(after.pressed).toEqual(['dig']);
+    expect(after.pressed).toEqual(['shovel']);
     expect(after.held.has('run')).toBe(false);
   });
 

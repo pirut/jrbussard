@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { attachBack } from '../input/back';
 import type { InputHub } from '../input/hub';
 import { colors } from './theme';
+import { useListNav } from './useListNav';
 
 export type MenuItem = { label: string; detail?: string; onSelect: () => void };
 
@@ -12,9 +12,9 @@ export type MenuItem = { label: string; detail?: string; onSelect: () => void };
  *   d-pad and a paired controller move focus through the platform's own
  *   focus engine, and select presses the item.
  * - Web and phones: touch or click an item, or move a highlight with the
- *   keyboard or a gamepad through the input hub.
- * - Back, everywhere (Menu on Apple TV, Back on Android, Esc, a
- *   controller's B or Start): calls `onBack`. A menu without one is the
+ *   keyboard or a gamepad through the input hub (see useListNav).
+ * - Back, everywhere (Menu on Apple TV, Back on Android, Esc or Backspace,
+ *   a controller's B or Start): calls `onBack`. A menu without one is the
  *   root, and there Back leaves the app as the platform expects.
  */
 export function Menu({
@@ -30,29 +30,10 @@ export function Menu({
   hub: InputHub;
   onBack?: () => void;
 }) {
-  const [index, setIndex] = useState(0);
-
-  /* A controller's buttons mean their menu meanings while this is up. */
-  useEffect(() => hub.enter('menu'), [hub]);
-
-  useEffect(() => (onBack ? attachBack(hub, onBack) : undefined), [hub, onBack]);
-
-  useEffect(() => {
-    /* On TV the platform's focus engine moves and presses. */
-    if (Platform.isTV) return;
-    const poll = setInterval(() => hub.poll(), 50);
-    const off = hub.onPress((action) => {
-      if (action === 'up') setIndex((i) => (i + items.length - 1) % items.length);
-      else if (action === 'down') setIndex((i) => (i + 1) % items.length);
-      else if (action === 'confirm') setIndex((i) => (items[i]?.onSelect(), i));
-      else return false;
-      return true;
-    });
-    return () => {
-      clearInterval(poll);
-      off();
-    };
-  }, [hub, items]);
+  const [index, setIndex] = useListNav(hub, items.length, {
+    onSelect: useCallback((i: number) => items[i]?.onSelect(), [items]),
+    onBack,
+  });
 
   return (
     <View style={styles.wrap}>

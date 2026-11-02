@@ -7,9 +7,33 @@
  * generator put it. A tile with no entry is untouched. A tile with an entry
  * of 0 has been worked and put back level: its tree or rock is gone for good.
  *
- * Like terrain.js, this file is imported by BOTH the Convex functions and the
- * browser, so the two always agree on where the ground is and what it is.
- * Keep it plain JavaScript with no dependencies beyond terrain.js.
+ * Responsibility: turning (generated tile, overlay entry) into what is
+ * actually there (surfaceAt and its helpers), deciding one shovel swing
+ * (planTerraform), and, for the client only, keeping a local copy of the
+ * overlay (GroundMap). It deliberately does not read or write the database:
+ * the server's `ground` table (convex/schema.ts) holds the entries, and the
+ * server, or the offline stand-in in src/arcade/ascii3d/demo.js, applies
+ * whatever planTerraform returns.
+ *
+ * Callers: convex/world.ts (terraform, movement, harvest) and convex/tick.ts
+ * (solidAt for creature steps); the browser's held-tool and dig UI
+ * (src/arcade/commons/*), navigation/prediction and the 3D terrain mesh
+ * (src/arcade/ascii3d/*); and the native app through apps/commons/src/shared.ts
+ * (GroundMap, DIRT, WATER_LEVEL).
+ *
+ * Invariants:
+ * - Like terrain.js, this file is imported by the Convex functions, the
+ *   browser AND the native app, so they always agree on where the ground is
+ *   and what it is. Keep it plain deterministic JavaScript with no
+ *   dependencies beyond terrain.js. TERRACE, the height formula in
+ *   baseHeight and the water level are part of what is stored: an overlay
+ *   entry is a number of terrace steps relative to baseHeight, so changing
+ *   them moves every existing pit and mound. Redeploy convex
+ *   (npm run commons:deploy) after any change here.
+ * - The server is authoritative. planTerraform enforces reach, the protected
+ *   crossroads and roads, depth limits and supplies; the shovel cooldown is
+ *   enforced in convex/world.ts (SHOVEL_COOLDOWN_MS), not here. The client
+ *   runs the same planner only to decide what to offer and to predict.
  */
 
 import { tileAt, elevationAt, withinReach, isSolid, SAFE_RADIUS, CHUNK, WATER, SAND, TREE, ROCK } from "./terrain";
@@ -17,12 +41,18 @@ import { tileAt, elevationAt, withinReach, isSolid, SAFE_RADIUS, CHUNK, WATER, S
 /* Bare earth, where somebody has dug or piled. */
 export const DIRT = "d";
 
-/* One step of the shovel is one terrace of the generated hills. */
+/* One step of the shovel is one terrace of the generated hills. Heights are
+   in the 3D scene's world units (terrainMesh.js re-exports WATER_LEVEL). */
 export const TERRACE = 0.3;
+/* Anything whose height falls below this is under water: the sea surface, and
+   the line a dug pit floods at. Sand (-0.06) sits just above it. */
 export const WATER_LEVEL = -0.22;
+/* The floor generated water tiles (and flooded pits) are drawn at. */
 export const SEABED = -0.7;
 
-/* How far the ground can be moved from where it started, in steps. */
+/* How far the ground can be moved from where it started, in steps. Digging
+   goes deeper than piling, and the server stores edits as signed steps, so
+   `edit` is always in [-MAX_DIG, MAX_RAISE]. */
 export const MAX_DIG = 4;
 export const MAX_RAISE = 3;
 
@@ -30,14 +60,18 @@ export const MAX_RAISE = 3;
    there is always a way home and nobody arrives in a pit. */
 export const DIG_MARGIN = SAFE_RADIUS + 2;
 
-/* Per shovel tier: how long between swings. Every swing moves one step of
-   earth, so a better shovel is faster, never a source of extra earth. */
+/* Per shovel tier (index 0 is no shovel, which can never swing): how long
+   between swings in ms. Every swing moves one step of earth, so a better
+   shovel is faster, never a source of extra earth. Enforced by
+   convex/world.ts against `lastBuild`, the same clock building uses. */
 export const SHOVEL_COOLDOWN_MS = [Infinity, 700, 400];
 
 /*
- * The generated height of a tile. Land rises gently off the shore, then
- * steeply toward the peaks, quantised into terraces so hills have crisp
- * edges for the ASCII pass to draw.
+ * The generated height of a tile, in world units. Land rises gently off the
+ * shore, then steeply toward the peaks, quantised into terraces so hills
+ * have crisp edges for the ASCII pass to draw. Water and sand are flat
+ * special cases (SEABED and just above the water line). Deterministic, and
+ * the zero point every overlay entry is measured from.
  */
 export function baseHeight(x, y) {
     const tile = tileAt(x, y);
@@ -45,10 +79,13 @@ export function baseHeight(x, y) {
     if (tile === SAND) return -0.06;
     const e = elevationAt(x, y);
     const steep = Math.max(0, e - 0.6);
+    /* Linear above the shore (e > 0.33), plus a quadratic term once e passes
+       0.6 that makes the last stretch to the rocks (e > 0.74) climb fast. */
     const lift = Math.max(0, e - 0.33) * 6 + steep * steep * 30;
     return Math.round(lift / TERRACE) * TERRACE;
 }
 
+/* An overlay entry of 0 still counts as worked: see the header. */
 const worked = (edit) => edit !== undefined && edit !== null;
 
 /*
@@ -56,6 +93,8 @@ const worked = (edit) => edit !== undefined && edit !== null;
  * for untouched ground). Worked ground is bare dirt, or sand where it was
  * sand or sea. Anything that ends up below the water line floods: water
  * fills the pit, and the floor drops to the seabed so the sea covers it.
+ * Returns { tile, height, worked } and, for a flooded pit only, `floor`: the
+ * height the ground itself was dug to, under the water.
  */
 export function surfaceAt(x, y, edit) {
     const tile = tileAt(x, y);
@@ -66,19 +105,28 @@ export function surfaceAt(x, y, edit) {
     return { tile: tile === WATER || tile === SAND ? SAND : DIRT, height, worked: true };
 }
 
+/* The tile kind after the overlay: DIRT, SAND or WATER for worked ground,
+   whatever the generator says otherwise. */
 export function effectiveTile(x, y, edit) {
     return worked(edit) ? surfaceAt(x, y, edit).tile : tileAt(x, y);
 }
 
+/* The surface height after the overlay (SEABED for a flooded pit). */
 export function effectiveHeight(x, y, edit) {
     return surfaceAt(x, y, edit).height;
 }
 
-/* Worked ground is only ever in the way when it has flooded. */
+/* Whether a tile blocks walking, given its overlay entry. Worked ground is
+   only ever in the way when it has flooded, so an entry of 0 frees a tile
+   that was generated as a tree or rock. Falls back to terrain.isSolid for
+   untouched ground. The server's movement check (convex/world.ts) and the
+   tick use this, not isSolid, once the tile's overlay row is known. */
 export function solidAt(x, y, edit) {
     return worked(edit) ? surfaceAt(x, y, edit).tile === WATER : isSolid(x, y);
 }
 
+/* Tiles that cannot be dug or piled: the two roads and the crossroads plus a
+   DIG_MARGIN ring. Checked by planTerraform. */
 export function protectedGround(x, y) {
     return x === 0 || y === 0 || Math.hypot(x, y) <= DIG_MARGIN;
 }
@@ -94,13 +142,15 @@ export function digYield(x, y, nextEdit) {
     return "dirt";
 }
 
-/* Which of your supplies a fill takes, or null if you have none. */
+/* Which of your supplies a fill takes, or null if you have none. Dirt before
+   sand. `bag` is inventoryOf(player). */
 export function fillFrom(bag) {
     if ((bag?.dirt || 0) > 0) return "dirt";
     if ((bag?.sand || 0) > 0) return "sand";
     return null;
 }
 
+/* The `mode` values planTerraform (and world:terraform) accept. */
 export const TERRAFORM_MODES = ["dig", "raise", "level"];
 
 /*
@@ -115,6 +165,14 @@ export const TERRAFORM_MODES = ["dig", "raise", "level"];
  *   cleared   a stump or rubble is on the target: its tree or rock is down
  *   shovel    your shovel tier, 0 for none
  *   bag       your supplies, as inventoryOf() gives them
+ *   x, y      the target tile
+ *
+ * The outcome is { edit, fill, item, change, xp, message } plus `flooded`
+ * (a dig that reached the water line) or `landed` (a fill that turned water
+ * into land): `edit` is the tile's new overlay entry, `fill` its new stack
+ * of what was filled in, `item` what moves, and `change` is +1 when the
+ * player gains that item and -1 when they spend it. The planner never
+ * touches the bag or the database; it is pure, and deterministic.
  */
 export function planTerraform({ mode, x, y, from, fromEdit, edit, fill, cleared = false, shovel = 0, bag = {} }) {
     if (!TERRAFORM_MODES.includes(mode)) return { error: "dig, raise, or level" };
@@ -176,12 +234,13 @@ export function planTerraform({ mode, x, y, from, fromEdit, edit, fill, cleared 
     };
 }
 
-/* ── The browser's copy of the overlay ─────────────────────────────── */
+/* ── The client's copy of the overlay (browser and native app) ─────── */
 
 const posKey = (x, y) => `${x},${y}`;
 const chunkOf = (x, y) => `${Math.floor(x / CHUNK)}:${Math.floor(y / CHUNK)}`;
 
-/* A plain lookup from a snapshot's `ground` list. */
+/* A plain "x,y" -> edit lookup from a snapshot's `ground` list, for callers
+   that want the current overlay without GroundMap's chunk bookkeeping. */
 export function groundIndex(list) {
     const map = new Map();
     (list || []).forEach((g) => map.set(posKey(g.x, g.y), g.edit));

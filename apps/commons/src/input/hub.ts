@@ -1,4 +1,4 @@
-import type { Action, Axis, InputContext, InputFrame, InputSink, InputSource } from './types';
+import type { Action, Axis, InputFrame, InputSink, InputSource, PadContext } from './types';
 
 /* Returns true when it has dealt with the press, so the game never sees it. */
 type Listener = (action: Action) => boolean | void;
@@ -7,31 +7,27 @@ type Listener = (action: Action) => boolean | void;
  * Merges every attached source into one frame. The strongest stick wins
  * (so a resting gamepad does not cancel the touch stick), and an action is
  * held while any source holds it.
+ *
+ * A "press" is an edge: it is queued once when a button goes down and read
+ * once by `frame()`. A "hold" is a level that stays until the button comes
+ * up. `hold(…, true)` therefore also presses, so a source only has to say
+ * what the button is doing and the hub derives both.
  */
 export class InputHub implements InputSink {
+  /* Which controller layer is live. The screen in front sets it; sources
+     that translate raw buttons (the gamepad) read it on every poll. */
+  context: PadContext = 'menu';
+  /* True while a text field is focused. See InputSink.typing. */
+  typing = false;
   private axes = new Map<string, Axis>();
   private holds = new Map<string, Set<Action>>();
   private queue: Action[] = [];
   private listeners = new Set<Listener>();
   private sources: InputSource[] = [];
-  private contexts: { context: InputContext }[] = [];
 
-  /* A menu over the world wins, whenever either was entered. */
-  get context(): InputContext {
-    const has = (c: InputContext) => this.contexts.some((e) => e.context === c);
-    return has('menu') ? 'menu' : has('dead') ? 'dead' : 'play';
-  }
-
-  /* Enter a context until the returned function is called. */
-  enter(context: InputContext) {
-    const entry = { context };
-    this.contexts.push(entry);
-    return () => {
-      this.contexts = this.contexts.filter((e) => e !== entry);
-    };
-  }
-
-  /* Attach a device. Returns what detaches it again. */
+  /* Attach a device. Returns what detaches it again; detaching also lets go
+     of anything the device was still holding, so a pulled cable can't leave
+     the player walking. */
   use(source: InputSource) {
     this.sources.push(source);
     const off = source.attach(this);
@@ -43,6 +39,8 @@ export class InputHub implements InputSink {
     };
   }
 
+  /* A stick or key-pair's lean, clamped to the unit circle so a diagonal
+     from two keys isn't faster than a stick pushed straight. */
   setAxis(source: string, x: number, y: number) {
     const len = Math.hypot(x, y);
     const k = len > 1 ? 1 / len : 1;
@@ -59,8 +57,9 @@ export class InputHub implements InputSink {
   }
 
   /* A press goes to the listeners first. One that handles it (a menu
-     taking Back) keeps it out of the next frame, so the press that closes
-     the pause menu cannot also reopen it. */
+     taking Back, a list taking a step) keeps it out of the next frame, so
+     the press that closes the pause menu cannot also reopen it, and Esc
+     that closes a panel does not then open the pause menu. */
   press(action: Action) {
     let taken = false;
     [...this.listeners].forEach((fn) => {
@@ -69,7 +68,8 @@ export class InputHub implements InputSink {
     if (!taken) this.queue.push(action);
   }
 
-  /* Hear presses as they happen, for menus that do not run a frame loop. */
+  /* Hear presses as they happen, for menus that do not run a frame loop.
+     Return true from `fn` to keep the press from the frame. */
   onPress(fn: Listener) {
     this.listeners.add(fn);
     return () => {

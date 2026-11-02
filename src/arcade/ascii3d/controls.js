@@ -12,15 +12,21 @@ export const TURN_UP = [
     [-1, 0],
 ];
 
-/* Which compass point is at the top of the screen. */
+/* Which compass point is at the top of the screen, indexed by the same
+   quarter-turn count as TURN_UP. Map +y is south, so turn 0 (up = [0, -1])
+   is north. */
 export const HEADINGS = ["N", "E", "S", "W"];
 
-/* A screen step (sy = -1 is up) as a map step. */
+/* A screen step (sx = +1 is right, sy = -1 is up, as on a pad's axes) as a
+   map step, for the camera turned `turn` quarter steps (any integer; it is
+   wrapped into 0..3). */
 export function screenStep(turn, sx, sy) {
     const [ux, uy] = TURN_UP[((turn % 4) + 4) % 4];
     /* Screen-right is screen-up turned a quarter clockwise. */
     const rx = -uy;
     const ry = ux;
+    /* Screen-up is -sy, hence the subtraction. `|| 0` turns -0 into 0 so
+       callers and tests comparing with === or toEqual see a clean zero. */
     return [rx * sx - ux * sy || 0, ry * sx - uy * sy || 0];
 }
 
@@ -33,11 +39,16 @@ export function screenStep(turn, sx, sy) {
  * don't block a diagonal, as on the server). A diagonal that would cut a
  * corner or is shut slides along whichever side is open, the one nearer
  * the way you meant first, so you run along a wall rather than stop.
+ *
+ * `dir` is a map-space vector of any length (only its angle matters); the
+ * result is a step of -1/0/1 on each axis, [0, 0] when nothing is open.
  */
 export function octStep(dir, open = () => true, clear = open) {
     const [x, y] = dir;
     if (Math.abs(x) < 1e-6 && Math.abs(y) < 1e-6) return [0, 0];
-    /* tan(22.5°): beyond it the minor axis counts. */
+    /* tan(22.5°): the boundary between a straight direction and the
+       diagonal next to it. Once the minor axis reaches this fraction of the
+       major one, the step is diagonal. */
     const T = 0.4142;
     const ax = Math.abs(x);
     const ay = Math.abs(y);
@@ -52,8 +63,9 @@ export function octStep(dir, open = () => true, clear = open) {
     return open(sx, sy) ? [sx, sy] : [0, 0];
 }
 
-/* How long a step takes: a diagonal covers more ground, so it takes longer,
-   and walking speed stays the same whichever way you go. */
+/* How long a step takes (same unit as `base`, e.g. ms): a diagonal covers
+   sqrt(2) times the ground, so it takes that much longer and walking speed
+   stays the same whichever way you go. */
 export function stepTime(dx, dy, base) {
     return dx && dy ? base * Math.SQRT2 : base;
 }

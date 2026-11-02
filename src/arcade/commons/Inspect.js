@@ -3,7 +3,13 @@ import { TOOL_NAMES } from "../../lib/survival";
 import { playerColor } from "../../lib/appearance";
 import { CharacterPortrait } from "../CommonsCharacter";
 
-/* Another survivor, after clicking their nametag. */
+/*
+ * Another survivor, after clicking their nametag: portrait, level, health and
+ * gear. A small card with a close button, not a modal dialog, so the game
+ * keeps running behind it. `player` is a snapshot player (Commons.js looks it
+ * up afresh in each snapshot by id, falling back to the clicked copy, so the
+ * numbers stay live while it is open) and `onClose` clears the selection.
+ */
 export default function Inspect({ player, onClose }) {
   return (
     <div className="survivor-inspect">

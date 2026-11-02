@@ -10,6 +10,14 @@ import { planBuild, costOf, ORIENTED, autoFacing } from "../../lib/building";
  * The server still decides. These run the same rules (src/lib/building.js)
  * so the ghost turns red for the same reason the server would refuse, and
  * so a wall appears the moment you click rather than a round trip later.
+ *
+ * Plain functions over the snapshot: no React and no DOM (only src/lib and
+ * the shared terrain), so they are unit-tested directly (building.test.js).
+ * Used by Commons.js, which calls withPending on every snapshot and
+ * ghostsFor / judgeTile when aiming and when committing a placement.
+ * Invariant: nothing here may judge a piece more leniently than the server,
+ * or a ghost would be green for a placement that is then refused; the rules
+ * live in src/lib/building.js and are called, not copied.
  */
 
 const key = (x, y) => `${x},${y}`;
@@ -18,6 +26,17 @@ const key = (x, y) => `${x},${y}`;
  * The snapshot with your placements still in flight drawn in, and the ones
  * you just took down left out. Their cost comes off your counts at once, so
  * the build menu never offers wood that is already spoken for.
+ *
+ *   state    the served snapshot (or null before the first one)
+ *   pending  Map of "x,y" → { x, y, kind, facing, text } for placements sent
+ *            but not yet in the snapshot
+ *   removed  Map (only .has is used) keyed "x,y" for pieces taken down
+ *
+ * Returns `state` itself when nothing is in flight, so the caller's useMemo
+ * keeps a stable identity. A pending piece is skipped (and its cost not
+ * charged) once the server shows anything but cleared ground (stump or
+ * rubble) on that tile, i.e. when the placement has landed or lost a race.
+ * Drawn pieces carry `pending: true` and are marked as yours.
  */
 export function withPending(state, pending, removed) {
     if (!state || (!pending.size && !removed.size)) return state;
@@ -51,7 +70,10 @@ export function withPending(state, pending, removed) {
     return { ...state, cells, me };
 }
 
-/* What the builder needs to know about the tiles around them. */
+/* What the builder needs to know about the tiles around them. `from` is the
+   tile you stand on; `occupied` holds tiles with a creature or a living
+   other player, which the server refuses to build on; `bag` is your pack
+   as counts (inventoryOf). */
 export function buildContext(state, from) {
     const cells = new Map((state?.cells || []).map((c) => [key(c.x, c.y), c]));
     const ground = groundIndex(state?.ground);
@@ -63,7 +85,10 @@ export function buildContext(state, from) {
     return { cells, ground, occupied, from, bag: inventoryOf(state?.me) };
 }
 
-/* One tile, judged as the server would, apart from reach. */
+/* One tile, judged as the server would, apart from reach: `reach: false`
+   because a tile out of reach is not an error here, it is a green ghost with
+   `near: false` meaning "you walk there first". `bag` defaults to the
+   context's, but ghostsFor passes a running tally. */
 export function judgeTile(ctx, { x, y, kind, facing }, bag = ctx.bag) {
     const plan = planBuild({
         kind,
@@ -92,6 +117,7 @@ export function judgeTile(ctx, { x, y, kind, facing }, bag = ctx.bag) {
 export function ghostsFor(state, from, spots, kind, facing) {
     if (!from || !spots.length || !kind) return [];
     const ctx = buildContext(state, from);
+    /* Copied because the tally is spent down as ghosts turn green. */
     const bag = { ...ctx.bag };
     return spots.map((spot) => {
         const look = facing ?? (ORIENTED.includes(kind) ? autoFacing(spot.x, spot.y, (x, y) => ctx.cells.get(key(x, y))?.kind === "wall") : undefined);

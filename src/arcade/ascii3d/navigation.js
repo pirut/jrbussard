@@ -7,12 +7,33 @@ import { STRUCTURES } from "../../lib/survival";
  * The server still judges every step. This only lets the client walk you
  * somewhere you clicked, and step ahead of the server's reply, without
  * walking you into walls on the way.
+ *
+ * Callers: arcade/Commons.js (click-to-walk, held keys and prediction via
+ * prediction.js's judgeStep) and arcade/commons/held.js. It reads the same
+ * snapshot the renderer gets (`cells`, `ground`, `monsters`, `players`),
+ * and its notion of "solid" comes from lib/ground.js solidAt (which the
+ * server imports too) and lib/survival.js STRUCTURES. The server's own
+ * judgement is blocked()/move in convex/world.ts with BLOCKS in
+ * convex/field.ts; this file mirrors it, so if the server's walkability
+ * rules change they must change here too, or the client will predict steps
+ * the server refuses (one visible difference: a door counts as shut here
+ * unless cell.open is truthy, where the server treats it as shut only when
+ * cell.open === false).
+ * Coordinates are integer map tiles (x east, y south), keyed "x,y".
  */
 
 const key = (x, y) => `${x},${y}`;
 
 /* Whether a tile can be walked into, given a snapshot. Other people and
-   creatures count as in the way, and so does a pit that has flooded. */
+   creatures count as in the way, and so does a pit that has flooded.
+   Returns four queries over that snapshot (build it once per snapshot, not
+   per step):
+     open(x, y)        terrain and structures only: no creature or person.
+                       Used for the corner tiles a diagonal passes.
+     worked(x, y)      dug or piled ground (has a ground edit).
+     free(x, y)        open and nobody standing there (living players other
+                       than yourself, and monsters).
+     creatureAt(x, y)  the monster there, or null: a swing, not a step. */
 export function passability(state) {
     const cells = new Map((state?.cells || []).map((c) => [key(c.x, c.y), c]));
     const ground = groundIndex(state?.ground);
@@ -22,6 +43,8 @@ export function passability(state) {
         if (!p.self && p.hp > 0) occupied.add(key(p.x, p.y));
     });
     const open = (x, y) => {
+        /* A structure or a harvest leftover on the tile decides first; bare
+           ground falls through to the terrain and any dug/piled edit. */
         const cell = cells.get(key(x, y));
         if (cell) {
             if (cell.kind === "door") return Boolean(cell.open);
@@ -38,6 +61,7 @@ export function passability(state) {
     };
 }
 
+/* The eight neighbours: four straight, then four diagonal. */
 const STEPS = [
     [1, 0],
     [-1, 0],
@@ -49,7 +73,8 @@ const STEPS = [
     [-1, -1],
 ];
 
-/* A tiny binary heap of [cost, x, y], cheapest first. */
+/* A tiny binary heap of [cost, x, y], cheapest first (Dijkstra's queue:
+   there is no heuristic, so this is not A*). */
 function heap() {
     const items = [];
     const less = (a, b) => items[a][0] < items[b][0];
@@ -98,6 +123,12 @@ function heap() {
  * Returns the tiles to walk, in order, not counting where you stand; [] if
  * you are already there; null if there is no way within `limit` tiles
  * searched.
+ *
+ * `from` is { x, y }; the start tile itself is never tested with `free`, but
+ * every other tile on the path, the goal included, must pass it. `limit`
+ * bounds the tiles expanded, not the path length, which keeps a click on an
+ * unreachable spot from searching the whole map (1600 is roughly a 40 x 40
+ * area).
  */
 export function findPath(from, goal, free, limit = 1600, clear = free) {
     if (goal(from.x, from.y)) return [];

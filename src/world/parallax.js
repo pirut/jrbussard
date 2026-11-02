@@ -14,8 +14,26 @@ import { fbm } from "../lib/noise";
  * The near plane is deliberately kept out of the middle of the screen. Depth
  * is not worth having if it hides the square you are standing on, so density
  * is weighted toward the edges and fades to nothing around the player.
+ *
+ * Responsibility: produce the text of one plane, as one HTML string per row,
+ * from the camera position. It is a pure function of its arguments: no DOM,
+ * no clock, no Math.random. The same camera always gives the same foliage
+ * (it is hashed from world coordinates, not rolled per frame), so the planes
+ * hold still when you stand still and slide when you move. It does not
+ * position, blur or fade the planes (the CSS in styles/world.css does:
+ * .world-plane--near and --far) and it does not diff or write to the page.
+ *
+ * Called only from render.js (drawPlanes), once per frame for each plane, with
+ * the NEAR and FAR settings below. That is the character renderer which
+ * pages/World.js falls back to when the 3D scene cannot start, so with WebGL
+ * working this file never runs. Entirely cosmetic: nothing here is collidable, nothing reads it
+ * back, and neither the server nor any other client knows it exists.
  */
 
+/* A stable pseudo-random float in [0, 1) for an integer cell and a salt: an
+   integer hash (large odd multipliers, xor-shifts), not a PRNG, so the same
+   cell always gets the same value no matter the order cells are visited in.
+   Different salts give independent-looking streams for the same cell. */
 function hash3(x, y, salt) {
     let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + salt;
     h = (h ^ (h >>> 13)) >>> 0;
@@ -27,6 +45,10 @@ function hash3(x, y, salt) {
 const NEAR_GLYPHS = ["♠", "♣", "♠", "▓", "▒", "♣"];
 const FAR_GLYPHS = ["·", "·", "'", "`", "."];
 
+/* Settings for the two planes. `factor` is the plane's speed relative to the
+   ground (1 = moves with the world): above 1 it slides past faster and reads
+   as in front of you, below 1 it drifts slowly and reads as far away.
+   `salt` separates the planes' noise so they do not echo each other. */
 export const NEAR = {
     factor: 1.55,
     salt: 9001,
@@ -37,7 +59,9 @@ export const NEAR = {
      * and gaps, which is what foliage close to the camera looks like.
      */
     clump: { scale: 0.11, threshold: 0.56, gain: 5.5 },
-    /* How far from the player the plane stays clear, in cells. */
+    /* How far from the player the plane stays clear, in cells, and how many
+       cells beyond that it takes to reach full density. Both are measured on
+       the elliptical distance buildPlane computes. */
     clearRadius: 9,
     fade: 13,
 };
@@ -46,7 +70,8 @@ export const FAR = {
     factor: 0.45,
     salt: 4242,
     glyphs: FAR_GLYPHS,
-    /* Haze is fine as a fine, even drift. */
+    /* Haze is a fine, even drift: a low gain keeps it sparse even where the
+       noise peaks, and no clear zone is needed behind the ground. */
     clump: { scale: 0.09, threshold: 0.48, gain: 0.9 },
     clearRadius: 0,
     fade: 0,
@@ -56,6 +81,16 @@ export const FAR = {
  * One plane's worth of rows. Sampling the hash at camera * factor is what
  * makes it slide at its own rate: the same screen cell maps to a different
  * source cell than the ground does, and the offset grows as you walk.
+ *
+ * `cols` x `rows` is the viewport in character cells; `camX`/`camY` the
+ * world tile at the top-left corner; `plane` is NEAR or FAR; `colors` is a
+ * list of CSS colours to shade glyphs with. The clear zone is centred on the
+ * viewport, not on the player: the camera follows the player but clamps at
+ * the map edge (pages/World.js), so near an edge the player stands off-centre
+ * and may sit under the near plane.
+ * Returns `rows` strings of HTML. Runs of one colour share a single span and
+ * trailing blanks are dropped, which keeps the markup small; render.js
+ * compares these strings to the previous frame to skip unchanged rows.
  */
 export function buildPlane({ cols, rows, camX, camY, plane, colors }) {
     const originX = Math.round(camX * plane.factor);
@@ -75,10 +110,13 @@ export function buildPlane({ cols, rows, camX, camY, plane, colors }) {
             let color = null;
 
             /* Keep the middle clear so the near plane never covers the play
-               area — it thickens toward the edges of the frame. */
+               area — it thickens toward the edges of the frame. `allow` is
+               0 inside the clear radius and ramps to 1 over `fade` cells. */
             let allow = 1;
             if (plane.clearRadius > 0) {
-                /* Elliptical, because the viewport is much wider than tall. */
+                /* Elliptical: glyph cells are about twice as tall as wide, so
+                   dividing the horizontal offset by 1.9 makes the clear zone
+                   round on screen instead of a tall oval. */
                 const d = Math.hypot((x - midX) / 1.9, y - midY);
                 if (d <= plane.clearRadius) allow = 0;
                 else allow = Math.min(1, (d - plane.clearRadius) / plane.fade);
@@ -87,6 +125,10 @@ export function buildPlane({ cols, rows, camX, camY, plane, colors }) {
             if (allow > 0) {
                 const wx = originX + x;
                 const wy = originY + y;
+                /* Clumping: the noise value is how much foliage this patch has;
+                   only the part above the threshold counts, scaled by gain
+                   into a 0..1 chance, and a per-cell hash roll then decides
+                   whether this cell is filled. */
                 const mass = fbm(wx, wy, plane.clump.scale, plane.salt);
                 const density = Math.max(
                     0,

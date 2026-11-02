@@ -1,23 +1,55 @@
 /*
  * Room definitions for the overworld.
  *
+ * Responsibility: the hand-authored layout of the portfolio site's city, as
+ * plain data. This file decides what exists and where; build.js turns it into
+ * grids (and invents everything between the rooms) and tiles.js defines the
+ * vocabulary. It runs no logic and has no imports. It is client-only: the
+ * Convex server and the native app never read it, and it has nothing to do
+ * with the procedural Commons world in src/lib/terrain.js.
+ *
+ * Read by build.js (the only importer of ROOMS, ROADS, LAKES, SPAWN and the
+ * world size); everything else reaches rooms through `world.rooms` and
+ * `world.spawn`. Room `id`s are also keys elsewhere: navigation.js (where to
+ * arrive) and pages/World.js (what each console and panel opens).
+ *
  * Walls and doors are generated from `w`/`h`/`doors`, so room art only has to
  * describe the interior. `art` uses the AUTHOR_CHARS legend from tiles.js;
  * `text` is always rendered as walkable label glyphs, whatever the characters.
  * A space inside `art` is transparent — it leaves whatever is underneath alone,
  * and later content paints over earlier content.
  *
+ * Coordinates: `x`/`y` on a room are absolute tiles (its top-left wall
+ * corner); inside `content`, `x`/`y` are relative to that corner, so the wall
+ * is column/row 0 and the interior runs 1 to w-2 / h-2 (lanes.test.js fails a
+ * label that touches a wall). A door's `at` is the offset along its side of
+ * the middle of a three-tile opening.
+ *
  * Walls auto-tile from orthogonal neighbours only, so build structures out of
  * aligned runs. Diagonal art comes out as disconnected fragments.
  *
  * `tint` shifts the room's floor and walls, and `ambient` sets how dark it is
  * before torches and the player's own light — together they give each room a
- * mood you can feel on the way in.
+ * mood you can feel on the way in. `tint` is an RGB triple; `ambient` is a
+ * light level from 0 (black) to 1. Both are cosmetic, and the 2D renderer
+ * and the 3D scene each apply them their own way.
  *
- * Every room sits on one of two shared axes (x = 97 north/south, y = 58
- * east/west) so the connecting roads run straight.
+ * Invariants:
+ * - Every room sits on one of two shared axes (x = 97 north/south, y = 58
+ *   east/west) so the connecting roads run straight. Door `at` values are
+ *   chosen so each door lands on its axis: change a room's x/y and its door
+ *   or the road will miss.
+ * - Rooms must not overlap and must stay clear of the outer five tiles,
+ *   which build.js turns into void and mountains.
+ * - Order matters: a room's position in ROOMS plus one is its zone number in
+ *   the built grids (zones, zoneTints, zoneAmbient), and 0 means outdoors,
+ *   so there can be at most 255 rooms.
+ * - SPAWN must be the walkable middle of the atrium crossing (lanes.test.js).
  */
 
+/* Size of the whole map in tiles. The built grids are flat arrays of w*h, so
+   this fixes the memory cost (about 23k cells); the border build.js turns to
+   void and mountains is carved out of it, not added around it. */
 export const WORLD_W = 196;
 export const WORLD_H = 118;
 
@@ -246,10 +278,17 @@ export const ROOMS = [
     },
 ];
 
-/* Where the player wakes up: the middle of the atrium crossing. */
+/* Where the player wakes up: the middle of the atrium crossing (x = 97 is the
+   north/south axis, y = 61 is three tiles below the east/west road). Also the
+   start of build.js's reachability fill and of navigation.js's search, so it
+   has to be open floor. */
 export const SPAWN = { x: 97, y: 61 };
 
-/* Stone roads between rooms. Each is a straight run drawn three cells wide. */
+/* Stone roads between rooms, as inclusive endpoints of an axis-aligned run
+   (never diagonal). build.js paints each three cells wide, centred on the
+   line, and keeps the city blocks and lakes off it. The ends run a tile
+   or two inside each room, past its door; rooms are painted after roads, so
+   their walls and floor win and the road shows only outside. */
 export const ROADS = [
     { from: { x: 61, y: 58 }, to: { x: 75, y: 58 } },
     { from: { x: 119, y: 58 }, to: { x: 133, y: 58 } },
@@ -258,7 +297,10 @@ export const ROADS = [
     { from: { x: 97, y: 95 }, to: { x: 97, y: 103 } },
 ];
 
-/* Decorative lakes: {x, y, rx, ry} ellipses of water carved into the grass. */
+/* Decorative lakes: {x, y, rx, ry} ellipses of water (centre and radii in
+   tiles) carved into the grass. The edge is ragged and build.js skips any
+   cell within three tiles of a room or road, so a lake can overlap the
+   built world on paper and still never block a door. */
 export const LAKES = [
     { x: 46, y: 96, rx: 20, ry: 8 },
     { x: 152, y: 96, rx: 18, ry: 7 },

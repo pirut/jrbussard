@@ -16,10 +16,25 @@
  * chunky on purpose: at a few characters per limb a thin arm vanishes, so
  * detail goes where it changes the outline or the shading ramp (a jaw, a
  * pauldron, a ruff) rather than into things smaller than a character cell.
+ *
+ * Callers: models.js (the registry that turns these into rigs and poses
+ * them) and tests/models.test.ts. Specs are deterministic and structured-
+ * cloneable (the tests pin both), so keep them free of Math.random, Dates
+ * and functions. This file does not build geometry (figureGeometry.js),
+ * pick materials (materials.js) or animate (models.js `pose`).
+ *
+ * What must stay in sync: the pivot names are the rig contract with
+ * models.js (hipL/kneeL/ankleL, shoulderL/elbowL/handL and their R twins,
+ * torso, neck, head, eyes, cape, held, tail/tailTip; legFL.. / kneeFL.. /
+ * jaw for quadrupeds). Rename one here and `poseHumanoid` / `poseQuadruped`
+ * silently stop moving it. Colours are "#rrggbb" strings (the tests check
+ * that), and `set` names a glyph set from asciiPass.js GLYPH_SETS.
  */
 
 /* ── Colour ─────────────────────────────────────────────────────────────── */
 
+/* 0..255 channels from "#rrggbb" or a number. A three-digit "#rgb" is not
+   expanded: it would be read as 0x000rgb, so always write six digits. */
 function channels(hex) {
     const n = typeof hex === "number" ? hex : parseInt(String(hex).replace("#", ""), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -35,13 +50,16 @@ export function shade(hex, k) {
     return toHex(channels(hex).map((v) => v * k));
 }
 
+/* A colour `t` of the way (0..1) from a to b, mixed per sRGB channel. */
 export function mixColor(a, b, t) {
     const ca = channels(a);
     const cb = channels(b);
     return toHex(ca.map((v, i) => v + (cb[i] - v) * t));
 }
 
-/* A small, stable number from a string, for per-figure variation. */
+/* A small, stable number in [0, 1) from a string (32-bit FNV-1a, reduced
+   to ten-thousandths), for per-figure variation such as the blink phase
+   in models.js. Same text, same number, on every device. */
 export function seedOf(text) {
     let h = 2166136261;
     for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
@@ -50,6 +68,10 @@ export function seedOf(text) {
 
 /* ── Building a spec ────────────────────────────────────────────────────── */
 
+/* The builder a *Spec function fills in: pivot(name, parent, at, rot?) and
+   part(on, shape, color, at, extra?) where `extra` is the optional part
+   fields (rot, scale, set, unlit). Pivot positions are relative to their
+   parent; part positions relative to the pivot named by `on`. */
 function recipe() {
     const pivots = [];
     const parts = [];
@@ -65,11 +87,15 @@ function recipe() {
     };
 }
 
-/* What a recipe hands out: its data only, safe to clone, store or send. */
+/* What a recipe hands out: its data only, safe to clone, store or send.
+   `legs` (quadrupeds only) lists the leg name suffixes that models.js turns
+   into leg{name}/knee{name} pivot pairs. */
 function finished({ pivots, parts, legs }) {
     return legs ? { pivots, parts, legs } : { pivots, parts };
 }
 
+/* Colours shared across recipes: trim and buckles, eyes/nostrils, teeth
+   and horns. */
 const GOLD = "#c9b27a";
 const INK = "#1b1a1f";
 const BONE = "#efe2c0";
@@ -83,11 +109,19 @@ const BONE = "#efe2c0";
  * `look` holds colours (skin, hair, torso, sleeves, legs, boots, belt, coat,
  * plate, cloak), styles (hairstyle, headwear), armor and weapon tiers, and
  * bulk, which widens everything for a troll.
+ *
+ * armor: 0 none, 1 padded coat, >= 2 plate. weapon: 0 none, 1 spear,
+ * >= 2 sword (both hang off the "held" pivot on the right hand). `look` is
+ * built by models.js survivorLook() for players and written out in full for
+ * kobold, troll and shade below. `bulk` widens radii and limb offsets
+ * (the pivot heights and limb lengths stay put).
  */
 export function humanoidSpec(look) {
     return finished(humanoidRecipe(look));
 }
 
+/* The recipe itself, separate from humanoidSpec so that koboldSpec and
+   trollSpec can add parts and pivots before it is finished. */
 function humanoidRecipe(look) {
     const r = recipe();
     const { part, pivot } = r;
@@ -238,6 +272,8 @@ function humanoidRecipe(look) {
     return r;
 }
 
+/* Hair for look.hairstyle: "long", "braids", "shaved", else cropped. Skipped
+   under a hood, which hides it. Positions are on the "head" pivot. */
 function hairParts({ part }, look) {
     const hair = look.hair;
     if (look.headwear === "hood") return;
@@ -274,6 +310,8 @@ function hairParts({ part }, look) {
     }
 }
 
+/* Headwear for look.headwear: "hood", "brim", "crown"; anything else (such
+   as "none") adds nothing. Cloth takes the cloak colour, else the torso's. */
 function headwearParts({ part }, look) {
     const cloth = look.cloak || look.torso;
     switch (look.headwear) {
@@ -319,6 +357,11 @@ function headwearParts({ part }, look) {
  *   ears             "pointed" or "round"
  *   ruff             a mane of fur at the shoulders (wolves)
  *   teeth            "fangs" or "incisors"
+ *
+ * Proportions derive from `height`: the legs are half of it and the body
+ * radius a fifth, so scaling a creature is a matter of its entry in
+ * QUADRUPEDS. The body faces +z with the head end forward. Returns a spec
+ * with `legs`: ["FL", "FR", "BL", "BR"] for models.js to rig.
  */
 export function quadrupedSpec({ length, height, color, belly, head: h, tail, ears, snout = 1, ruff = false, teeth = "fangs" }) {
     const r = recipe();
@@ -405,6 +448,9 @@ export function quadrupedSpec({ length, height, color, belly, head: h, tail, ear
 
 /* ── The bestiary ───────────────────────────────────────────────────────── */
 
+/* The animals models.js builds with quadrupedSpec, keyed by creature kind
+   (the keys of CREATURES in src/lib/game/creatures.js). Sizes are tile
+   units. */
 export const QUADRUPEDS = {
     rat: {
         length: 0.66,
@@ -433,7 +479,10 @@ export const QUADRUPEDS = {
 const KOBOLD_SCALE = "#a8503d";
 
 /* A kobold: a small lizard-person with a snout, horns, a crest of spines
-   down head and back, a pale belly, claws and a tail in two pieces. */
+   down head and back, a pale belly, claws and a tail in two pieces. It is
+   a humanoid recipe with extra parts, so it poses with the humanoid rig
+   (plus the tail/tailTip pivots added here); models.js shrinks it to 0.74
+   and its weapon tier 1 gives it a spear. */
 export function koboldSpec() {
     const r = humanoidRecipe({
         skin: "#d0705a",
@@ -473,7 +522,8 @@ export function koboldSpec() {
 }
 
 /* A troll: hunched, pot-bellied, mossy at the shoulders, with a heavy brow,
-   an underbite and tusks. */
+   an underbite and tusks. Built at bulk 1.35; models.js scales it 1.4 more,
+   sets its hunch and gives it a club (see CREATURES there). */
 export function trollSpec() {
     const skin = "#8f6fc2";
     const r = humanoidRecipe({
@@ -539,6 +589,9 @@ export function shadeSpec() {
  * figure's triangles when every sphere was cut the same.
  */
 export function sphereSegments(r, sx = 1, sy = 1, sz = 1) {
+    /* Thresholds are in tile units of the largest stretched radius:
+       12x9 segments from 0.15 up (heads, bellies), 9x6 from 0.07 (hands,
+       knees), 6x4 below (eyes, buttons). Returns [width, height]. */
     const size = r * Math.max(sx, sy, sz);
     if (size >= 0.15) return [12, 9];
     if (size >= 0.07) return [9, 6];

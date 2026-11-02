@@ -1,5 +1,6 @@
 import { BackHandler, Platform, TVEventControl } from 'react-native';
 import type { InputHub } from './hub';
+import type { Action } from './types';
 
 /*
  * Back, on every device: one level up, and out of the app only from the
@@ -11,9 +12,11 @@ import type { InputHub } from './hub';
  * - Android (TV and phones): Back is not a TV event at all. It reaches JS
  *   only through BackHandler, newest listener first; when no listener
  *   takes it, Android closes the app.
- * - Keyboard Esc and a controller's B or Start arrive on the hub as
- *   `pause` or `back`.
+ * - Keyboard: Esc arrives as `pause`, Backspace as `back`.
+ * - Controller: in a menu, B and Start arrive as `back`; in the world,
+ *   Start is `pause` and B is `cancel` (the browser's layout, PAD_LAYOUT).
  */
+const BACK: readonly Action[] = ['back', 'cancel', 'pause'];
 
 let claims = 0;
 
@@ -47,12 +50,13 @@ export function onHardwareBack(fn: () => void) {
 
 /*
  * Everything a screen that can go back needs: Menu on Apple TV, Back on
- * Android, and `pause` or `back` from a keyboard or controller all call
- * `onBack`, and that press is not passed on to the world underneath.
+ * Android, and `back`, `cancel` or `pause` from a keyboard or controller
+ * all call `onBack`, and that press is not passed on to the world
+ * underneath (see InputHub.press).
  */
 export function attachBack(hub: InputHub, onBack: () => void) {
   const offPress = hub.onPress((action) => {
-    if (action !== 'back' && action !== 'pause') return false;
+    if (!BACK.includes(action)) return false;
     onBack();
     return true;
   });
