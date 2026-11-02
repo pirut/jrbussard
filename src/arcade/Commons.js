@@ -335,13 +335,13 @@ function Game({
   const stageRef = useRef(null);
   const fieldApi = useRef(null);
   const chatRef = useRef(null);
-  const [muted, toggleSound] = useCommonsSound(fieldApi);
 
   /* ── Input: settings, the device in hand, and what it calls things ─── */
 
   const settings = useCommonsSettings();
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const [muted, toggleSound] = useCommonsSound(fieldApi, settings);
   const bindings = useMemo(() => resolveBindings(settings.keys), [settings.keys]);
   const keymap = useMemo(() => createKeymap(bindings), [bindings]);
   const keymapRef = useRef(keymap);

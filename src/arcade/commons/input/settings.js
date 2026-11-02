@@ -6,7 +6,7 @@
  *
  * Anything may read them through `settingsStore`: React with
  * useCommonsSettings (./useSettings.js), anything else with get/subscribe.
- * Sound reads `volume`, `music` and `effects`, each 0–1.
+ * Sound reads `volume`, `music` and `effects`, each 0–1 (useCommonsSound).
  */
 
 export const STORAGE_KEY = "commons:settings";
