@@ -27,6 +27,7 @@ type Body = ReturnType<typeof createBody>;
 export function GameScreen({ world, hub, onQuit }: { world: World; hub: InputHub; onQuit: () => void }) {
   const { state, call, status } = world;
   const scene = useMemo(() => new WorldScene(), []);
+  useEffect(() => () => scene.dispose(), [scene]);
   const stateRef = useRef<WorldState | undefined>(state);
   const navRef = useRef<Nav | null>(null);
   const bodyRef = useRef<Body | null>(null);
