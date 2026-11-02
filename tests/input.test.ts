@@ -18,9 +18,11 @@ import {
   controllerFamily,
   createPadReader,
   padAction,
+  padTouched,
   rumbleFor,
   stickDirection,
   stickVector,
+  thirdPersonLook,
 } from "../src/arcade/commons/input/gamepad";
 import { nextInDirection } from "../src/arcade/commons/input/focus";
 import {
@@ -223,6 +225,59 @@ describe("controllers", () => {
     expect(held.pressed).toEqual([]);
     expect(held.held.has("build")).toBe(true);
     expect(reader.read(pad(), 32, "build").released).toEqual(["build"]);
+  });
+
+  it("keeps an action held while another button bound to it is still down", () => {
+    /* A and RT both act: letting go of one must not stop a held swing. */
+    const reader = createPadReader();
+    expect(reader.read(pad([BUTTON.south]), 0, "play").pressed).toEqual(["act"]);
+    const both = reader.read(pad([BUTTON.south, BUTTON.rt]), 16, "play");
+    expect(both.pressed).toEqual([]);
+    const one = reader.read(pad([BUTTON.rt]), 32, "play");
+    expect(one.released).toEqual([]);
+    expect(one.held.has("act")).toBe(true);
+    expect(reader.read(pad(), 48, "play").released).toEqual(["act"]);
+  });
+
+  it("does not drop a hold when one button lets go as the other goes down", () => {
+    const reader = createPadReader();
+    reader.read(pad([BUTTON.south]), 0, "play");
+    const swap = reader.read(pad([BUTTON.rt]), 16, "play");
+    expect(swap.pressed).toEqual([]);
+    expect(swap.released).toEqual([]);
+    expect(swap.held.has("act")).toBe(true);
+  });
+
+  it("turns the camera on a full flick whatever the look sensitivity", () => {
+    /* The flick used to be judged after sensitivity: at 0.5 a full push
+       came to 0.5 and never passed 0.6. */
+    const reader = createPadReader();
+    const frame = reader.read(pad([], [0, 0, 1, 0]), 0, "play", { sensitivity: 0.5 });
+    expect(frame.look[0]).toBeCloseTo(0.5);
+    expect(frame.lookRaw[0]).toBeCloseTo(1);
+    const flick = thirdPersonLook(frame.lookRaw, true, { sensitivity: 0.5 });
+    expect(flick.turn).toBe("cameraRight");
+    expect(flick.armed).toBe(false);
+    /* Held over: no second turn until the stick comes back. */
+    expect(thirdPersonLook([1, 0], flick.armed, { sensitivity: 0.5 }).turn).toBe(null);
+    const back = thirdPersonLook([0.1, 0], flick.armed);
+    expect(back.armed).toBe(true);
+    expect(thirdPersonLook([-0.9, 0], back.armed, { sensitivity: 3 }).turn).toBe("cameraLeft");
+    /* A light touch does not turn even at high sensitivity. */
+    expect(thirdPersonLook([0.4, 0], true, { sensitivity: 3 }).turn).toBe(null);
+  });
+
+  it("zooms at a rate set by sensitivity and invert", () => {
+    expect(thirdPersonLook([0, 0.5], true, { sensitivity: 2 }).zoom).toBeCloseTo(1);
+    expect(thirdPersonLook([0, 0.5], true, { sensitivity: 2, invertY: true }).zoom).toBeCloseTo(-1);
+    expect(thirdPersonLook([0, 0.05], true).zoom).toBe(0);
+  });
+
+  it("tells a touched controller from one lying idle", () => {
+    expect(padTouched(pad())).toBe(false);
+    expect(padTouched(pad([], [0.1, 0.1, 0, 0]))).toBe(false);
+    expect(padTouched(pad([BUTTON.start]))).toBe(true);
+    expect(padTouched(pad([], [0, 0, 0, -0.9]))).toBe(true);
   });
 
   it("repeats menu steps while the d-pad is held", () => {

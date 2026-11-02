@@ -53,6 +53,7 @@ import { ConnectionBanner, LoadingScreen, useOnline } from "./commons/Connection
 import { InputContext, controlText } from "./commons/input/InputContext";
 import { MOVE_VECTORS, actionsForKey, createKeymap, resolveBindings } from "./commons/input/actions";
 import useGamepad, { menuStep } from "./commons/input/useGamepad";
+import { thirdPersonLook } from "./commons/input/gamepad";
 import { settingsStore, useCommonsSettings } from "./commons/input/useSettings";
 import { resolveReducedMotion, resolveUiScale } from "./commons/input/settings";
 import { advanceTutorial, loadTutorial, saveTutorial, skipTutorial, tutorialStep } from "./commons/input/tutorial";
@@ -1016,7 +1017,7 @@ function Game({
   /* ── Controllers ──────────────────────────────────────────────────── */
 
   /* The right stick turns the camera a quarter per flick; it has to come
-     back to the middle before it turns again. */
+     back to the middle before it turns again (see thirdPersonLook). */
   const lookArmed = useRef(true);
   const { rumble } = useGamepad({
     rootRef,
@@ -1051,11 +1052,13 @@ function Game({
         if (lx || ly) field.look(lx * dt * 2.6, ly * dt * 2);
         return;
       }
-      if (Math.abs(lx) > 0.6 && lookArmed.current) {
-        lookArmed.current = false;
-        runRef.current.run(lx > 0 ? "cameraRight" : "cameraLeft");
-      } else if (Math.abs(lx) < 0.25) lookArmed.current = true;
-      if (Math.abs(ly) > 0.1) field.zoomBy(Math.exp(ly * dt * 1.6));
+      const { turn, armed, zoom } = thirdPersonLook(frame.lookRaw, lookArmed.current, {
+        sensitivity: settingsRef.current.lookSensitivity ?? 1,
+        invertY: settingsRef.current.invertY ?? false,
+      });
+      lookArmed.current = armed;
+      if (turn) runRef.current.run(turn);
+      if (zoom) field.zoomBy(Math.exp(zoom * dt * 1.6));
       /* No pointer: aim at whatever is in front of you. */
       if (deviceRef.current === "gamepad") setHover(facingSpot());
     },

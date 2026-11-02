@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { controllerFamily, createPadReader, rumbleFor } from "./gamepad";
+import { controllerFamily, createPadReader, padTouched, rumbleFor } from "./gamepad";
 import { ensureFocus, moveFocus, stepTabs } from "./focus";
 
 /* The menu or window on top inside `root`, if any: the last one drawn. */
@@ -35,12 +35,32 @@ export function menuStep(menu, dir) {
   moveFocus(menu, dir);
 }
 
+/* A frame with nothing held and the sticks at rest. */
+const STILL = Object.freeze({
+  pressed: [],
+  released: [],
+  held: new Set(),
+  move: [0, 0],
+  look: [0, 0],
+  lookRaw: [0, 0],
+  nav: null,
+  active: false,
+});
+
 /*
  * Game controllers, polled once a frame. While a menu or window is open
  * the controller drives it like a TV remote: d-pad or stick to move, the
  * bottom face button to press, the right one to back out, bumpers to change
- * tabs. Otherwise each press goes to `onAction` by name and each frame's
- * sticks to `onFrame`.
+ * tabs. Otherwise each press goes to `onAction` by name, each let-go to
+ * `onRelease`, and each frame's sticks to `onFrame`.
+ *
+ * Of several connected pads, the first one touched is the player's, until
+ * it is unplugged; the others are ignored.
+ *
+ * Whenever the pad stops reaching the game (a menu opens, a text box takes
+ * focus, the window loses focus, the pad is unplugged, the hook unmounts)
+ * the game is told to let go of everything it was told is held, and gets
+ * one still frame, so nothing stays swinging or walking.
  *
  *   getContext()   "play", "build" or "dead": what the game is showing
  *   settings       { lookSensitivity, invertY, rumble } (a ref)
@@ -50,6 +70,7 @@ export function menuStep(menu, dir) {
 export default function useGamepad({ rootRef, getContext, onAction, onRelease, onFrame, onDevice, onConnect, settingsRef }) {
   const handlers = useRef({});
   handlers.current = { getContext, onAction, onRelease, onFrame, onDevice, onConnect };
+  /* The index of the player's pad, once one has been touched. */
   const lastPad = useRef(null);
 
   useEffect(() => {
@@ -58,6 +79,28 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
     let raf;
     let last = performance.now();
     let using = false;
+    /* What the game has been told is held, and whether it was last told
+       the sticks lean, so it can be told to let go. */
+    const gameHeld = new Set();
+    let leaning = false;
+    let lastContext = "play";
+    const letGo = () => {
+      const h = handlers.current;
+      const was = [...gameHeld];
+      gameHeld.clear();
+      was.forEach((action) => h.onRelease?.(action, lastContext));
+      if (leaning) {
+        leaning = false;
+        h.onFrame?.(STILL, 0, lastContext);
+      }
+    };
+    /* The player's pad is gone: forget it, and pick again on the next touch. */
+    const lose = () => {
+      letGo();
+      reader.reset();
+      lastPad.current = null;
+    };
+
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const now = performance.now();
@@ -65,13 +108,17 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
       last = now;
       let pads;
       try {
-        pads = [...navigator.getGamepads()].filter(Boolean);
+        pads = [...navigator.getGamepads()].filter((p) => p && p.connected !== false);
       } catch {
         return;
       }
-      if (!pads.length) return;
-      /* The pad last touched, else the first one. */
-      const pad = pads.find((p) => p.index === lastPad.current) || pads[0];
+      let pad = pads.find((p) => p.index === lastPad.current);
+      if (!pad && lastPad.current !== null) lose();
+      if (!pad) {
+        pad = pads.find((p) => padTouched(p));
+        if (!pad) return;
+        lastPad.current = pad.index;
+      }
       const h = handlers.current;
       const root = rootRef.current;
       const menu = topMenu(root);
@@ -81,19 +128,18 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
         sensitivity: settings.lookSensitivity ?? 1,
         invertY: settings.invertY ?? false,
       });
-      if (frame.active) {
-        lastPad.current = pad.index;
-        if (!using) {
-          using = true;
-          h.onDevice?.(controllerFamily(pad.id));
-        }
+      if (frame.active && !using) {
+        using = true;
+        h.onDevice?.(controllerFamily(pad.id));
       }
       if (typing()) {
+        letGo();
         /* The on-screen keyboard has the pad; B gives it back. */
         if (frame.pressed.includes("cancel") || frame.pressed.includes("back")) document.activeElement.blur();
         return;
       }
       if (menu) {
+        letGo();
         if (frame.nav) menuStep(menu, frame.nav);
         for (const action of frame.pressed) {
           if (action === "confirm") {
@@ -104,11 +150,20 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
           else if (action === "prevTab") stepTabs(menu, -1);
           else if (action === "nextTab") stepTabs(menu, 1);
         }
-        h.onFrame?.({ ...frame, move: [0, 0], look: [0, 0] }, dt, context);
+        h.onFrame?.({ ...frame, move: [0, 0], look: [0, 0], lookRaw: [0, 0] }, dt, context);
         return;
       }
-      frame.pressed.forEach((action) => h.onAction?.(action, context));
-      frame.released.forEach((action) => h.onRelease?.(action, context));
+      lastContext = context;
+      frame.pressed.forEach((action) => {
+        gameHeld.add(action);
+        h.onAction?.(action, context);
+      });
+      frame.released.forEach((action) => {
+        /* Only what the game saw go down: a menu button let go after the
+           menu shut is not the game's business. */
+        if (gameHeld.delete(action)) h.onRelease?.(action, context);
+      });
+      leaning = Boolean(frame.move[0] || frame.move[1] || frame.look[0] || frame.look[1]);
       h.onFrame?.(frame, dt, context);
     };
     raf = requestAnimationFrame(loop);
@@ -120,20 +175,22 @@ export default function useGamepad({ rootRef, getContext, onAction, onRelease, o
     };
     const connected = (event) => handlers.current.onConnect?.(true, controllerFamily(event.gamepad?.id));
     const disconnected = (event) => {
-      if (event.gamepad?.index === lastPad.current) lastPad.current = null;
-      reader.reset();
+      if (event.gamepad?.index === lastPad.current) lose();
       handlers.current.onConnect?.(false, controllerFamily(event.gamepad?.id));
     };
     window.addEventListener("keydown", putDown);
     window.addEventListener("pointerdown", putDown);
     window.addEventListener("gamepadconnected", connected);
     window.addEventListener("gamepaddisconnected", disconnected);
+    window.addEventListener("blur", letGo);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", putDown);
       window.removeEventListener("pointerdown", putDown);
       window.removeEventListener("gamepadconnected", connected);
       window.removeEventListener("gamepaddisconnected", disconnected);
+      window.removeEventListener("blur", letGo);
+      letGo();
     };
   }, [rootRef, settingsRef]);
 
