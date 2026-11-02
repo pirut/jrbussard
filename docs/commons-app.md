@@ -246,9 +246,11 @@ almost every React Native library. `apps/commons/.npmrc` sets
 Evidence for the native runs (commands, log excerpts, screenshots) is in
 `apps/commons/docs/evidence/`. Anything not listed there wasn't run.
 
-- `npm test` (43 tests: TV event sequences including Android holds, Back on
-  Apple TV, Android and keyboard, every controller button in every context
-  against the shared layout, controller choice and disconnect, GPU resources
+- `npm test` (51 tests: TV event sequences for tvOS and, through a port of
+  the fork's Android key handling, Android TV; Back on Apple TV, Android and
+  keyboard; every controller button in every context against the shared
+  layout; controller B and Start pausing the world through the game's
+  act(); controller choice and disconnect; GPU resources
   freed as figures leave and on teardown, render loop resize and context
   restore), `npm run typecheck` against the offline `convex/_generated`, and
   the web export pass. CI runs all three.
@@ -260,13 +262,13 @@ Evidence for the native runs (commands, log excerpts, screenshots) is in
 - **Apple TV: not repeated.** With Xcode 27.2 (Swift 6.4.2) the
   `appletvsimulator` build fails twice in a row: the Swift compiler crashes
   compiling Expo's `ExpoModulesCore` for tvOS, before any app code (log in the
-  evidence folder). An earlier run on an older Xcode reported a working build
-  and a rendering world on the Apple TV 4K simulator. No log or screenshot of
-  that run was kept, so treat it as unconfirmed. Remote input on tvOS is
-  covered only by the event-replay tests.
-- **Android and Android TV:** not run (no Android SDK on the build Mac). The
-  Android TV hold and Back handling are covered only by tests that replay
-  the events react-native-tvos sends.
+  evidence folder). No Apple TV build has succeeded with a kept log, so
+  whether the app builds and renders on tvOS is unconfirmed. Remote input on
+  tvOS is covered only by the event-replay tests.
+- **Android and Android TV:** not run (no Android SDK on the build Mac).
+  Android TV remote handling and Back are covered only by tests: the remote
+  through a port of the fork's Android key handling, Back through a mocked
+  `BackHandler`.
 - **Hardware:** nothing has run on a real device, remote or controller.
 - Root `npm run test:commons` (229 tests), `CI=true npm test` (169), and
   `CI=true npm run build:frontend` pass.
