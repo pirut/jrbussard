@@ -25,6 +25,9 @@ jobs:
         working-directory: nest-mind
       - run: npm test
         working-directory: nest-mind
+      - run: npm ci --prefix nest-backend --no-audit --no-fund
+      - run: npm run nest:check
+      - run: npm run nest:test
       - run: npm test -- --watchAll=false --runInBand --watchman=false
         env:
           CI: true
