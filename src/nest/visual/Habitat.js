@@ -79,7 +79,7 @@ export default function Habitat({
   const vars = {
     '--nest-scale': s.toFixed(4),
     // stage units of invisible padding that make a 44-unit control 44 CSS px
-    '--nest-nav-pad': `${Math.max(0, (44 / s - 44) / 2).toFixed(2)}px`,
+    '--nest-nav-pad': `${Math.min(12, Math.max(0, (44 / s - 44) / 2)).toFixed(2)}px`,
     '--nest-night': night.toFixed(3),
     '--nest-shaft': shaft.toFixed(3),
   };

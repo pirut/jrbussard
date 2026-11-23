@@ -92,3 +92,14 @@ test('normalizePhenotype keeps the valid parts of a damaged phenotype', () => {
   expect(n.eyes).toMatchObject({ size: 0.9, shape: 'wide', spacing: 0.5 });
   expect(n.palette.body).toMatch(/^#[0-9a-f]{6}$/i);
 });
+
+test('validatePhenotype reports, not throws, for non-array marks and features', () => {
+  const base = phenotypeRandom('guard', 'adult');
+  for (const bad of [{}, 'x', 5, null]) {
+    expect(() => validatePhenotype({ ...base, marks: bad })).not.toThrow();
+    expect(validatePhenotype({ ...base, marks: bad })).toContain('marks');
+    expect(() => validatePhenotype({ ...base, features: bad })).not.toThrow();
+    expect(() => normalizePhenotype({ ...base, marks: bad, features: bad })).not.toThrow();
+    expect(Array.isArray(normalizePhenotype({ ...base, marks: bad }).marks)).toBe(true);
+  }
+});

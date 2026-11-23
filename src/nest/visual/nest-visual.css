@@ -450,3 +450,8 @@ svg.nest-creature.nest-interactive { touch-action: none; }
 .nest-g-sliders input { width: 100%; accent-color: var(--nest-amber); }
 .nest-g-two { display: grid; gap: 12px; grid-template-columns: 1fr; }
 @media (min-width: 700px) { .nest-g-two { grid-template-columns: 1fr 1fr; } }
+
+/* The creature (and its bed) sit above the invisible nav hit pads so a padded
+   button never steals taps from the creature; the bed stays visually in front. */
+.nest-stage > .nest-creature-slot { z-index: 2; }
+.nest-stage > .nest-bed-front { z-index: 3; }

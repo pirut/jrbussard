@@ -151,7 +151,7 @@ export function validatePhenotype(p) {
   need(p.eyes && unit(p.eyes.size) && EYE_SHAPES.includes(p.eyes.shape) && unit(p.eyes.spacing), 'eyes');
   need(unit(p.glow), 'glow');
   need(Array.isArray(p.marks) && p.marks.length <= 16, 'marks');
-  (p.marks || []).forEach((m, i) => {
+  (Array.isArray(p.marks) ? p.marks : []).forEach((m, i) => {
     need(m && typeof m.id === 'string' && MARK_KINDS.includes(m.kind) && unit(m.x) && unit(m.y)
       && typeof m.hue === 'number' && m.hue >= 0 && m.hue <= 360 && typeof m.label === 'string', `marks[${i}]`);
   });

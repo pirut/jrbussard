@@ -22,8 +22,8 @@ export const GESTURE_TIMING = {
   TICKLE_WINDOW_MS: 1500,
   BURST_GAP_MS: 500,
   PURR_EVERY_MS: 250,
-  /* A press with no event for this long is presumed lost (no pointerup, no
-     cancel); a new finger replaces it instead of being ignored. */
+  /* Kept for backward compatibility; no longer used. A still finger sends
+     few events, so age alone cannot tell a long hold from a lost press. */
   STALE_MS: 3000,
 };
 
@@ -53,8 +53,8 @@ export function createGestureClassifier(timing = GESTURE_TIMING) {
 
   function down(x, y, t, id = 0) {
     const out = [];
-    if (active && (active.id === id || t - active.lastEventAt > T.STALE_MS)) {
-      // the old press never ended (lost capture, a flipped prop): drop it
+    if (active && active.id === id) {
+      // the same pointer went down again, so its old press never ended: drop it
       active = null;
       out.push(reaction('release'));
     }
@@ -114,9 +114,9 @@ export function createGestureClassifier(timing = GESTURE_TIMING) {
     return out;
   }
 
-  function cancel(t) {
+  function cancel(t, id) {
     const out = tick(t);
-    if (active) {
+    if (active && (id === undefined || active.id === id)) {
       active = null;
       out.push(reaction('release'));
     }
@@ -196,8 +196,8 @@ export function useGestureHandlers({ onGesture, onReaction, enabled = true }) {
     schedule();
   }, [enabled, dispatch, schedule]);
 
-  const onPointerCancel = useCallback(() => {
-    dispatch(classifier.current.cancel(performance.now()));
+  const onPointerCancel = useCallback((e) => {
+    dispatch(classifier.current.cancel(performance.now(), e && e.pointerId));
     schedule();
   }, [dispatch, schedule]);
 
