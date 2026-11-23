@@ -5,6 +5,7 @@ import React, { useMemo } from 'react';
 import { api } from '../api';
 import { useNestPaginated, useNestQuery } from '../context';
 import { Sheet, Loading, Quiet, dayLabel, when } from '../ui';
+import { Spoken } from '../components/Bubbles';
 
 /* Journal entries and dreams in one list, newest first, grouped by day. */
 export function mergePages(entries = [], dreams = []) {
@@ -45,7 +46,7 @@ export default function Journal() {
               <article key={`${it.type}-${it.id}`} className={`nest-page nest-page-${it.type}`}>
                 {head && <h2 className="nest-page-day">{dayLabel(day)}</h2>}
                 {it.type === 'dream' && <p className="nest-page-kicker">A dream</p>}
-                <p className="nest-page-text">{it.text}</p>
+                <p className="nest-page-text"><Spoken text={it.text} /></p>
                 {it.type === 'dream' && <p className="nest-hint">{when(it.at)}</p>}
               </article>
             );
