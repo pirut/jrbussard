@@ -58,10 +58,10 @@ export async function login(opts: {
   // Registration must use 1455; reauthorization may use any free port.
   let server;
   try {
-    server = await startCallbackServer({ port: opts.port ?? CALLBACK_PORT, timeoutMs: opts.timeoutMs });
+    server = await startCallbackServer({ port: opts.port ?? CALLBACK_PORT, timeoutMs: opts.timeoutMs, state: attempt.state });
   } catch (err) {
     if (!clientId || (err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
-    server = await startCallbackServer({ port: 0, timeoutMs: opts.timeoutMs });
+    server = await startCallbackServer({ port: 0, timeoutMs: opts.timeoutMs, state: attempt.state });
   }
 
   try {
@@ -103,10 +103,13 @@ export async function login(opts: {
       ext_agent_host_id: hostId,
       scopes: [],
       saved_at: new Date(now).toISOString(),
+      login_at: new Date(now).toISOString(),
     };
     // Granted scopes come from the token response; the callback's are a fallback.
     const record = applyTokenResponse(base, { ...tokens, scope: tokens.scope ?? cb.scope }, now);
-    await opts.credentials.save(record);
+    // Under the refresh lock: a refresh in flight finishes first, so it
+    // cannot overwrite this new sign-in with the old session afterwards.
+    await opts.credentials.withLock(() => opts.credentials.save(record));
     return { email: record.email, planScope: hasPlanScope(record.scopes), firstSignIn: !prior, record };
   } finally {
     await server.close();

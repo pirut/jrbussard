@@ -55,16 +55,23 @@ npm ci
 
    ```bash
    npm run setup -- --convex-url https://<dev-deployment>.convex.cloud
-   # production (sets NEST_MIND_SECRET on the prod deployment):
-   npm run setup -- --convex-url https://<prod-deployment>.convex.cloud --prod
+   # production: the same command with the prod deployment's URL
+   npm run setup -- --convex-url https://<prod-deployment>.convex.cloud
    ```
 
    This writes `~/Library/Application Support/nest-mind/config.json` (0600),
-   creates a random 32-byte mind secret, and pipes it into
-   `npx convex env set NEST_MIND_SECRET` from `nest-backend/`. The secret is
-   never printed. Setup only pushes a secret when it makes a new one; to push
-   the same one again use `--sync-secret`, to replace it use `--rotate-secret`.
-   One mind config serves one deployment: re-run setup to switch dev ↔ prod.
+   creates a random 32-byte mind secret **for that deployment**, and pipes it
+   into `npx convex env set NEST_MIND_SECRET --deployment <name>` from
+   `nest-backend/` over stdin (never argv, never printed). The deployment name
+   is taken from the URL you pass, so the secret can only land on the
+   deployment the mind will connect to; there is no separate `--prod` flag
+   (setup refuses it). Every deployment keeps its own secret in
+   `config.json`, so dev and prod never share one, and the first time setup
+   targets a deployment it pushes a secret there. Re-running for the same
+   deployment leaves the secret alone; to push the same one again use
+   `--sync-secret`, to replace it use `--rotate-secret`. Running setup with the
+   other URL switches the mind to that deployment (the last URL is the one
+   `npm start` uses).
 
 2. **Sign in with ChatGPT.**
 
@@ -153,9 +160,13 @@ on the Convex deployment), which runs only when the mind is unavailable.
 
 The heartbeat to Convex (every 30 s) carries `provider` (who would serve the
 next job: `chatgpt-plan` or `openai-api`), `model`, `planStatus` (the
-ChatGPT plan's own state) and a short `detail`. The mind can serve when
-`provider` is `openai-api`, or when it is `chatgpt-plan` with `planStatus`
-`ok`. The mind never claims a job it cannot serve.
+ChatGPT plan's own state), a short `detail`, and `canServe` (boolean, always
+sent): `true` only when a provider can serve a job right now, that is the plan
+is `ok`, or an API key is available in `auto` / `openai-api` mode. The mind
+keeps heartbeating while `canServe` is `false` so the settings page can show
+why (`planStatus` and `detail`). The mind never claims a job it cannot serve.
+`model` comes from config or the last model list the mind fetched, so it can
+read `unknown` on the first heartbeat after a restart.
 
 ### Everyday operations
 
@@ -163,8 +174,8 @@ ChatGPT plan's own state) and a short `detail`. The mind can serve when
 - **Restart:** `launchctl kickstart -k gui/$(id -u)/com.jrbussard.nest-mind`.
 - **Sign out:** `npm run logout` (revokes the session at OpenAI and clears
   local tokens). You can also disconnect the app in ChatGPT settings.
-- **Rotate the mind secret:** `npm run setup -- --rotate-secret [--prod]`,
-  then restart the mind.
+- **Rotate the mind secret:** `npm run setup -- --convex-url <url> --rotate-secret`
+  (replaces the secret for that deployment), then restart the mind.
 - **Local backups:** once a day the mind saves `mind:backupSnapshot` to
   `~/Library/Application Support/nest-mind/backups/` (keeps 30). Restore one
   by uploading it in the nest's settings.

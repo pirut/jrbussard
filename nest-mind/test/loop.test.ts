@@ -202,7 +202,7 @@ describe("job loop", () => {
     await makeLoop(backend, new ProviderRouter("fake", { fake: new FakeProvider() }), { heartbeatMs: 40, stateFile }).start();
     expect(backend.heartbeats.length).toBe(1);
     await until(() => backend.heartbeats.length >= 3);
-    expect(backend.heartbeats[0]).toMatchObject({ mindId: "m1", provider: "fake", model: "fake-fast", planStatus: "ok", version: "test" });
+    expect(backend.heartbeats[0]).toMatchObject({ mindId: "m1", provider: "fake", model: "fake-fast", planStatus: "ok", version: "test", canServe: true });
     const state = JSON.parse(await fs.readFile(stateFile, "utf8"));
     expect(state.lastHeartbeatAt).toBeTruthy();
     expect((await fs.stat(stateFile)).mode & 0o777).toBe(0o600);

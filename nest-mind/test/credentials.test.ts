@@ -208,6 +208,62 @@ describe("login and logout", () => {
     expect(again.result.planScope).toBe(false);
   });
 
+  it("login's final save waits for a refresh in flight, so the old session cannot overwrite the new one", async () => {
+    const { jwks, sign } = await signer(); // key generation up front, so timing below is tight
+    await manager().save(record({ client_id: "oaiapp_new", expires_at: Date.now() - 1 }));
+    // The old session's refresh is in flight (holding the lock) and answers only
+    // 300 ms after the login's own token exchange, i.e. after login is ready to save.
+    let releaseRefresh!: () => void;
+    const gate = new Promise<void>((r) => (releaseRefresh = r));
+    let started = false;
+    const slow = mockFetch(async () => {
+      started = true;
+      await gate;
+      return json({ access_token: "at_old_session", refresh_token: "rt_old_session", expires_in: 3600 });
+    });
+    const refreshing = manager(slow.fn).refresh("at_1");
+    while (!started) await new Promise((r) => setTimeout(r, 5));
+    let nonce = "";
+    const loginFetch = mockFetch(async () => {
+      setTimeout(releaseRefresh, 300);
+      return json({
+        access_token: "at_new",
+        refresh_token: "rt_new",
+        id_token: await sign({ sub: "sub_1", nonce, email: "owner@example.com" }, { aud: "oaiapp_new" }),
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: "chatgpt.tokens.use.direct email offline_access openid profile resource.invoke",
+      });
+    });
+    const result = await login({
+      credentials: manager(loginFetch.fn),
+      hostFile: paths.host(),
+      fetch: loginFetch.fn,
+      jwks,
+      port: 0,
+      timeoutMs: 5000,
+      openBrowser: async (url) => {
+        const q = new URL(url).searchParams;
+        nonce = q.get("nonce")!;
+        void fetch(`${q.get("redirect_uri")}?${new URLSearchParams({ code: "code_1", state: q.get("state")! })}`);
+      },
+    });
+    await refreshing;
+    expect(result.planScope).toBe(true);
+    const saved = await readJson<Record<string, unknown>>(paths.credentials());
+    expect(saved).toMatchObject({ access_token: "at_new", refresh_token: "rt_new" });
+    expect(typeof saved!.login_at).toBe("string");
+  });
+
+  it("a refresh does not change login_at; a login does", async () => {
+    const { result } = await runLogin({ scope: "chatgpt.tokens.use.direct openid" });
+    const loginAt = result.record.login_at;
+    expect(loginAt).toBeTruthy();
+    const f = mockFetch(() => json({ access_token: "at_2", refresh_token: "rt_2", expires_in: 3600 }));
+    await manager(f.fn).refresh("at_new");
+    expect((await readJson<Record<string, unknown>>(paths.credentials()))!.login_at).toBe(loginAt);
+  });
+
   it("rejects an ID token with the wrong nonce and saves nothing", async () => {
     await expect(runLogin({ scope: "openid chatgpt.tokens.use.direct", nonceOverride: "wrong" })).rejects.toThrow(/nonce/);
     expect(await readJson(paths.credentials())).toBeUndefined();

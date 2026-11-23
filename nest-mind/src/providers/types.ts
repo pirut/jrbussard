@@ -24,6 +24,13 @@ export interface Provider {
   readonly name: ProviderName;
   status(): Promise<ProviderStatus>;
   modelFor(tier: Tier): Promise<string>;
+  /**
+   * The model for a tier from config or cache only: no network, no
+   * refresh, no lock. Used to build heartbeats, which must not wait.
+   */
+  peekModel?(tier: Tier): string | undefined;
+  /** Refresh whatever `peekModel` reads, in the background. Never rejects. */
+  warmModels?(): Promise<void>;
   generate(req: MindRequest, opts?: GenerateOptions): Promise<GenerateResult>;
 }
 

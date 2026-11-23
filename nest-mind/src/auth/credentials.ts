@@ -32,6 +32,11 @@ export type CredentialRecord = {
   earliest_refresh_at?: number;
   scopes: string[];
   saved_at: string;
+  /**
+   * When the user signed in (set by login only, never by a refresh).
+   * Part of the sign-in fingerprint: provider gates last until it changes.
+   */
+  login_at?: string;
   /** Why tokens were cleared, if they were. */
   signed_out_reason?: "logout" | "refresh_rejected";
   signed_out_at?: string;
@@ -39,6 +44,18 @@ export type CredentialRecord = {
 
 /** Refresh this long before the access token expires. */
 export const REFRESH_SKEW_MS = 5 * 60_000;
+
+/** After a non-fatal 4xx from the token endpoint, wait this long before asking again. */
+export const REFRESH_REJECT_PAUSE_MS = 60_000;
+
+/**
+ * Identifies one sign-in. It changes on a new login or a sign-out and NOT
+ * on a token refresh (which rewrites `saved_at`, tokens and expiry), so a
+ * gate that is meant to last "until the next login" survives refreshes.
+ */
+export function signInFingerprint(rec: CredentialRecord | undefined): string {
+  return rec ? `${rec.client_id}:${rec.subject}:${rec.login_at ?? ""}:${rec.signed_out_at ?? ""}` : "none";
+}
 
 export function toEpochMs(v: number | string | undefined): number | undefined {
   if (v === undefined || v === null) return undefined;
@@ -89,6 +106,7 @@ export class CredentialManager {
   private record: CredentialRecord | undefined;
   private loadedMtime: number | undefined;
   private inflight: Promise<CredentialRecord> | undefined;
+  private refreshGate: { until: number; fingerprint: string; error: MindError } | undefined;
 
   constructor(
     private readonly opts: {
@@ -134,10 +152,24 @@ export class CredentialManager {
     return { kind: "signed_in", record: rec, planScope: hasPlanScope(rec.scopes) };
   }
 
-  /** A fingerprint that changes when a new sign-in lands. */
+  /** A fingerprint that changes when a new sign-in lands (not on refresh). */
   async fingerprint(): Promise<string> {
-    const rec = await this.load();
-    return rec ? `${rec.client_id}:${rec.saved_at}:${rec.signed_out_at ?? ""}` : "none";
+    return signInFingerprint(await this.load());
+  }
+
+  /** Re-read the file from disk, ignoring the cached copy. Call under the lock. */
+  async loadFresh(): Promise<CredentialRecord | undefined> {
+    this.loadedMtime = undefined;
+    return this.load();
+  }
+
+  /**
+   * Run `fn` holding the cross-process credentials lock, the same one
+   * refresh takes. Login and logout write the file inside it so a refresh
+   * in flight cannot overwrite (or resurrect) what they wrote.
+   */
+  withLock<T>(fn: () => Promise<T>): Promise<T> {
+    return withFileLock(this.opts.lockFile, fn);
   }
 
   private needsRefresh(rec: CredentialRecord): boolean {
@@ -185,6 +217,15 @@ export class CredentialManager {
       const rotatedElsewhere = staleAccessToken ? rec.access_token !== staleAccessToken : !this.needsRefresh(rec);
       if (rotatedElsewhere && rec.access_token && rec.expires_at && this.now() < rec.expires_at - 30_000) return rec;
 
+      // A refresh the server already rejected (invalid_client, another 4xx)
+      // is not retried on every job and model listing: stay gated until the
+      // pause ends or a new sign-in changes the fingerprint.
+      const fp = signInFingerprint(rec);
+      if (this.refreshGate) {
+        if (this.now() < this.refreshGate.until && fp === this.refreshGate.fingerprint) throw this.refreshGate.error;
+        this.refreshGate = undefined;
+      }
+
       let t: TokenResponse;
       try {
         t = await refreshTokens(this.fetchFn, { clientId: rec.client_id, refreshToken: rec.refresh_token });
@@ -200,21 +241,27 @@ export class CredentialManager {
             });
           }
           if (err.code === "invalid_client") {
-            throw new MindError("invalid_client", "The issued client id was rejected. Run `npm run login`.", {
+            const rejected = new MindError("invalid_client", "The issued client id was rejected. Run `npm run login`.", {
               planStatus: "error",
               status: err.status,
               requestId: err.requestId,
               tryOtherProvider: true,
             });
+            this.refreshGate = { until: Number.POSITIVE_INFINITY, fingerprint: fp, error: rejected };
+            throw rejected;
           }
           // Other 4xx/5xx: keep credentials, try later.
-          throw new MindError("refresh_failed", err.message, {
+          const failed = new MindError("refresh_failed", err.message, {
             retryable: true,
             planStatus: "error",
             status: err.status,
             requestId: err.requestId,
             tryOtherProvider: true,
           });
+          if (err.status >= 400 && err.status < 500) {
+            this.refreshGate = { until: this.now() + REFRESH_REJECT_PAUSE_MS, fingerprint: fp, error: failed };
+          }
+          throw failed;
         }
         // Network failure: never erase credentials.
         throw new MindError("refresh_network", `Token refresh could not reach OpenAI: ${err instanceof Error ? err.message : String(err)}`, {

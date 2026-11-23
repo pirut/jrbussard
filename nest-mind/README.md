@@ -10,7 +10,7 @@ Setup and operations: `docs/nest-setup.md` ("The mind (Mac mini)").
 
 | Command | What it does |
 |---|---|
-| `npm run setup -- --convex-url <url> [--prod]` | Writes `config.json` (0600), makes the 32-byte mind secret and pipes it to `npx convex env set NEST_MIND_SECRET` in `nest-backend/`. The secret is never printed. |
+| `npm run setup -- --convex-url <url>` | Writes `config.json` (0600), makes a 32-byte mind secret per Convex deployment and pipes it over stdin to `npx convex env set NEST_MIND_SECRET --deployment <name from the URL>` in `nest-backend/`. The secret is never printed. |
 | `npm run login [-- --consent]` | Sign in with ChatGPT in the browser (loopback `127.0.0.1:1455`). `--consent` asks again for plan permission. |
 | `npm run logout` | Revokes the session, clears tokens. Keeps the registration. |
 | `npm run status` | Account, plan scope, models, provider, last heartbeat, backups. No secrets. |
@@ -44,7 +44,7 @@ src/
 
 ## Files (all in `~/Library/Application Support/nest-mind/`, dir 0700, files 0600)
 
-`config.json` (convexUrl, mindSecret, mindId, provider, models), `credentials.json`
+`config.json` (convexUrl, mindSecret, per-deployment secrets, mindId, provider, models), `credentials.json`
 (ChatGPT tokens), `host.json` (`ext_agent_host_id`), `nest-mind.env`
 (optional `OPENAI_API_KEY`), `state.json` (last heartbeat), `backups/`.
 Never commit or share any of them.

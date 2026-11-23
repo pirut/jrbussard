@@ -118,7 +118,7 @@ describe("Responses stream", () => {
     await expect(plan.generate(sampleReply())).rejects.toMatchObject({ planStatus: "not_eligible" });
     expect(await plan.status()).toMatchObject({ usable: false, planStatus: "not_eligible" });
     await new Promise((r) => setTimeout(r, 5));
-    await creds().save(record({ saved_at: new Date(Date.now() + 1000).toISOString() }));
+    await creds().save(record({ login_at: new Date(Date.now() + 1000).toISOString() }));
     expect(await plan.status()).toMatchObject({ usable: true });
   });
 

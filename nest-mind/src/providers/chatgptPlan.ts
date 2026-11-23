@@ -19,6 +19,7 @@ export class ChatGptPlanProvider implements Provider {
   private models: { at: number; list: PlanModel[] } | undefined;
   private gate: { until: number; planStatus: PlanStatus; detail: string; fingerprint: string } | undefined;
   private lastTransient: { planStatus: PlanStatus; detail: string } | undefined;
+  private warming: Promise<void> | undefined;
   private readonly clientFactory: ClientFactory;
 
   constructor(
@@ -99,6 +100,24 @@ export class ChatGptPlanProvider implements Provider {
     const first = list[0];
     if (!first) throw new MindError("no_models", "The ChatGPT account lists no models.", { retryable: false, tryOtherProvider: true });
     return first.slug;
+  }
+
+  /** Configured slug, else the cached catalog's first model. Never touches the network. */
+  peekModel(tier: Tier): string | undefined {
+    return this.opts.models?.[tier] ?? this.models?.list[0]?.slug;
+  }
+
+  /** Fill or refresh the model cache off the heartbeat path. Deduped; never rejects. */
+  warmModels(): Promise<void> {
+    const stale = !this.models || this.now() - this.models.at >= MODELS_TTL_MS;
+    if (!stale) return Promise.resolve();
+    this.warming ??= this.status()
+      .then((st) => (st.usable ? this.listModels(true) : undefined))
+      .then(() => undefined, () => undefined)
+      .finally(() => {
+        this.warming = undefined;
+      });
+    return this.warming;
   }
 
   async generate(req: MindRequest, opts: GenerateOptions = {}): Promise<GenerateResult> {

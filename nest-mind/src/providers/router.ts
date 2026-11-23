@@ -48,10 +48,18 @@ export class ProviderRouter {
     const primary = serving ?? this.candidates[0];
     let model = "none";
     if (primary) {
-      try {
-        model = await primary.modelFor("fast");
-      } catch {
-        model = "unknown";
+      if (primary.peekModel) {
+        // Cache or config only: listing models can refresh tokens and wait
+        // on the credentials lock, and the heartbeat must go out on time.
+        model = primary.peekModel("fast") ?? "unknown";
+        void primary.warmModels?.();
+      } else {
+        // Providers without a network-backed catalog answer from config.
+        try {
+          model = await primary.modelFor("fast");
+        } catch {
+          model = "unknown";
+        }
       }
     }
     let planStatus: PlanStatus = planSt?.planStatus ?? "signed_out";

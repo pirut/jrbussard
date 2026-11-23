@@ -10,6 +10,12 @@ export type HeartbeatArgs = {
   planStatus: PlanStatus;
   detail?: string;
   version: string;
+  /**
+   * Can a provider serve a job right now: the plan is ok, or an API key is
+   * available (auto / openai-api mode). Sent on every heartbeat, including
+   * while false, so the UI can show the mind's status.
+   */
+  canServe: boolean;
 };
 
 /**

@@ -319,6 +319,7 @@ export class JobLoop {
           planStatus: info.planStatus,
           detail: info.detail,
           version: this.o.version,
+          canServe: info.canServe,
         });
         if (typeof res?.serverTime === "number") {
           this.serverOffsetMs = res.serverTime - (sentAt + this.now()) / 2;
@@ -353,7 +354,7 @@ export class JobLoop {
       lastHeartbeatAt: this.lastHeartbeat?.ok ? new Date(this.lastHeartbeat.at).toISOString() : undefined,
       lastHeartbeatAttemptAt: this.lastHeartbeat ? new Date(this.lastHeartbeat.at).toISOString() : undefined,
       lastHeartbeatError: this.lastHeartbeat?.error,
-      ...(info ? { provider: info.provider, model: info.model, planStatus: info.planStatus, detail: info.detail } : {}),
+      ...(info ? { provider: info.provider, model: info.model, planStatus: info.planStatus, detail: info.detail, canServe: info.canServe } : {}),
       stats: this.stats,
     });
   }

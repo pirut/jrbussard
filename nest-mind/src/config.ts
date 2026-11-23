@@ -14,7 +14,10 @@ export type ProviderMode = "auto" | "chatgpt-plan" | "openai-api" | "fake";
 
 export type MindConfig = {
   convexUrl?: string;
+  /** The mind secret for `convexUrl`'s deployment (what `npm start` sends). */
   mindSecret?: string;
+  /** One secret per Convex deployment name, so dev and prod never share one. */
+  secrets?: Record<string, string>;
   mindId: string;
   provider: ProviderMode;
   /** ChatGPT-plan model slugs per tier. Unset: first listed model. */

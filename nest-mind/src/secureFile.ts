@@ -71,10 +71,56 @@ export async function fileMtimeMs(file: string): Promise<number | undefined> {
   }
 }
 
+async function readLockToken(lockFile: string): Promise<string | undefined> {
+  try {
+    return await fs.readFile(lockFile, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * A small cross-process lock (O_EXCL lock file). Serializes refreshes
- * between `npm start` and a concurrent `npm run status`, because refresh
- * tokens rotate and a second refresh with the old token would fail.
+ * Remove a lock whose holder looks dead. Takeovers are serialized through a
+ * second O_EXCL file (`<lock>.takeover`), and inside it the lock is judged
+ * again (still older than `staleMs`, still the token we saw) before it is
+ * removed. Without that, two waiters that both saw the same stale lock
+ * would each delete "it", the second one deleting the lock the first had
+ * just taken. Returns false when another waiter is already doing the takeover.
+ */
+async function takeOverStale(lockFile: string, seenToken: string | undefined, staleMs: number): Promise<boolean> {
+  const gate = `${lockFile}.takeover`;
+  try {
+    const h = await fs.open(gate, "wx", SECRET_FILE_MODE);
+    await h.close();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    const gateMtime = await fileMtimeMs(gate);
+    // A taker that died mid-takeover must not wedge the lock forever.
+    if (gateMtime !== undefined && Date.now() - gateMtime > staleMs) await fs.rm(gate, { force: true });
+    return false;
+  }
+  try {
+    const mtime = await fileMtimeMs(lockFile);
+    if (mtime !== undefined && Date.now() - mtime > staleMs && (await readLockToken(lockFile)) === seenToken) {
+      await fs.rm(lockFile, { force: true });
+    }
+  } finally {
+    await fs.rm(gate, { force: true });
+  }
+  return true;
+}
+
+/**
+ * A small cross-process lock (O_EXCL lock file). Serializes refreshes,
+ * logins and logouts between `npm start` and a concurrent `npm run status`
+ * or `npm run login`, because refresh tokens rotate and a second refresh
+ * with the old token would fail.
+ *
+ * The file holds a unique token. The holder keeps its mtime fresh while it
+ * works, a lock is only taken over (one waiter at a time) when its mtime is
+ * older than `staleMs` (its holder died), and release only removes the file
+ * if it still holds our token, so a slow holder can never delete the lock of
+ * whoever took over.
  */
 export async function withFileLock<T>(
   lockFile: string,
@@ -84,27 +130,40 @@ export async function withFileLock<T>(
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const staleMs = opts.staleMs ?? 60_000;
   const start = Date.now();
+  const token = `${process.pid}.${randomBytes(8).toString("hex")}`;
   await ensurePrivateDir(path.dirname(lockFile));
   for (;;) {
     try {
       const h = await fs.open(lockFile, "wx", SECRET_FILE_MODE);
-      await h.writeFile(String(process.pid));
-      await h.close();
+      try {
+        await h.writeFile(token);
+      } finally {
+        await h.close();
+      }
       break;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
       const mtime = await fileMtimeMs(lockFile);
       if (mtime !== undefined && Date.now() - mtime > staleMs) {
-        await fs.rm(lockFile, { force: true });
-        continue;
+        if (await takeOverStale(lockFile, await readLockToken(lockFile), staleMs)) continue;
       }
       if (Date.now() - start > timeoutMs) throw new Error("timed out waiting for the credentials lock");
       await new Promise((r) => setTimeout(r, 100));
     }
   }
+  // A long job (a revoke with retries) must not look stale to a waiter.
+  const keepAlive = setInterval(() => {
+    void (async () => {
+      if ((await readLockToken(lockFile)) !== token) return;
+      const now = new Date();
+      await fs.utimes(lockFile, now, now);
+    })().catch(() => undefined);
+  }, Math.max(10, Math.floor(staleMs / 3)));
+  keepAlive.unref();
   try {
     return await fn();
   } finally {
-    await fs.rm(lockFile, { force: true });
+    clearInterval(keepAlive);
+    if ((await readLockToken(lockFile)) === token) await fs.rm(lockFile, { force: true });
   }
 }

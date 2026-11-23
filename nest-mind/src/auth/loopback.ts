@@ -9,7 +9,7 @@ const PAGE = (title: string, body: string) =>
 
 export type CallbackServer = {
   redirectUri: string;
-  /** Resolves with the first request to the callback path. */
+  /** Resolves with the first request to the callback path that carries the expected state (when one is given). */
   wait(): Promise<URL>;
   close(): Promise<void>;
 };
@@ -18,7 +18,7 @@ export type CallbackServer = {
  * Loopback listener on 127.0.0.1 (never `localhost`). Start it before
  * opening the browser. Only GET on the exact callback path is handled.
  */
-export async function startCallbackServer(opts: { port: number; timeoutMs?: number }): Promise<CallbackServer> {
+export async function startCallbackServer(opts: { port: number; timeoutMs?: number; state?: string }): Promise<CallbackServer> {
   let resolveUrl!: (u: URL) => void;
   let rejectUrl!: (e: Error) => void;
   const got = new Promise<URL>((res, rej) => {
@@ -31,6 +31,15 @@ export async function startCallbackServer(opts: { port: number; timeoutMs?: numb
     const url = new URL(req.url ?? "/", `http://${CALLBACK_HOST}`);
     if (req.method !== "GET" || url.pathname !== CALLBACK_PATH) {
       res.writeHead(404, { "content-type": "text/plain" }).end("Not found");
+      return;
+    }
+    // Any other page can send a GET to this port. A request that does not
+    // carry this attempt's state is not the browser coming back from
+    // sign-in: refuse it and keep listening for the real one.
+    if (opts.state !== undefined && url.searchParams.get("state") !== opts.state) {
+      res
+        .writeHead(400, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" })
+        .end(PAGE("Not this sign-in", "This request does not belong to the sign-in nest-mind is waiting for. It was ignored."));
       return;
     }
     const ok = url.searchParams.has("code") && !url.searchParams.has("error");

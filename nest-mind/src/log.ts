@@ -35,6 +35,41 @@ export function consoleLogger(prefix = ""): Logger {
 
 export const silentLogger: Logger = { info() {}, warn() {}, error() {} };
 
+/** `redact()` plus a literal strip of known secret values (wherever they appear). */
+export function scrub(text: string, secrets: readonly string[] = []): string {
+  let out = text;
+  for (const s of secrets) if (s) out = out.split(s).join("[redacted]");
+  return redact(out);
+}
+
+function formatArg(a: unknown): string {
+  if (typeof a === "string") return a;
+  if (a instanceof Error) return a.stack ?? a.message;
+  try {
+    return JSON.stringify(a) ?? String(a);
+  } catch {
+    return String(a);
+  }
+}
+
+/**
+ * A logger for the Convex client, whose default console logger prints the
+ * server's error text verbatim, and that text echoes the whole argument
+ * object (mindSecret included) on an argument-validation failure. Every
+ * argument is formatted, scrubbed of the secrets and run through redact().
+ * Shaped like Convex's Logger: log / warn / error / logVerbose.
+ */
+export function redactingConvexLogger(secrets: readonly string[]) {
+  const base = consoleLogger("convex");
+  const text = (args: unknown[]) => scrub(args.map(formatArg).join(" "), secrets);
+  return {
+    log: (...args: unknown[]) => base.info(text(args)),
+    warn: (...args: unknown[]) => base.warn(text(args)),
+    error: (...args: unknown[]) => base.error(text(args)),
+    logVerbose: (..._args: unknown[]) => {},
+  };
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return redact(err.message);
   return redact(String(err));
