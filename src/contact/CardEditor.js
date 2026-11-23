@@ -63,11 +63,14 @@ export default function CardEditor({ slug, initial, stored, onDone }) {
     /*
      * Back button and iOS back-swipe: beforeunload doesn't see in-app
      * navigation, so the editor owns one extra history entry. Going back
-     * pops it; if there are unsaved changes we ask, and put it back on
-     * Cancel. Save/Cancel/Delete give the entry back before leaving.
+     * pops it and closes the editor, staying on the card; if there are
+     * unsaved changes we ask first, and put the entry back on Cancel.
+     * Save/Cancel/Delete give the entry back before closing.
      */
     const dirtyRef = useRef(dirty);
     dirtyRef.current = dirty;
+    const onDoneRef = useRef(onDone);
+    onDoneRef.current = onDone;
     const guarding = useRef(false);
     useEffect(() => {
         if (!(window.history.state && window.history.state.ccEditor)) {
@@ -80,9 +83,9 @@ export default function CardEditor({ slug, initial, stored, onDone }) {
                 window.history.pushState({ ...window.history.state, ccEditor: true }, "");
                 return;
             }
-            /* Our entry is gone and the page is the same: go back once more to actually leave. */
+            /* Our entry is already popped, so just close the editor and stay on the card. */
             guarding.current = false;
-            window.history.back();
+            onDoneRef.current();
         };
         window.addEventListener("popstate", onPop);
         return () => {
