@@ -31,9 +31,10 @@ type Card = {
 };
 
 function allowedEmails(): string[] {
-  return (process.env.ALLOWED_EMAILS ?? "")
+  const raw: string = process.env.ALLOWED_EMAILS ?? "";
+  return raw
     .split(",")
-    .map((e) => e.trim().toLowerCase())
+    .map((e: string) => e.trim().toLowerCase())
     .filter(Boolean);
 }
 
