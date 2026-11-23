@@ -20,6 +20,11 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run prayer:check
       - run: npm run prayer:test
+      # nest-mind (the Mac mini AI service) has its own install.
+      - run: npm ci --no-audit --no-fund && npm run check
+        working-directory: nest-mind
+      - run: npm test
+        working-directory: nest-mind
       - run: npm test -- --watchAll=false --runInBand --watchman=false
         env:
           CI: true
