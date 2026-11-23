@@ -38,6 +38,9 @@
         "prayer:check": "npm --prefix prayer-backend run check",
         "prayer:test": "npm --prefix prayer-backend test",
         "prayer:deploy": "npm --prefix prayer-backend run deploy",
+        "nest:check": "npm --prefix nest-backend run check",
+        "nest:test": "npm --prefix nest-backend test",
+        "nest:claim": "npm --prefix nest-backend run claim --",
         "mind:check": "npm --prefix nest-mind run check",
         "mind:test": "npm --prefix nest-mind test"
     },
