@@ -45,7 +45,7 @@ function Card({ card }) {
         document.body.appendChild(a);
         a.click();
         a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
     };
 
     const share = async () => {

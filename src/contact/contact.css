@@ -42,7 +42,9 @@
     transition: background 0.15s, color 0.15s;
 }
 .cc__btn--primary { grid-column: 1 / -1; background: #e8c37a; color: #101713; font-weight: 700; }
-.cc__btn:hover { background: #e8c37a; color: #101713; }
+@media (hover: hover) {
+    .cc__btn:hover { background: #e8c37a; color: #101713; }
+}
 .cc a:focus-visible, .cc__btn:focus-visible { outline: 3px solid #e8e6d3; outline-offset: 2px; }
 .cc__status { min-height: 1.4em; margin: 10px 0 0; font-size: 13px; color: #e8c37a; text-align: center; }
 .cc__email { margin-top: 8px; }
@@ -58,7 +60,12 @@
     text-decoration: none;
     font-size: 15px;
 }
-.cc__links a:hover { color: #e8c37a; }
+@media (hover: hover) {
+    .cc__links a:hover { color: #e8c37a; }
+}
+@media (max-width: 359px) {
+    .cc__btn { font-size: 13px; padding: 0 6px; white-space: nowrap; }
+}
 @keyframes cc-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
     .cc__card { animation: none; }
