@@ -9,6 +9,7 @@
 
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultConfig, loadConfig, normalizeConfig, saveConfig, type MindConfig, type ProviderMode } from "../config.ts";
 import { deploymentFromUrl, isConvexUrl, selectMindSecret, setConvexSecret } from "../convexEnv.ts";
@@ -26,12 +27,14 @@ const ENV_TEMPLATE = `# nest-mind env file (owner-only). Never commit or share i
 # OPENAI_API_KEY=
 `;
 
-async function main() {
-  const { flags } = parseArgs(process.argv.slice(2));
+export async function main(argv: string[] = process.argv.slice(2)) {
+  const { flags } = parseArgs(argv);
   if (flags.prod !== undefined || flags.dev !== undefined) {
     fatal("--prod / --dev are gone: the deployment comes from --convex-url (https://<deployment>.convex.cloud), so the secret cannot go to a different one than the mind connects to.");
   }
   const existing = await loadConfig();
+  // Read before `config` is changed below: when a config exists, `config` is `existing`.
+  const previousUrl = existing?.convexUrl;
   const config: MindConfig = existing ?? defaultConfig(`macmini-${randomBytes(4).toString("hex")}`);
 
   const url = str(flags["convex-url"]);
@@ -39,7 +42,6 @@ async function main() {
     if (!isConvexUrl(url)) fatal(`--convex-url should look like https://<name>.convex.cloud (got ${url})`);
     config.convexUrl = url.replace(/\/$/, "");
   }
-  const previousUrl = existing?.convexUrl;
   if (!config.convexUrl) fatal("Pass --convex-url https://<deployment>.convex.cloud (the nest-creature deployment).");
 
   const provider = str(flags.provider);
@@ -91,4 +93,7 @@ async function main() {
   }
 }
 
-void main();
+// Run only as the script (`npm run setup`), not when a test imports main().
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main();
+}

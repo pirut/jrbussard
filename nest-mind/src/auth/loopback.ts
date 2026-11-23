@@ -1,6 +1,6 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { CALLBACK_HOST, CALLBACK_PATH, redirectUriFor } from "./oauth.ts";
+import { CALLBACK_HOST, CALLBACK_PATH, CallbackError, redirectUriFor } from "./oauth.ts";
 
 const PAGE = (title: string, body: string) =>
   `<!doctype html><meta charset="utf-8"><title>${title}</title>` +
@@ -31,6 +31,25 @@ export async function startCallbackServer(opts: { port: number; timeoutMs?: numb
     const url = new URL(req.url ?? "/", `http://${CALLBACK_HOST}`);
     if (req.method !== "GET" || url.pathname !== CALLBACK_PATH) {
       res.writeHead(404, { "content-type": "text/plain" }).end("Not found");
+      return;
+    }
+    // An error callback without state (the browser or an outside page sent
+    // ?error= alone) cannot be matched to this attempt, but it still means
+    // sign-in will not finish: fail the wait now instead of at the timeout.
+    if (url.searchParams.has("error") && !url.searchParams.has("state")) {
+      const error = url.searchParams.get("error") ?? "";
+      res
+        .writeHead(400, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" })
+        .end(PAGE("Sign-in not completed", "Return to the terminal for details."));
+      if (!settled) {
+        settled = true;
+        rejectUrl(
+          new CallbackError(
+            error === "access_denied" ? "access_denied" : "oauth_error",
+            error === "access_denied" ? "Sign-in was declined in the browser." : "The sign-in callback reported an error.",
+          ),
+        );
+      }
       return;
     }
     // Any other page can send a GET to this port. A request that does not

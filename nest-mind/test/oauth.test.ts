@@ -114,6 +114,23 @@ describe("callback", () => {
       await srv.close();
     }
   });
+
+  it("ends the wait at once on an error callback that has no state", async () => {
+    const srv = await startCallbackServer({ port: 0, timeoutMs: 5000, state: "expected-state" });
+    try {
+      const failure = srv.wait().then(
+        () => null,
+        (e: unknown) => e,
+      );
+      const res = await fetch(`${srv.redirectUri}?error=access_denied`);
+      expect(res.status).toBe(400);
+      const err = await failure;
+      expect(err).toBeInstanceOf(CallbackError);
+      expect((err as CallbackError).kind).toBe("access_denied");
+    } finally {
+      await srv.close();
+    }
+  });
 });
 
 describe("token endpoint", () => {
