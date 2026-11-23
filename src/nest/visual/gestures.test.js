@@ -97,3 +97,42 @@ test('a second finger is ignored', () => {
   const end = c.up(0, 0, 90, 1);
   expect(reactions(end)).toEqual(['flinch']);
 });
+
+test('a long still hold survives a second finger (no stale replacement)', () => {
+  const c = createGestureClassifier();
+  c.down(0, 0, 0, 1);
+  expect(gestures(c.tick(700))).toEqual(['hold']);
+  // 10 s later, still no events from finger 1: a second finger must not replace it
+  expect(c.down(40, 40, 10000, 2)).toEqual([]);
+  expect(c.isActive()).toBe(true);
+  expect(reactions(c.up(0, 0, 10100, 1))).toEqual(['release']);
+});
+
+test('a second finger tap whose capture is lost does not end the first press', () => {
+  const c = createGestureClassifier();
+  c.down(0, 0, 0, 1);
+  c.down(50, 50, 100, 2);
+  c.up(50, 50, 140, 2);
+  expect(c.cancel(150, 2)).toEqual([]); // lostpointercapture for finger B
+  expect(c.isActive()).toBe(true);
+  expect(gestures(c.tick(700))).toEqual(['hold']);
+  expect(reactions(c.cancel(800, 1))).toEqual(['release']);
+  expect(c.isActive()).toBe(false);
+});
+
+test('the same pointer id going down again replaces its press', () => {
+  const c = createGestureClassifier();
+  c.down(0, 0, 0, 7);
+  const out = c.down(5, 5, 100, 7);
+  expect(reactions(out)).toEqual(['release', 'press']);
+  expect(reactions(c.up(5, 5, 160, 7))).toEqual(['flinch']);
+});
+
+test('cancel clears a held press so the next touch works', () => {
+  const c = createGestureClassifier();
+  c.down(0, 0, 0, 1);
+  expect(gestures(c.tick(700))).toEqual(['hold']);
+  expect(reactions(c.cancel(800))).toEqual(['release']);
+  expect(c.isActive()).toBe(false);
+  expect(reactions(c.down(0, 0, 900, 2))).toEqual(['press']);
+});

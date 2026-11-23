@@ -13,10 +13,10 @@
    The scene is drawn on a 390 × 844 stage (an iPhone in points) that is
    scaled to fit, with walls bleeding past the edges on other shapes. */
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { skyAt } from './sky';
 import { WorldWindow, JournalBook, MemoryJars, SettingsKey, TrinketIcon } from './objects';
-import { createRng, mix, darken } from './util';
+import { createRng, mix, darken, cleanId } from './util';
 import { usePrefersReducedMotion } from './motion';
 
 export const STAGE = { w: 390, h: 844 };
@@ -63,6 +63,7 @@ export default function Habitat({
   awayNote = 'Out wandering. Back soon.', overlay, fit = 'auto', className = '', style,
 }) {
   const scene = { ...DEFAULT_SCENE, ...sceneIn };
+  const uid = cleanId(useId());
   const rootRef = useRef(null);
   const { s, left, top } = useStageScale(rootRef, fit);
   const reduced = usePrefersReducedMotion();
@@ -76,6 +77,9 @@ export default function Habitat({
   const trinkets = (scene.trinkets || []).slice(0, 5);
   const dim = night > 0.05 ? `brightness(${(1 - night * 0.28).toFixed(2)}) saturate(${(1 - night * 0.2).toFixed(2)})` : undefined;
   const vars = {
+    '--nest-scale': s.toFixed(4),
+    // stage units of invisible padding that make a 44-unit control 44 CSS px
+    '--nest-nav-pad': `${Math.min(12, Math.max(0, (44 / s - 44) / 2)).toFixed(2)}px`,
     '--nest-night': night.toFixed(3),
     '--nest-shaft': shaft.toFixed(3),
   };
@@ -83,7 +87,7 @@ export default function Habitat({
   return (
     <div ref={rootRef} className={`nest-habitat${reduced ? ' nest-reduced' : ''} ${className}`} style={{ background: wallDeep, ...style }}>
       <div className="nest-stage" style={{ ...vars, transform: `translate(${left}px, ${top}px) scale(${s})` }}>
-        <BurrowBack wall={wall} wallDeep={wallDeep} night={night} />
+        <BurrowBack wall={wall} wallDeep={wallDeep} night={night} uid={uid} />
         <div className="nest-shaft" style={{ opacity: shaft * 0.75 }} />
         <div className="nest-lantern-light" />
         <div className="nest-night" style={{ opacity: Math.min(0.92, night * 0.95 + (sky.overcast ? 0.1 : 0)) }} />
@@ -132,7 +136,7 @@ function useStormFlash(on) {
 
 /* ---------------- static burrow art ---------------- */
 
-const BurrowBack = React.memo(function BurrowBack({ wall, wallDeep, night }) {
+const BurrowBack = React.memo(function BurrowBack({ wall, wallDeep, night, uid }) {
   const rng = useMemo(() => createRng('nest-burrow'), []);
   const pebbles = useMemo(() => Array.from({ length: 34 }, () => {
     const side = rng.chance(0.5) ? rng.range(-40, 70) : rng.range(320, 430);
@@ -145,19 +149,23 @@ const BurrowBack = React.memo(function BurrowBack({ wall, wallDeep, night }) {
   const stone = mix('#8a6a52', '#3a3040', night * 0.8);
   const moss = mix('#5f8a3e', '#20321f', night * 0.75);
   const root = mix('#4a3020', '#1d1418', night * 0.6);
+  // gradient ids are document-global; two habitats must not share them
+  const warmId = `nest-${uid}-burrow-warm`;
+  const floorId = `nest-${uid}-floor`;
+  const rugId = `nest-${uid}-rug`;
   return (
     <svg className="nest-burrow" viewBox="0 0 390 844" preserveAspectRatio="none" aria-hidden="true">
       <defs>
-        <radialGradient id="nest-burrow-warm" gradientUnits="userSpaceOnUse" cx="250" cy="300" r="520">
+        <radialGradient id={warmId} gradientUnits="userSpaceOnUse" cx="250" cy="300" r="520">
           <stop offset="0" stopColor={mix(wall, '#c88a52', 0.35 * (1 - night * 0.4))} />
           <stop offset="0.55" stopColor={wall} />
           <stop offset="1" stopColor={wallDeep} />
         </radialGradient>
-        <linearGradient id="nest-floor" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={floorId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor={mix('#7b5638', '#2c2023', night * 0.8)} />
           <stop offset="1" stopColor={mix('#4a3222', '#130e12', night * 0.8)} />
         </linearGradient>
-        <radialGradient id="nest-rug">
+        <radialGradient id={rugId}>
           <stop offset="0" stopColor={mix('#b0573f', '#5a2c33', night * 0.6)} />
           <stop offset="0.7" stopColor={mix('#8d3f32', '#45222b', night * 0.6)} />
           <stop offset="1" stopColor={mix('#6e2f27', '#331a21', night * 0.6)} />
@@ -165,7 +173,7 @@ const BurrowBack = React.memo(function BurrowBack({ wall, wallDeep, night }) {
       </defs>
       <rect x="-900" y="-500" width="2190" height="1844" fill={wallDeep} />
       {/* the burrow: a rounded chamber */}
-      <path d="M-60 900L-60 160Q-40 -30 195 -40Q430 -30 450 160L450 900Z" fill="url(#nest-burrow-warm)" />
+      <path d="M-60 900L-60 160Q-40 -30 195 -40Q430 -30 450 160L450 900Z" fill={`url(#${warmId})`} />
       {/* earth strata */}
       {[[120, 0.16], [300, 0.12], [470, 0.14], [610, 0.1]].map(([y, o], i) => (
         <path key={i} d={`M-60 ${y}Q60 ${y - 18} 140 ${y + 6}T330 ${y - 4}T450 ${y + 10}`} stroke={darken(wall, 0.4)} strokeWidth="5" fill="none" opacity={o} />
@@ -180,12 +188,12 @@ const BurrowBack = React.memo(function BurrowBack({ wall, wallDeep, night }) {
         </g>
       ))}
       {/* floor */}
-      <path d="M-60 712Q60 690 195 696Q330 690 450 712L450 900L-60 900Z" fill="url(#nest-floor)" />
+      <path d="M-60 712Q60 690 195 696Q330 690 450 712L450 900L-60 900Z" fill={`url(#${floorId})`} />
       <path d="M-60 712Q60 690 195 696Q330 690 450 712" stroke={darken(wall, 0.45)} strokeWidth="3" fill="none" opacity="0.6" />
       {[[30, 716, 26], [150, 704, 18], [360, 714, 30]].map(([x, y, r], i) => (
         <ellipse key={i} cx={x} cy={y} rx={r} ry={r * 0.22} fill={moss} opacity="0.7" />
       ))}
-      <ellipse cx="195" cy="742" rx="150" ry="34" fill="url(#nest-rug)" />
+      <ellipse cx="195" cy="742" rx="150" ry="34" fill={`url(#${rugId})`} />
       <ellipse cx="195" cy="742" rx="132" ry="27" fill="none" stroke={mix('#e8b56a', '#6b4a3a', night * 0.6)} strokeWidth="2" strokeDasharray="5 6" opacity="0.7" />
       <ellipse cx="195" cy="742" rx="100" ry="19" fill="none" stroke={mix('#e8b56a', '#6b4a3a', night * 0.6)} strokeWidth="1.5" opacity="0.4" />
       {/* glowing mushrooms */}

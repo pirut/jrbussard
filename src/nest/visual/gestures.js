@@ -22,6 +22,9 @@ export const GESTURE_TIMING = {
   TICKLE_WINDOW_MS: 1500,
   BURST_GAP_MS: 500,
   PURR_EVERY_MS: 250,
+  /* Kept for backward compatibility; no longer used. A still finger sends
+     few events, so age alone cannot tell a long hold from a lost press. */
+  STALE_MS: 3000,
 };
 
 export function createGestureClassifier(timing = GESTURE_TIMING) {
@@ -49,9 +52,15 @@ export function createGestureClassifier(timing = GESTURE_TIMING) {
   }
 
   function down(x, y, t, id = 0) {
-    const out = tick(t);
+    const out = [];
+    if (active && active.id === id) {
+      // the same pointer went down again, so its old press never ended: drop it
+      active = null;
+      out.push(reaction('release'));
+    }
+    out.push(...tick(t));
     if (active) return out; // ignore extra fingers
-    active = { id, x0: x, y0: y, x, y, t0: t, path: 0, maxDisp: 0, held: false, petted: false, lastPurr: -Infinity };
+    active = { id, x0: x, y0: y, x, y, t0: t, lastEventAt: t, path: 0, maxDisp: 0, held: false, petted: false, lastPurr: -Infinity };
     out.push(reaction('press'));
     return out;
   }
@@ -59,6 +68,7 @@ export function createGestureClassifier(timing = GESTURE_TIMING) {
   function move(x, y, t, id = 0) {
     if (!active || active.id !== id) return [];
     const out = tick(t);
+    active.lastEventAt = t;
     active.path += Math.hypot(x - active.x, y - active.y);
     active.x = x;
     active.y = y;
@@ -104,9 +114,9 @@ export function createGestureClassifier(timing = GESTURE_TIMING) {
     return out;
   }
 
-  function cancel(t) {
+  function cancel(t, id) {
     const out = tick(t);
-    if (active) {
+    if (active && (id === undefined || active.id === id)) {
       active = null;
       out.push(reaction('release'));
     }
@@ -154,6 +164,13 @@ export function useGestureHandlers({ onGesture, onReaction, enabled = true }) {
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  // turning gestures off mid-press must not leave the classifier stuck
+  useEffect(() => {
+    if (enabled) return;
+    dispatch(classifier.current.cancel(performance.now()));
+    clearTimeout(timer.current);
+  }, [enabled, dispatch]);
+
   const onPointerDown = useCallback((e) => {
     if (!enabled || (e.button !== undefined && e.button > 0)) return;
     point.current = { x: e.clientX, y: e.clientY };
@@ -179,10 +196,14 @@ export function useGestureHandlers({ onGesture, onReaction, enabled = true }) {
     schedule();
   }, [enabled, dispatch, schedule]);
 
-  const onPointerCancel = useCallback(() => {
-    dispatch(classifier.current.cancel(performance.now()));
+  const onPointerCancel = useCallback((e) => {
+    dispatch(classifier.current.cancel(performance.now(), e && e.pointerId));
     schedule();
   }, [dispatch, schedule]);
 
-  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+  // capture can be lost without pointerup or pointercancel (iOS system
+  // gestures, a node removed mid-press); treat it as the end of the press
+  const onLostPointerCapture = onPointerCancel;
+
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onLostPointerCapture };
 }

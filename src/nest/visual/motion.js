@@ -75,10 +75,15 @@ export function usePointerTracker() {
 }
 
 /* Runs frame(dtSeconds, timeSeconds) every animation frame while the
-   element is on screen. */
-export function useAnimationLoop(elementRef, frame) {
+   element is on screen. `maxFps` is an optional function returning a frame
+   cap (0 or undefined = every frame), read each frame, so a sleeping or
+   reduced-motion creature can drop to ~20 fps. */
+export const SLOW_FPS = 20;
+export function useAnimationLoop(elementRef, frame, maxFps) {
   const frameRef = useRef(frame);
   frameRef.current = frame;
+  const fpsRef = useRef(maxFps);
+  fpsRef.current = maxFps;
   useEffect(() => {
     let raf = 0;
     let last = 0;
@@ -86,7 +91,13 @@ export function useAnimationLoop(elementRef, frame) {
     const loop = (ms) => {
       raf = 0;
       if (!visible) return;
-      const dt = last ? Math.min(0.05, (ms - last) / 1000) : 1 / 60;
+      const fps = fpsRef.current?.() || 0;
+      // skip the frame if it came early (1 ms of slack for timestamp jitter)
+      if (fps && last && ms - last < 1000 / fps - 1) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
+      const dt = last ? Math.min(fps ? 0.1 : 0.05, (ms - last) / 1000) : 1 / 60;
       last = ms;
       frameRef.current(dt, ms / 1000);
       raf = requestAnimationFrame(loop);

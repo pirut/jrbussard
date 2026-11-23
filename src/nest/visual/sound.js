@@ -4,12 +4,29 @@
 
    const voice = createVoice({ pitch: 0.6, stage: 'hatchling' });
    button.onclick = () => voice.enable();
-   voice.emote('joy'); voice.react('giggle'); voice.purr(true); */
+   voice.emote('joy'); voice.react('giggle'); voice.purr(true);
+
+   Every voice shares one AudioContext (iOS caps how many can be alive) and
+   one compressor; each voice has its own gain so it can be muted alone. */
 
 import { useEffect, useRef } from 'react';
 
 const STAGE_PITCH = { egg: 1.7, hatchling: 1.6, fledgling: 1.35, juvenile: 1.15, adult: 1, elder: 0.78 };
 const STAGE_TEMPO = { egg: 1.2, hatchling: 1.15, fledgling: 1.1, juvenile: 1, adult: 0.95, elder: 0.78 };
+
+let sharedCtx = null;
+let sharedOut = null; // compressor → destination
+const live = new Set(); // enabled voices; the context sleeps when none remain
+
+function sharedContext() {
+  if (sharedCtx && sharedCtx.state !== 'closed') return sharedCtx;
+  const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+  if (!AC) return null;
+  sharedCtx = new AC();
+  sharedOut = sharedCtx.createDynamicsCompressor();
+  sharedOut.connect(sharedCtx.destination);
+  return sharedCtx;
+}
 
 export function createVoice({ pitch = 0.5, stage = 'adult' } = {}) {
   let ctx = null;
@@ -23,15 +40,14 @@ export function createVoice({ pitch = 0.5, stage = 'adult' } = {}) {
   const elder = () => voice.stage === 'elder';
 
   function ensure() {
-    if (ctx) return ctx;
-    const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
-    if (!AC) return null;
-    ctx = new AC();
-    master = ctx.createGain();
-    master.gain.value = 0.38;
-    const comp = ctx.createDynamicsCompressor();
-    master.connect(comp);
-    comp.connect(ctx.destination);
+    const shared = sharedContext();
+    if (!shared) return null;
+    if (ctx !== shared || !master) {
+      ctx = shared;
+      master = ctx.createGain();
+      master.gain.value = 0.38;
+      master.connect(sharedOut);
+    }
     return ctx;
   }
 
@@ -90,13 +106,26 @@ export function createVoice({ pitch = 0.5, stage = 'adult' } = {}) {
     enable() {
       if (!ensure()) return false;
       enabled = true;
+      live.add(api);
       ctx.resume?.();
       return true;
     },
     disable() {
       enabled = false;
       api.purr(false);
-      ctx?.suspend?.();
+      live.delete(api);
+      if (!live.size) ctx?.suspend?.();
+    },
+    /* Unmount: stop and unplug this voice. The shared context stays open
+       for the others; calling enable() later plugs the voice back in. */
+    destroy() {
+      api.disable();
+      try {
+        master?.disconnect();
+      } catch (e) {
+        /* already unplugged */
+      }
+      master = null;
     },
     setVoice(next) {
       voice = { ...voice, ...next };
@@ -225,6 +254,6 @@ export function useVoice(pitch, stage) {
   useEffect(() => {
     ref.current.setVoice({ pitch, stage });
   }, [pitch, stage]);
-  useEffect(() => () => ref.current.disable(), []);
+  useEffect(() => () => ref.current.destroy(), []);
   return ref.current;
 }
