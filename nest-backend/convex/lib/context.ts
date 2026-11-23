@@ -11,7 +11,7 @@ import { loadWorld } from './world';
 type Ctx = QueryCtx | MutationCtx;
 
 export const toPromptMemory = (m: Doc<'memories'>): PromptMemory => ({ id: m._id, text: m.text, at: m.at, kind: m.kind, salience: m.salience, pinned: m.pinned, recallCount: m.recallCount });
-export const toPromptHappening = (h: Doc<'happenings'>): PromptHappening => ({ id: h._id, at: h.at, summary: h.summary, memoryText: h.memoryText, kind: h.kind, data: h.data });
+export const toPromptHappening = (h: Doc<'happenings'>): PromptHappening => ({ id: h._id, at: h.at, summary: h.summary, memoryText: h.memoryText, kind: h.kind, regionId: h.regionId, data: h.data });
 
 const STOP = new Set(['the', 'and', 'you', 'are', 'was', 'what', 'that', 'this', 'with', 'have', 'your', 'for', 'about', 'did', 'does', 'how', 'why', 'when', 'where', 'there', 'they', 'them', 'just', 'like', 'its', "it's", 'can', 'not', 'but', 'all', 'any']);
 

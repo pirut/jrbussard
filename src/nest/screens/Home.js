@@ -11,7 +11,7 @@ import { Habitat, Creature, HatchSequence, useVoice } from '../visual';
 import { api } from '../api';
 import { useConnection, useNestMutation, useNestPaginated, useNestQuery, useNow, useSession } from '../context';
 import { errorCode, errorText } from '../errors';
-import { seedUnit, speak, unlockSpeech, voiceParams } from '../speech';
+import { creaturePitch, speak, unlockSpeech, voiceParams } from '../speech';
 import { soundChosen } from '../session';
 import Bubbles, { selectBubbles } from '../components/Bubbles';
 import TalkBar from '../components/TalkBar';
@@ -90,7 +90,7 @@ export default function Home() {
 
   const alive = view?.creature?.status === 'alive';
   const stage = view?.phenotype?.stage || 'egg';
-  const pitch = useMemo(() => seedUnit(view?.phenotype?.seed || ''), [view?.phenotype?.seed]);
+  const pitch = useMemo(() => creaturePitch(view?.creature?.voicePitch, view?.phenotype?.seed), [view?.creature?.voicePitch, view?.phenotype?.seed]);
   const voice = useVoice(pitch, stage === 'egg' ? 'hatchling' : stage);
   const soundOn = !!settings?.soundOn && soundChosen();
   const voiceReplies = !!settings?.voiceReplies;

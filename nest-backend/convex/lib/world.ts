@@ -4,6 +4,7 @@ import type { MutationCtx, QueryCtx } from '../_generated/server';
 import { advance, type AdvanceResult, type Transition } from '../engine/sim';
 import { markPosition } from '../engine/phenotype';
 import { REGION_IDS, type SimCreature, type SimHappening, type SimWorld } from '../engine/types';
+import { DAY } from '../engine/time';
 import { getSettings } from './core';
 
 type Ctx = QueryCtx | MutationCtx;
@@ -114,9 +115,9 @@ export async function persistWorld(ctx: MutationCtx, c: Doc<'creatures'>, before
   let marks = [...(await ctx.db.get(c._id))!.marks];
   let episodes = 0;
   for (const h of adv.happenings) {
-    const { hid, mid } = await recordHappening(ctx, c._id, h);
+    const { hid, mid, fresh } = await recordHappening(ctx, c._id, h);
     happeningIds.push(hid);
-    if (mid) { memoryIds.push(mid); episodes++; }
+    if (mid && fresh) { memoryIds.push(mid); episodes++; }
     if (h.trinketKey && mid && trinketIds.has(h.trinketKey)) await ctx.db.patch(trinketIds.get(h.trinketKey)!, { memoryId: mid });
     if (h.mark && marks.length < 16) {
       const id = `mk-${h.at.toString(36)}-${h.mark.kind}`;
@@ -128,31 +129,72 @@ export async function persistWorld(ctx: MutationCtx, c: Doc<'creatures'>, before
   return { happeningIds, memoryIds, transitions: adv.transitions };
 }
 
-export async function recordHappening(ctx: MutationCtx, creatureId: Id<'creatures'>, h: SimHappening): Promise<{ hid: Id<'happenings'>; mid: Id<'memories'> | null }> {
+/** `memoryId`: this happening is already remembered by that memory (so it does not write a second one). */
+export async function recordHappening(ctx: MutationCtx, creatureId: Id<'creatures'>, h: SimHappening, opts: { memoryId?: Id<'memories'> } = {}): Promise<{ hid: Id<'happenings'>; mid: Id<'memories'> | null; fresh: boolean }> {
   const hid = await ctx.db.insert('happenings', {
     creatureId, at: h.at, kind: h.kind, regionId: h.regionId, summary: h.summary, memoryText: h.memoryText, data: h.data,
     salience: h.salience, seen: false, shareable: h.shareable,
   });
-  let mid: Id<'memories'> | null = null;
-  if (h.salience >= 0.5) {
-    mid = await ctx.db.insert('memories', {
-      creatureId, kind: 'episode', text: h.memoryText, at: h.at, salience: h.salience, valence: h.valence, tags: h.tags, source: 'happening',
-      sourceIds: [hid], pinned: false, archived: false, recallCount: 0,
-    });
-    await ctx.db.patch(hid, { memoryId: mid });
+  if (opts.memoryId) {
+    await ctx.db.patch(hid, { memoryId: opts.memoryId });
+    return { hid, mid: opts.memoryId, fresh: false };
   }
-  return { hid, mid };
+  if (h.salience < 0.5) return { hid, mid: null, fresh: false };
+  const r = await rememberOnce(ctx, creatureId, { text: h.memoryText, at: h.at, salience: h.salience, valence: h.valence, tags: h.tags, source: 'happening', sourceIds: [hid] });
+  await ctx.db.patch(hid, { memoryId: r.id });
+  return { hid, mid: r.id, fresh: r.created };
 }
 
-export async function addMemory(ctx: MutationCtx, creatureId: Id<'creatures'>, m: {
+/** A memory with the same text (or the same source) inside this window is the same memory, recalled again. */
+export const MEMORY_DEDUPE_MS = 2 * DAY;
+
+type NewMemory = {
   text: string; salience: number; valence?: number; tags?: string[]; source: Doc<'memories'>['source']; sourceIds?: string[]; kind?: Doc<'memories'>['kind']; at?: number;
-}): Promise<Id<'memories'>> {
+};
+
+const sameText = (a: string, b: string) => a.toLowerCase().replace(/\s+/g, ' ').trim() === b.toLowerCase().replace(/\s+/g, ' ').trim();
+
+/**
+ * Write a memory once. If a live memory of the same kind has the same text (or, for happenings, the same source happening) within
+ * MEMORY_DEDUPE_MS, strengthen that one (a shrinking salience boost, recall count) instead of writing a duplicate.
+ */
+export async function rememberOnce(ctx: MutationCtx, creatureId: Id<'creatures'>, m: NewMemory): Promise<{ id: Id<'memories'>; created: boolean }> {
+  const kind = m.kind ?? 'episode';
+  const at = m.at ?? Date.now();
+  const text = m.text.slice(0, 600);
+  const sourceIds = m.sourceIds ?? [];
+  const salience = Math.min(1, Math.max(0, m.salience));
+  const near = await ctx.db
+    .query('memories')
+    .withIndex('by_creature_and_archived_and_at', (q) => q.eq('creatureId', creatureId).eq('archived', false).gte('at', at - MEMORY_DEDUPE_MS).lte('at', at + MEMORY_DEDUPE_MS))
+    .order('desc')
+    .take(100);
+  // Source ids only identify a memory for happenings (one happening, one memory). Several replies or summaries can share a source.
+  const fromHappening = m.source === 'happening' && sourceIds.length > 0;
+  // Gifts and the owner's own words are one-offs: the same text twice is two events unless it is the same source.
+  const needsSource = m.source === 'gift' || m.source === 'owner';
+  const sameSource = (x: Doc<'memories'>) => x.source === m.source && x.sourceIds.some((s) => sourceIds.includes(s));
+  const twin = near.find((x) => x.kind === kind && ((sameText(x.text, text) && (!needsSource || sameSource(x))) || (fromHappening && sameSource(x))));
+  if (twin) {
+    await ctx.db.patch(twin._id, {
+      // Each repeat counts for half as much as the last (+0.05, +0.025, …), so repeats add at most 0.1 and never make it unarchivable.
+      salience: Math.min(1, Math.max(twin.salience, salience) + 0.05 / 2 ** twin.recallCount),
+      recallCount: twin.recallCount + 1,
+      lastRecalledAt: Math.max(at, twin.lastRecalledAt ?? 0),
+      sourceIds: [...new Set([...twin.sourceIds, ...sourceIds])].slice(-12),
+    });
+    return { id: twin._id, created: false };
+  }
   const id = await ctx.db.insert('memories', {
-    creatureId, kind: m.kind ?? 'episode', text: m.text.slice(0, 600), at: m.at ?? Date.now(), salience: Math.min(1, Math.max(0, m.salience)),
-    valence: Math.min(1, Math.max(-1, m.valence ?? 0)), tags: (m.tags ?? []).slice(0, 5), source: m.source, sourceIds: m.sourceIds ?? [],
+    creatureId, kind, text, at, salience, valence: Math.min(1, Math.max(-1, m.valence ?? 0)), tags: (m.tags ?? []).slice(0, 5), source: m.source, sourceIds,
     pinned: false, archived: false, recallCount: 0,
   });
-  if ((m.kind ?? 'episode') === 'episode') {
+  return { id, created: true };
+}
+
+export async function addMemory(ctx: MutationCtx, creatureId: Id<'creatures'>, m: NewMemory): Promise<Id<'memories'>> {
+  const { id, created } = await rememberOnce(ctx, creatureId, m);
+  if (created && (m.kind ?? 'episode') === 'episode') {
     const c = await ctx.db.get(creatureId);
     if (c) await ctx.db.patch(creatureId, { episodesSinceConsolidation: c.episodesSinceConsolidation + 1 });
   }

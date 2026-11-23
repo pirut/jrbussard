@@ -69,8 +69,8 @@ export const begin = mutation({
     });
 
     let next: SimCreature = s;
-    const happen = async (pattern: string, kind: string, salience: number, tags: string[], data: Record<string, string | number | boolean> = {}) => {
-      await recordHappening(ctx, c._id, { at: now, kind, summary: voice(pattern, 'third'), memoryText: voice(pattern, 'first'), data, salience, shareable: false, tags, valence: 0.4 });
+    const happen = async (pattern: string, kind: string, salience: number, tags: string[], data: Record<string, string | number | boolean> = {}, memoryId?: Id<'memories'>) => {
+      await recordHappening(ctx, c._id, { at: now, kind, summary: voice(pattern, 'third'), memoryText: voice(pattern, 'first'), data, salience, shareable: false, tags, valence: 0.4 }, { memoryId });
     };
 
     if (s.status === 'egg') {
@@ -79,7 +79,8 @@ export const begin = mutation({
         next = hatch(next, now);
         const mid = await addMemory(ctx, c._id, { text: 'I hatched. It was bright and big, and the first thing I ever saw was my person.', salience: 1, valence: 0.8, tags: ['hatch', 'owner', 'first'], source: 'touch', at: now });
         await ctx.db.patch(mid, { pinned: true });
-        await happen('{S} hatched, and the first thing {s} saw was {p} person.', 'hatched', 1, ['hatch']);
+        // One hatch memory (the pinned one): the happening points at it instead of writing a second.
+        await happen('{S} hatched, and the first thing {s} saw was {p} person.', 'hatched', 1, ['hatch'], {}, mid);
       }
     } else {
       if (wasAwayAt) {

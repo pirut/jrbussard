@@ -300,6 +300,13 @@ export function chooseActivity(w: SimWorld, t: number, rng: Rng, hour: number, w
   return a;
 }
 
+/** What is written when it grows into a stage. {has|have} picks the third or first person form (see `voice`). */
+export const GROWTH_LINES: Record<Stage, string> = {
+  egg: '', hatchling: '', fledgling: '{S} woke up a little bigger, steadier on {p} feet, and full of new sounds.',
+  juvenile: '{S} {has|have} grown long and quick. {S} {keeps|keep} trying out new words.', adult: '{S} {is|am} grown now: {p} body has settled into its own shape.',
+  elder: '{S} {has|have} grown old and slow and wise-eyed. {S} {remembers|remember} a great deal.',
+};
+
 function checkStage(w: SimWorld, t: number, out: SimHappening[], transitions: Transition[]) {
   const c = w.creature;
   const age = ageDays(c, t);
@@ -313,14 +320,22 @@ function checkStage(w: SimWorld, t: number, out: SimHappening[], transitions: Tr
   c.morph = morphAt(earned, c.affinities, c.traits, c.morph, t);
   c.languageLevel = Math.max(c.languageLevel, languageLevelFor(earned, c.vocabularySize, 0));
   transitions.push({ type: 'stage', at: t, from, to: earned });
-  const words: Record<Stage, string> = {
-    egg: '', hatchling: '', fledgling: '{S} woke up a little bigger, steadier on {p} feet, and full of new sounds.',
-    juvenile: '{S} has grown long and quick. {S} keeps trying out new words.', adult: '{S} is grown now: {p} body has settled into its own shape.',
-    elder: '{S} has grown old and slow and wise-eyed. {S} remembers a great deal.',
-  };
-  const pattern = words[earned];
+  const pattern = GROWTH_LINES[earned];
   out.push({
     at: t, kind: 'grew', summary: voice(pattern, 'third'), memoryText: voice(pattern, 'first'), data: { from, to: earned, branch: c.morph.branch },
     salience: 0.9, shareable: true, tags: ['growth', earned], valence: 0.5,
   });
+}
+
+/** No planned activity runs longer than this (a night's sleep is the longest). */
+export const MAX_ACTIVITY_MS = 12 * HOUR;
+
+/**
+ * Move an activity onto a new clock (a restore resets `lastTickAt`). Keeps the time it had left, but never
+ * less than one step or more than MAX_ACTIVITY_MS, so it ends and the sim picks the next one as usual.
+ */
+export function rebaseActivity(a: Activity, oldTickAt: number, newTickAt: number): Activity {
+  const left = Math.min(MAX_ACTIVITY_MS, Math.max(STEP_MS, a.endsAt - oldTickAt));
+  const ran = Math.min(MAX_ACTIVITY_MS, Math.max(0, oldTickAt - a.startedAt));
+  return { ...a, startedAt: newTickAt - ran, endsAt: newTickAt + left };
 }
