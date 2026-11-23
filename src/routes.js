@@ -4,12 +4,15 @@ import NotFound from "./pages/NotFound";
 import { microfrontends } from "./microfrontends/registry";
 import { isPrayerHost } from './prayer/location';
 const Prayer = lazy(() => import('./prayer/PrayerRoot'));
+const Nest = lazy(() => import('./nest/NestRoot'));
+const nestElement = <Suspense fallback={<div role="status" style={{background:'#1a1418',color:'#f6ecd6',height:'100vh',display:'grid',placeItems:'center'}}>Opening the nest…</div>}><Nest /></Suspense>;
 const prayerElement = <Suspense fallback={<div role="status" style={{background:'#faf8f3',color:'#284f43',height:'100%',display:'grid',placeItems:'center'}}>Opening Together…</div>}><Prayer /></Suspense>;
 
 export const routes = isPrayerHost(window.location.hostname) ? [
     { path: '/*', element: prayerElement },
 ] : [
     { path: '/prayer/*', element: prayerElement },
+    { path: '/nest/*', element: nestElement },
     {
         path: "/",
         element: <World />,
