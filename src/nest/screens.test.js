@@ -177,6 +177,11 @@ describe('burrow decisions', () => {
     expect(selectBubbles({ messages: [msg('stale', 'creature', 1)], arrivedAt: 80000, now: 80000 + 13 * 3600e3 })).toEqual([]);
   });
 
+  test('bubbles: your words come before a reply with the same time', () => {
+    const out = selectBubbles({ messages: [msg('reply', 'creature', 90000), msg('you', 'owner', 90000)], arrivedAt: 80000, now: 91000 });
+    expect(out.map((m) => m.id)).toEqual(['you', 'reply']);
+  });
+
   test('bubbles: a moment shows its fallback until the message arrives', () => {
     const moment = { messageId: 'mm', fallbackText: '*chirp*', at: 5000 };
     expect(selectBubbles({ messages: [], arrivedAt: 4000, moment, now: 6000 })[0]).toMatchObject({ id: 'mm', text: '*chirp*', synthetic: true });

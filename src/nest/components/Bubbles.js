@@ -3,12 +3,18 @@
 
 import React from 'react';
 
+/* Oldest first; a reply made in the same mutation as your words (same
+   `at`) comes after them. */
+export function byTime(a, b) {
+  return a.at - b.at || (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1);
+}
+
 /* Pick what floats over the burrow right now.
    - the opener: its last line before you arrived, if it is recent
    - everything said since you arrived (newest last), at most `max`
    - a moment that has no message yet shows its fallback text */
 export function selectBubbles({ messages = [], arrivedAt, moment, outbox = [], now = Date.now(), max = 3, openerWindowMs = 12 * 3600 * 1000 }) {
-  const sorted = [...messages].sort((a, b) => a.at - b.at);
+  const sorted = [...messages].sort(byTime);
   const since = sorted.filter((m) => m.at >= arrivedAt - 1500 && m.role !== 'system');
   const before = sorted.filter((m) => m.at < arrivedAt - 1500 && m.role === 'creature' && !m.pending);
   const opener = before.length ? before[before.length - 1] : null;
@@ -19,7 +25,7 @@ export function selectBubbles({ messages = [], arrivedAt, moment, outbox = [], n
     out.push({ id: moment.messageId, role: 'creature', text: moment.fallbackText, at: moment.at, via: 'moment', pending: false, partialText: null, synthetic: true });
   }
   for (const o of outbox) if (!out.some((m) => m.role === 'owner' && m.text === o.text && m.at >= o.at - 5000)) out.push({ ...o, role: 'owner', local: true });
-  out.sort((a, b) => a.at - b.at);
+  out.sort(byTime);
   return out.slice(-max);
 }
 
@@ -42,10 +48,10 @@ export function Spoken({ text }) {
     : <React.Fragment key={i}>{p}</React.Fragment>));
 }
 
-export default function Bubbles({ items, name, momentKind }) {
+export default function Bubbles({ items, name, momentKind, away }) {
   if (!items.length) return null;
   return (
-    <div className={`nest-bubbles${momentKind ? ` nest-moment-${momentKind}` : ''}`} aria-live="polite">
+    <div className={`nest-bubbles${momentKind ? ` nest-moment-${momentKind}` : ''}${away ? ' nest-bubbles-away' : ''}`} aria-live="polite">
       {items.map((m, i) => {
         const latest = i === items.length - 1;
         if (m.role === 'owner') {

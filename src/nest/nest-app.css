@@ -380,11 +380,10 @@ html.nest-doc body { -webkit-text-size-adjust: 100%; }
 .nest-name-input[aria-invalid='true'] { border-bottom-color: #ff9a86; }
 
 .nest-dream {
-  position: absolute;
-  left: 20px; right: 20px;
-  top: calc(var(--nest-safe-top) + 64px);
+  align-self: stretch;
   max-width: 380px;
-  margin: 0 auto;
+  margin: 4px auto 0;
+  box-sizing: border-box;
   padding: 14px 18px 6px;
   border-radius: 20px;
   background: rgba(20, 26, 53, 0.82);
@@ -567,7 +566,7 @@ html.nest-doc body { -webkit-text-size-adjust: 100%; }
 /* world */
 .nest-map { display: block; width: 100%; max-width: 420px; margin: 4px auto 6px; filter: drop-shadow(0 6px 14px rgba(45, 33, 24, 0.18)); }
 .nest-map-label { font: italic 500 3.6px/1 var(--nest-serif); fill: #3b2a1a; }
-.nest-map-fog { font: 700 4px/1 var(--nest-sans); fill: rgba(90, 70, 50, 0.45); }
+.nest-map-fog { font: 700 4.5px/1 var(--nest-serif); fill: rgba(90, 70, 50, 0.6); }
 .nest-map-here { animation: nest-twinkle 2s ease-in-out infinite; }
 .nest-places, .nest-friends { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .nest-places li, .nest-friends li { padding: 10px 0; border-bottom: 1px solid var(--nest-line); font-size: 16px; }
@@ -679,3 +678,11 @@ html.nest-doc body { -webkit-text-size-adjust: 100%; }
   .nest-knock span, .nest-map-here, .nest-talk-mic-on { animation: none !important; }
   .nest-sheet, .nest-bubble, .nest-card, .nest-confirm, .nest-peek, .nest-gift-card, .nest-door-line, .nest-dream, .nest-whisper { animation-duration: 0.01s !important; }
 }
+
+/* The site sets color-scheme: dark; paper surfaces want light controls. */
+.nest-sheet-paper, .nest-sheet-book, .nest-confirm, .nest-peek, .nest-gift-card { color-scheme: light; }
+.nest-sheet-night, .nest-stargaze, .nest-card, .nest-talk { color-scheme: dark; }
+
+/* While it is out, its last words read as a note it left behind. */
+.nest-bubbles-away .nest-bubble-creature { background: #f7e7b8; border-radius: 4px; transform: rotate(-1.2deg); font-size: 16px; }
+.nest-bubbles-away .nest-bubble-creature::after { display: none; }

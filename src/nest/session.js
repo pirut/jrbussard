@@ -44,6 +44,24 @@ export function clearSession() {
   writeSession(null);
 }
 
+/* Sound stays off until the owner turns it on here (the backend's default
+   is on). One local flag per device, set by the Settings switch. */
+export const SOUND_KEY = 'nest.soundChosen';
+let soundMemory = false;
+export function soundChosen() {
+  try {
+    if (storage()?.getItem(SOUND_KEY) === '1') return true;
+  } catch (e) { /* memory */ }
+  return soundMemory;
+}
+export function setSoundChosen(on) {
+  soundMemory = !!on;
+  try {
+    if (on) storage()?.setItem(SOUND_KEY, '1');
+    else storage()?.removeItem(SOUND_KEY);
+  } catch (e) { /* memory only */ }
+}
+
 /* "#abc" → "abc"; empty or junk → null. Codes are base64url, tag ids base32. */
 export function parseFragment(hash) {
   if (!hash) return null;
@@ -111,4 +129,5 @@ export function consumeClaimCode() {
 export function resetSecretsForTests() {
   taken = { claim: null, touch: null };
   memoryToken = null;
+  soundMemory = false;
 }

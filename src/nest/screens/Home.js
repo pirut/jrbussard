@@ -12,6 +12,7 @@ import { api } from '../api';
 import { useConnection, useNestMutation, useNestPaginated, useNestQuery, useNow, useSession } from '../context';
 import { errorCode, errorText } from '../errors';
 import { seedUnit, speak, unlockSpeech, voiceParams } from '../speech';
+import { soundChosen } from '../session';
 import Bubbles, { selectBubbles } from '../components/Bubbles';
 import TalkBar from '../components/TalkBar';
 import { EggPanel, NamingCard } from './Onboarding';
@@ -57,7 +58,12 @@ export function talkMode(view) {
 }
 
 export default function Home() {
-  const view = useNestQuery(api.creature.get);
+  /* A restore briefly empties the tables; keep the last view so open sheets
+     (and the restore's own result) don't vanish mid-way. */
+  const live = useNestQuery(api.creature.get);
+  const lastView = useRef(undefined);
+  if (live) lastView.current = live;
+  const view = live === null && lastView.current ? lastView.current : live;
   const settings = useNestQuery(api.settings.get);
   const messages = useNestPaginated(api.interact.messages, {}, 20);
   const online = useConnection();
@@ -86,7 +92,7 @@ export default function Home() {
   const stage = view?.phenotype?.stage || 'egg';
   const pitch = useMemo(() => seedUnit(view?.phenotype?.seed || ''), [view?.phenotype?.seed]);
   const voice = useVoice(pitch, stage === 'egg' ? 'hatchling' : stage);
-  const soundOn = !!settings?.soundOn;
+  const soundOn = !!settings?.soundOn && soundChosen();
   const voiceReplies = !!settings?.voiceReplies;
 
   /* Sound waits for a tap and for the owner's say-so. */
@@ -102,6 +108,12 @@ export default function Home() {
     const t = setTimeout(() => setOverride(null), Math.max(0, override.until - Date.now()));
     return () => clearTimeout(t);
   }, [override]);
+
+  useEffect(() => {
+    if (!moment || moment.settled) return undefined;
+    const t = setTimeout(() => setMomentState((m) => (m ? { ...m, settled: true } : m)), 15000);
+    return () => clearTimeout(t);
+  }, [moment]);
 
   const setMoment = useCallback((m) => {
     setMomentState(m);
@@ -186,7 +198,8 @@ export default function Home() {
   const pose = view ? (override && override.until > Date.now() ? { ...view.pose, ...override.pose, asleep: override.pose.emotion === 'sleepy' ? view.pose.asleep : false } : view.pose) : null;
   const name = view?.creature?.name;
   const night = isNight(scene.timeOfDay);
-  const momentKind = moment?.kind;
+  /* The entrance (dim wake, run-in, hop…) colours the first moments only. */
+  const momentKind = moment && !moment.settled ? moment.kind : undefined;
   const showHatch = view && hatch === 'playing';
   const markTap = (id) => {
     const mark = view?.creature?.marks?.find((m) => m.id === id);
@@ -212,6 +225,8 @@ export default function Home() {
     );
   }
 
+  /* Its dream takes the opener's place, never on top of new words. */
+  const showDream = !!(view && alive && view.unseen?.dreams > 0 && !dreamClosed && !sheetOpen && !momentKind && mode !== 'name' && !bubbles.some((b) => !b.opener));
   const activities = view && alive && !view.creature.needsName && touchVisit && scene.creatureHome;
   const hud = (
     <div className={`nest-hud${momentKind ? ` nest-hud-${momentKind}` : ''}`}>
@@ -223,13 +238,11 @@ export default function Home() {
           </p>
         )}
         {view && alive && name && <p className="nest-name-tag">{name}</p>}
+        {showDream && <DreamCard onClose={() => setDreamClosed(true)} />}
       </div>
       {view === undefined && <div className="nest-center"><Loading label="Opening the burrow…" /></div>}
-      {view && !showHatch && hatch !== 'look' && <Bubbles items={view.creature.status === 'egg' ? bubbles.filter((b) => b.role === 'creature').slice(-1) : bubbles} name={name} momentKind={momentKind} />}
+      {view && !showHatch && hatch !== 'look' && <Bubbles items={view.creature.status === 'egg' ? bubbles.filter((b) => b.role === 'creature').slice(-1) : showDream ? [] : bubbles} name={name} momentKind={momentKind} away={!scene.creatureHome} />}
       {hatch === 'look' && <div className="nest-bubbles"><p className="nest-whisper">It’s looking at you.</p></div>}
-      {view && alive && view.unseen?.dreams > 0 && !dreamClosed && !sheetOpen && !momentKind && mode !== 'name' && (
-        <DreamCard onClose={() => setDreamClosed(true)} />
-      )}
       <div className="nest-bottom">
         <Notice tone="soft">{notice}</Notice>
         {activities && (

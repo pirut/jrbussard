@@ -3,7 +3,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { Sheet, Loading, Quiet, when } from '../ui';
-import { Spoken, bubbleText } from '../components/Bubbles';
+import { Spoken, bubbleText, byTime } from '../components/Bubbles';
 
 const VIA = { voice: 'said aloud', note: 'a note', moment: 'when you touched', gesture: '' };
 
@@ -11,7 +11,7 @@ export default function History({ messages, name, onClose }) {
   const { results, status, loadMore } = messages;
   const endRef = useRef(null);
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, []);
-  const items = [...(results || [])].filter((m) => m.role !== 'system').sort((a, b) => a.at - b.at);
+  const items = [...(results || [])].filter((m) => m.role !== 'system').sort(byTime);
   return (
     <Sheet title="Between you" kicker={name || 'You and it'} onClose={onClose} tone="night">
       {status === 'CanLoadMore' && <button type="button" className="nest-link nest-load-more" onClick={() => loadMore(30)}>Earlier</button>}

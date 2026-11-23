@@ -121,6 +121,11 @@ function useNestDocument() {
     set('meta', { name: 'mobile-web-app-capable', content: 'yes' });
     set('meta', { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' });
     set('meta', { name: 'apple-mobile-web-app-title', content: 'Nest' });
+    /* iOS uses the page's apple-touch-icon when added to the home screen. */
+    const touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
+    const oldIcon = touchIcon?.getAttribute('href');
+    if (touchIcon) touchIcon.setAttribute('href', '/nest-icon-180.png');
+    else set('link', { rel: 'apple-touch-icon', href: '/nest-icon-180.png' });
     const theme = document.querySelector('meta[name="theme-color"]:not([data-nest])');
     const oldTheme = theme?.content;
     if (theme) theme.content = '#1a1418';
@@ -133,6 +138,7 @@ function useNestDocument() {
       added.forEach((el) => el.remove());
       if (theme) theme.content = oldTheme;
       if (viewport) viewport.content = oldViewport;
+      if (touchIcon && oldIcon) touchIcon.setAttribute('href', oldIcon);
       document.documentElement.classList.remove('nest-doc');
     };
   }, []);

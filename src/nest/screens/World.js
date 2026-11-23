@@ -40,7 +40,7 @@ function WorldMap({ places, here }) {
     <svg className="nest-map" viewBox="0 0 100 100" role="img" aria-label={`A map. ${places.filter((p) => p.discovered).length} of ${places.length} places found.`}>
       <defs>
         <filter id="nest-map-rough"><feTurbulence baseFrequency="0.9" numOctaves="2" seed="4" /><feDisplacementMap in="SourceGraphic" scale="0.8" /></filter>
-        <radialGradient id="nest-fog"><stop offset="0" stopColor="#e9dcc0" stopOpacity="0.95" /><stop offset="1" stopColor="#e9dcc0" stopOpacity="0" /></radialGradient>
+        <radialGradient id="nest-fog"><stop offset="0" stopColor="#cdbb96" stopOpacity="0.9" /><stop offset="0.6" stopColor="#d8c8a4" stopOpacity="0.6" /><stop offset="1" stopColor="#e9dcc0" stopOpacity="0" /></radialGradient>
       </defs>
       <rect x="2" y="2" width="96" height="96" rx="4" fill="#efe2c4" stroke="#8a6a46" strokeWidth="0.6" />
       <path d="M8 88Q30 80 50 84T92 80" stroke="#7aa0b8" strokeWidth="0.8" fill="none" opacity="0.6" />
@@ -60,7 +60,9 @@ function WorldMap({ places, here }) {
           return (
             <g key={p.regionId} transform={`translate(${at.x} ${at.y})`} aria-hidden="true">
               <circle r="11" fill="url(#nest-fog)" />
-              <circle r="6" cx="-4" cy="2" fill="url(#nest-fog)" />
+              <circle r="7" cx="-5" cy="2" fill="url(#nest-fog)" />
+              <circle r="6" cx="6" cy="1" fill="url(#nest-fog)" />
+              <path d="M-9 3q2-5 6-3q2-5 7-1q5-1 5 4" stroke="#a8946e" strokeWidth="0.5" fill="none" strokeLinecap="round" opacity="0.7" />
               <text y="1.5" textAnchor="middle" className="nest-map-fog">?</text>
             </g>
           );

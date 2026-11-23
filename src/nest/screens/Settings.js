@@ -6,6 +6,7 @@ import { api } from '../api';
 import { useNestAction, useNestMutation, useNestQuery, useSession } from '../context';
 import { errorCode, errorText } from '../errors';
 import { synthesisSupported } from '../speech';
+import { soundChosen, setSoundChosen } from '../session';
 import { Button, Confirm, CopyField, Loading, NfcSteps, Notice, Quiet, Sheet, Toggle, when } from '../ui';
 import { nameProblem, cleanName } from './Onboarding';
 
@@ -229,6 +230,7 @@ function PreferencesSection({ settings }) {
   const [newName, setNewName] = useState('');
   const [nameBusy, setNameBusy] = useState(false);
   const all = useMemo(() => zones(), []);
+  const [soundOnHere, setSoundOnHere] = useState(() => soundChosen());
   const here = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return null; } })();
   const save = async (patch) => {
     setError('');
@@ -251,7 +253,7 @@ function PreferencesSection({ settings }) {
   return (
     <>
       <Section title="Sound and voice" id="nest-s-sound">
-        <Toggle label="Sounds" hint="Its chirps and purrs, and the little noises of the burrow." checked={settings.soundOn} onChange={(v) => save({ soundOn: v })} />
+        <Toggle label="Sounds" hint="Its chirps and purrs, and the little noises of the burrow. On this phone only after you turn it on." checked={settings.soundOn && soundOnHere} onChange={(v) => { setSoundChosen(v); setSoundOnHere(v); save({ soundOn: v }); }} />
         <Toggle label="Spoken replies" hint={synthesisSupported() ? 'It reads its replies aloud. Hatchlings chirp instead.' : 'This browser can’t speak aloud.'} checked={settings.voiceReplies} disabled={!synthesisSupported()} onChange={(v) => save({ voiceReplies: v })} />
       </Section>
 

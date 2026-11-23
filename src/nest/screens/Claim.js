@@ -15,6 +15,7 @@ import { DoorScene, deviceLabel } from './Door';
 export function claimErrorText(e) {
   const code = errorCode(e);
   if (code === 'expired') return 'This key has gone cold. Ask for a new link.';
+  if (code === 'rate_limited') return 'That took too many tries. Wait a moment, then try again.';
   if (code === 'claimed') return 'This nest already has someone.';
   if (code === 'unclaimed') return 'There is no one here yet to add a device for.';
   if (code === 'duplicate') return 'This device already has a key. Sign in instead.';

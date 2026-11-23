@@ -1,6 +1,6 @@
 import {
   SESSION_KEY, readSession, writeSession, clearSession, parseFragment, routeIntent,
-  takeFragmentSecrets, peekSecrets, consumeTouchSecret, consumeClaimCode, resetSecretsForTests,
+  takeFragmentSecrets, peekSecrets, soundChosen, setSoundChosen, consumeTouchSecret, consumeClaimCode, resetSecretsForTests,
 } from './session';
 
 beforeEach(() => {
@@ -27,6 +27,14 @@ describe('session storage', () => {
     get.mockRestore();
     set.mockRestore();
   });
+});
+
+test('sound is off until chosen on this device', () => {
+  expect(soundChosen()).toBe(false);
+  setSoundChosen(true);
+  expect(soundChosen()).toBe(true);
+  setSoundChosen(false);
+  expect(soundChosen()).toBe(false);
 });
 
 describe('fragments', () => {
