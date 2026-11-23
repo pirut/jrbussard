@@ -65,6 +65,19 @@ export async function getCreature(ctx: Ctx): Promise<Doc<'creatures'> | null> {
   return await ctx.db.query('creatures').first();
 }
 
+/** A restore that holds the lock longer than this is presumed dead (an action cannot run longer than ~10 min). */
+export const RESTORE_LOCK_STALE_MS = 10 * 60_000;
+
+/**
+ * Is a restore really running? `creatures.restoring` alone is not trusted: if the restore action died (timeout, restart)
+ * the flag would stay set forever. It only counts while a restore lock row exists and is fresh.
+ */
+export async function isRestoring(ctx: Ctx, c: Doc<'creatures'>, now = Date.now()): Promise<boolean> {
+  if (!c.restoring) return false;
+  const lock = await ctx.db.query('locks').withIndex('by_name', (q) => q.eq('name', 'restore')).unique();
+  return !!lock && now - lock.heldAt < RESTORE_LOCK_STALE_MS;
+}
+
 export async function requireCreature(ctx: Ctx): Promise<Doc<'creatures'>> {
   const c = await getCreature(ctx);
   if (!c) fail('There is no creature here yet.', 'not_found');

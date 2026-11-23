@@ -4,7 +4,7 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import { internal } from './_generated/api';
 import type { Id, TableNames } from './_generated/dataModel';
 import { DAY } from './engine/time';
-import { audit, fail, requireOwner } from './lib/core';
+import { RESTORE_LOCK_STALE_MS, audit, fail, requireOwner } from './lib/core';
 import {
   EXPORT_TABLES, RESTORE_TABLES, finalize, readExportPage, remapRefs, stripForInsert, validateExport, type ExportData, type ExportDoc, type ExportFile, type ExportTable,
 } from './lib/exporter';
@@ -12,8 +12,7 @@ import {
 const vTable = v.union(...EXPORT_TABLES.map((t) => v.literal(t)));
 const CHUNK = 250;
 const DRY_RUN_OK = 'dry_run_ok';
-/** A restore that holds the lock longer than this is presumed dead (an action cannot run longer than ~10 min). */
-export const RESTORE_LOCK_STALE_MS = 10 * 60_000;
+export { RESTORE_LOCK_STALE_MS };
 
 export const exportPage = internalQuery({
   args: { table: vTable, cursor: v.union(v.string(), v.null()) },
@@ -176,11 +175,31 @@ export const patchChunk = internalMutation({
   },
 });
 
+/**
+ * Add back the backup's tags that have no live row (matched by `tagId`). Existing rows are never changed: a revoked tag
+ * stays revoked and a tag made after the backup stays. This is what lets a restore onto a fresh deployment accept the
+ * physical sticker again.
+ */
+export const restoreTags = internalMutation({
+  args: { docs: v.array(v.any()) },
+  handler: async (ctx, a) => {
+    let added = 0;
+    for (const d of a.docs as ExportDoc[]) {
+      if (typeof d.tagId !== 'string') continue;
+      const live = await ctx.db.query('nfcTags').withIndex('by_tagId', (q) => q.eq('tagId', d.tagId as string)).first();
+      if (live) continue;
+      await ctx.db.insert('nfcTags', stripForInsert('nfcTags', d, null) as never);
+      added++;
+    }
+    return added;
+  },
+});
+
 export const finishRestore = internalMutation({
-  args: { creatureId: v.id('creatures'), checksum: v.string() },
+  args: { creatureId: v.id('creatures'), checksum: v.string(), rolledBack: v.optional(v.boolean()) },
   handler: async (ctx, a) => {
     await ctx.db.patch(a.creatureId, { restoring: undefined, lastTickAt: Math.min((await ctx.db.get(a.creatureId))!.lastTickAt, Date.now()) });
-    await audit(ctx, 'restore.done', a.checksum.slice(0, 16));
+    await audit(ctx, a.rolledBack ? 'restore.rolled_back' : 'restore.done', a.checksum.slice(0, 16));
   },
 });
 
@@ -190,8 +209,8 @@ type RestoreResult = { ok: true; counts: Record<string, number>; preRestoreBacku
 
 const isDryRunOk = (e: unknown) => e instanceof ConvexError && (e.data as { code?: string } | undefined)?.code === DRY_RUN_OK;
 
-/** Wipe the creature's tables and insert `data` (the replace step; it never merges). Tags are left alone. */
-async function replaceAll(ctx: ActionCtx, data: ExportData, checksum: string): Promise<Record<string, number>> {
+/** Wipe the creature's tables and insert `data` (the replace step; it never merges). Live tags are left alone; missing ones are added back. */
+async function replaceAll(ctx: ActionCtx, data: ExportData, checksum: string, rolledBack = false): Promise<Record<string, number>> {
   const creature = data.creatures[0];
   for (const t of [...RESTORE_TABLES.filter((x) => x !== 'creatures'), 'jobs' as const, 'creatures' as const]) {
     while ((await ctx.runMutation(internal.backup.wipeChunk, { table: t })) > 0);
@@ -211,7 +230,8 @@ async function replaceAll(ctx: ActionCtx, data: ExportData, checksum: string): P
     const patches = data[t].map((d) => ({ id: map.get(d._id)!, patch: remapRefs(t as ExportTable, d, map) })).filter((p) => p.patch);
     for (const chunk of chunks(patches, CHUNK)) await ctx.runMutation(internal.backup.patchChunk, { table: t, patches: chunk as { id: string; patch: Record<string, unknown> }[] });
   }
-  await ctx.runMutation(internal.backup.finishRestore, { creatureId: newCreatureId as Id<'creatures'>, checksum });
+  for (const chunk of chunks(data.nfcTags, CHUNK)) await ctx.runMutation(internal.backup.restoreTags, { docs: chunk });
+  await ctx.runMutation(internal.backup.finishRestore, { creatureId: newCreatureId as Id<'creatures'>, checksum, rolledBack });
   return counts;
 }
 
@@ -252,11 +272,11 @@ export async function restoreFromText(ctx: ActionCtx, text: string): Promise<Res
     let rolledBack = false;
     try {
       const before = (JSON.parse(pre.text) as ExportFile);
-      await replaceAll(ctx, before.data, before.checksum);
+      await replaceAll(ctx, before.data, before.checksum, true);
       rolledBack = true;
     } catch { /* reported below */ }
     fail(rolledBack
-      ? 'The restore failed halfway, so your nest was put back the way it was. Nothing was lost.'
+      ? 'Your nest was put back as it was just before the restore.'
       : 'The restore failed halfway and could not be undone automatically. Restore the latest "pre-restore" backup from settings.', 'restore_failed');
   } finally {
     await ctx.runMutation(internal.backup.releaseRestore, { token });

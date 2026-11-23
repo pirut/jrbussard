@@ -63,7 +63,10 @@ export const register = action({
       await ctx.runMutation(internal.auth.failedAttempt, { reason: 'register: ' + String((e as Error).message).slice(0, 120), challengeId: ch._id as Id<'authChallenges'> });
       fail('That passkey could not be verified.', 'unauthenticated');
     }
-    if (!verification.verified || !verification.registrationInfo) fail('That passkey could not be verified.', 'unauthenticated');
+    if (!verification.verified || !verification.registrationInfo) {
+      await ctx.runMutation(internal.auth.failedAttempt, { reason: 'register: not verified', challengeId: ch._id as Id<'authChallenges'> });
+      fail('That passkey could not be verified.', 'unauthenticated');
+    }
     const cred = verification.registrationInfo.credential;
     const sessionToken = newToken();
     const { purpose } = await ctx.runMutation(internal.auth.finishRegistration, {
@@ -115,7 +118,10 @@ export const login = action({
       await ctx.runMutation(internal.auth.failedAttempt, { reason: 'login: ' + String((e as Error).message).slice(0, 120), challengeId: ch._id as Id<'authChallenges'> });
       fail('That passkey could not be verified.', 'unauthenticated');
     }
-    if (!verification.verified) fail('That passkey could not be verified.', 'unauthenticated');
+    if (!verification.verified) {
+      await ctx.runMutation(internal.auth.failedAttempt, { reason: 'login: not verified', challengeId: ch._id as Id<'authChallenges'> });
+      fail('That passkey could not be verified.', 'unauthenticated');
+    }
     const sessionToken = newToken();
     await ctx.runMutation(internal.auth.finishLogin, {
       challengeId: ch._id as Id<'authChallenges'>, credentialId: pk.credentialId, newCounter: verification.authenticationInfo.newCounter,
