@@ -1,0 +1,73 @@
+.cc {
+    min-height: 100vh;
+    min-height: 100dvh;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    background: #101713;
+    color: #e8e6d3;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow-x: hidden;
+}
+.cc *, .cc *::before, .cc *::after { box-sizing: border-box; }
+.cc__card {
+    width: 100%;
+    max-width: 420px;
+    padding: 24px 20px;
+    border: 1px solid #3a4a3f;
+    background: #151e19;
+    animation: cc-in 0.4s ease-out;
+}
+.cc__art { margin: 0 0 16px; color: #e8c37a; font: inherit; font-size: 13px; line-height: 1.2; overflow: hidden; }
+.cc__name { margin: 0; font-size: 26px; line-height: 1.2; color: #e8c37a; overflow-wrap: anywhere; }
+.cc__sub { margin: 6px 0 0; font-size: 15px; }
+.cc__meta { margin: 6px 0 0; font-size: 14px; color: #b9b7a4; overflow-wrap: anywhere; }
+.cc__note { margin: 14px 0 0; font-size: 14px; line-height: 1.5; }
+.cc__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+.cc__btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    padding: 0 12px;
+    border: 1px solid #e8c37a;
+    background: transparent;
+    color: #e8c37a;
+    font: inherit;
+    font-size: 15px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.cc__btn--primary { grid-column: 1 / -1; background: #e8c37a; color: #101713; font-weight: 700; }
+@media (hover: hover) {
+    .cc__btn:hover { background: #e8c37a; color: #101713; }
+}
+.cc a:focus-visible, .cc__btn:focus-visible { outline: 3px solid #e8e6d3; outline-offset: 2px; }
+.cc__status { min-height: 1.4em; margin: 10px 0 0; font-size: 13px; color: #e8c37a; text-align: center; }
+.cc__email { margin-top: 8px; }
+.cc__links { list-style: none; margin: 14px 0 0; padding: 0; border-top: 1px solid #3a4a3f; }
+.cc__links a {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 48px;
+    padding: 0 4px;
+    border-bottom: 1px solid #3a4a3f;
+    color: #e8e6d3;
+    text-decoration: none;
+    font-size: 15px;
+}
+@media (hover: hover) {
+    .cc__links a:hover { color: #e8c37a; }
+}
+@media (max-width: 359px) {
+    .cc__btn { font-size: 13px; padding: 0 6px; white-space: nowrap; }
+}
+@keyframes cc-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+    .cc__card { animation: none; }
+    .cc__btn { transition: none; }
+}
