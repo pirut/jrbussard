@@ -13,3 +13,6 @@ convex/_generated
 # ...but the template is documentation, not a secret.
 !.env.example
 .playwright-mcp
+
+# Home-screen icons for /nest (iOS needs PNG)
+!public/nest-icon-*.png
