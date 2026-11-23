@@ -39,7 +39,7 @@ export const MOMENT_POSE = {
 export function presenceLabel(presence, now = Date.now()) {
   if (!presence) return null;
   if (presence.mode === 'touch') {
-    const min = Math.max(1, Math.ceil((presence.presentUntil - now) / 60000));
+    const min = Math.max(1, Math.round((presence.presentUntil - now) / 60000));
     return { kind: 'here', text: 'here', sub: `${min} min` };
   }
   if (presence.mode === 'remote') return { kind: 'window', text: 'at the window' };
@@ -256,7 +256,7 @@ export default function Home() {
   );
 
   return (
-    <div className={`nest-home${momentKind ? ` nest-home-${momentKind}` : ''}`} onPointerDownCapture={wake}>
+    <div className={`nest-home${momentKind ? ` nest-home-${momentKind}` : ''}`} data-moment={momentKind || undefined} data-hatch={hatch} onPointerDownCapture={wake}>
       <Habitat
         scene={scene}
         onJournal={view ? () => navigate('/nest/journal') : undefined}

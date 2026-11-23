@@ -157,7 +157,7 @@ function DevicesSection() {
     const c = confirm;
     setConfirm(null);
     try {
-      if (c.kind === 'passkey') await removePasskey({ passkeyId: c.id });
+      if (c.kind === 'passkey') await removePasskey({ passkeyId: c.id }); /* also signs out that device's sessions */
       else {
         await revokeSession({ sessionId: c.id });
         if (c.current) signOut();
@@ -201,7 +201,7 @@ function DevicesSection() {
       {confirm && (
         <Confirm
           title={confirm.kind === 'passkey' ? `Remove the key “${confirm.label}”?` : confirm.current ? 'Sign out here?' : `Sign “${confirm.label}” out?`}
-          body={<p>{confirm.kind === 'passkey' ? 'That device will need a new device link to come back.' : 'It will need Face ID to come back in.'}</p>}
+          body={<p>{confirm.kind === 'passkey' ? 'That device is signed out and will need a new device link to come back. If it’s this phone, you’ll be signed out too.' : 'It will need Face ID to come back in.'}</p>}
           confirmLabel={confirm.kind === 'passkey' ? 'Remove' : 'Sign out'}
           danger
           onCancel={() => setConfirm(null)}
@@ -372,7 +372,10 @@ function BackupSection() {
       setDone('Restored. A copy of how it was is kept in its backups.');
       setPending(null);
     } catch (e) {
-      setError(errorText(e, 'The restore didn’t finish. Nothing was replaced unless it says so above.'));
+      const code = errorCode(e);
+      if (code === 'busy') setError('Another restore is already running. Try again when it’s done.');
+      else if (code === 'restore_failed') setError('The restore didn’t finish, so it was put back exactly as it was before.');
+      else setError(errorText(e, 'The restore didn’t finish. Nothing was replaced.'));
       setPending(null);
     } finally {
       setBusy('');

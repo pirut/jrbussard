@@ -21,9 +21,15 @@ export function touchErrorText(e) {
   return errorText(e, 'The knock didn’t carry. Try again.');
 }
 
-/* Begin a touch: call once, return the moment for the burrow. */
+/* Begin a touch: call once, return the moment for the burrow.
+   A bad tag is an answer ({ ok: false, code }), not a throw. */
 export async function beginTouch(begin, tagId, secret, now = Date.now()) {
   const out = await begin({ tagId, secret, clientTime: now });
+  if (out && out.ok === false) {
+    const err = new Error(out.message || 'bad tag');
+    err.data = { code: out.code || 'bad_tag', message: out.message };
+    throw err;
+  }
   return { kind: out.momentKind, fallbackText: out.fallbackText, messageId: out.messageId, jobId: out.jobId, visitId: out.visitId, at: now };
 }
 

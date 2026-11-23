@@ -80,10 +80,12 @@ export function DoorScene({ glow = 0.6, children, dim = false }) {
         {stars.map((s, i) => (
           <circle key={i} className="nest-door-star" cx={s.x} cy={s.y} r={s.r} fill="#fff6dc" style={{ animationDelay: `${-s.d}s` }} />
         ))}
-        <g transform="translate(300 110)">
-          <circle r="26" fill="#f6ecd6" opacity="0.95" />
-          <circle cx="10" cy="-6" r="24" fill="#1a2148" />
-        </g>
+        <mask id="nest-door-crescent">
+          <circle cx="300" cy="110" r="26" fill="#fff" />
+          <circle cx="310" cy="104" r="24" fill="#000" />
+        </mask>
+        <circle cx="300" cy="110" r="40" fill="#f6ecd6" opacity="0.08" mask="url(#nest-door-crescent)" />
+        <circle cx="300" cy="110" r="26" fill="#f6ecd6" opacity="0.95" mask="url(#nest-door-crescent)" />
         <path d="M-40 520Q90 430 210 470Q320 500 430 440L430 900L-40 900Z" fill="#1c2a22" opacity="0.8" />
         <path d="M-40 600Q60 470 195 470Q330 470 430 600L430 900L-40 900Z" fill="url(#nest-door-hill)" />
         {/* the door, set into the hill */}
