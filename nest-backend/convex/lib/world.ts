@@ -18,13 +18,24 @@ export function toSimCreature(c: Doc<'creatures'>): SimCreature {
   };
 }
 
+/**
+ * The index is (creatureId, place, foundAt), so a single `.order('desc')` sorts by place first and a long shelf would
+ * crowd out the waiting `forOwner` gift. Query each place on its own: every waiting gift (few), then the newest shelf
+ * and given trinkets by `foundAt`, each with its own cap.
+ */
+async function loadTrinkets(ctx: Ctx, creatureId: Id<'creatures'>): Promise<Doc<'trinkets'>[]> {
+  const byPlace = (place: Doc<'trinkets'>['place'], limit: number) =>
+    ctx.db.query('trinkets').withIndex('by_creature_and_place', (q) => q.eq('creatureId', creatureId).eq('place', place)).order('desc').take(limit);
+  const [forOwner, shelf, given] = await Promise.all([byPlace('forOwner', 20), byPlace('shelf', 400), byPlace('given', 100)]);
+  return [...forOwner, ...shelf, ...given];
+}
+
 export async function loadWorld(ctx: Ctx, c: Doc<'creatures'>): Promise<SimWorld> {
   const settings = await getSettings(ctx);
   const [acq, regions, trinkets, interests, weather] = await Promise.all([
     ctx.db.query('acquaintances').withIndex('by_creature_and_key', (q) => q.eq('creatureId', c._id)).take(200),
     ctx.db.query('regionState').withIndex('by_creature_and_region', (q) => q.eq('creatureId', c._id)).take(20),
-    // Newest first: past 400 trinkets the sim must see the recent shelf, not the oldest one.
-    ctx.db.query('trinkets').withIndex('by_creature_and_place', (q) => q.eq('creatureId', c._id)).order('desc').take(400),
+    loadTrinkets(ctx, c._id),
     ctx.db.query('interests').withIndex('by_creature_and_strength', (q) => q.eq('creatureId', c._id)).order('desc').take(30),
     ctx.db.query('weather').first(),
   ]);

@@ -6,7 +6,7 @@ import type { Doc } from './_generated/dataModel';
 import type { Transition } from './engine/sim';
 import { currentWeather } from './engine/sim';
 import { DAY, HOUR, localTime, weatherFromWmo } from './engine/time';
-import { getSettings } from './lib/core';
+import { getSettings, isRestoring } from './lib/core';
 import { queueConsolidate, queueJournal, queueNoteReply } from './lib/queue';
 import { catchUp, loadWorld } from './lib/world';
 import { vWeather } from './validators';
@@ -67,9 +67,15 @@ export async function afterTick(ctx: MutationCtx, c: Doc<'creatures'>, transitio
 export const tick = internalMutation({
   args: { now: v.optional(v.number()) },
   handler: async (ctx, a) => {
-    const c0 = await ctx.db.query('creatures').first();
-    if (!c0 || c0.restoring) return null;
+    let c0 = await ctx.db.query('creatures').first();
     const now = a.now ?? Date.now();
+    if (c0?.restoring) {
+      if (await isRestoring(ctx, c0, now)) return null;
+      // The restore that set this flag is gone (no lock, or a stale one). Clear it so the nest runs again.
+      await ctx.db.patch(c0._id, { restoring: undefined });
+      c0 = (await ctx.db.get(c0._id))!;
+    }
+    if (!c0) return null;
     const { creature, result, advanced } = await catchUp(ctx, c0, now);
     const done = await afterTick(ctx, creature, result.transitions, now);
     const world = await loadWorld(ctx, creature);

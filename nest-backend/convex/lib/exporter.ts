@@ -17,9 +17,9 @@ export type ExportData = Record<ExportTable, ExportDoc[]>;
 export type ExportFile = { format: typeof EXPORT_FORMAT; exportedAt: number; schemaVersion: number; checksum: string; data: ExportData };
 
 /**
- * The tables a restore replaces. `nfcTags` is excluded on purpose: a restore must never resurrect a
- * tag the owner revoked or drop one made after the backup. Live tags stay exactly as they are
- * (a backup still carries them, so the file is a complete record, but they are never read back).
+ * The tables a restore replaces. `nfcTags` is not replaced: a restore must never resurrect a tag the owner revoked or
+ * drop one made after the backup, so live tag rows are never touched. A tag from the backup whose `tagId` has no live
+ * row is added back (`backup:restoreTags`), so restoring onto a fresh deployment still recognises the physical sticker.
  */
 export const RESTORE_TABLES = EXPORT_TABLES.filter((t) => t !== 'nfcTags');
 

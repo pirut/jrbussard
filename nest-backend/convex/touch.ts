@@ -10,7 +10,7 @@ import { clamp, round } from './engine/rng';
 import { safeEqual } from './engine/sha256';
 import { MINUTE } from './engine/time';
 import type { MomentKind, SimCreature } from './engine/types';
-import { audit, clean, fail, getSettings, hashTagSecret, limiter, requireCreature, requireOwner } from './lib/core';
+import { audit, clean, fail, getSettings, hashTagSecret, isRestoring, limiter, requireCreature, requireOwner } from './lib/core';
 import { queueMoment } from './lib/queue';
 import { addMemory, catchUp, recordHappening, saveCreature, toSimCreature } from './lib/world';
 
@@ -54,7 +54,7 @@ export const begin = mutation({
     }
     const now = Date.now();
     let c = await requireCreature(ctx);
-    if (c.restoring) fail('The nest is being restored. Try again in a minute.', 'busy');
+    if (await isRestoring(ctx, c)) fail('The nest is being restored. Try again in a minute.', 'busy');
     c = (await catchUp(ctx, c, now)).creature;
     const settings = await getSettings(ctx);
 

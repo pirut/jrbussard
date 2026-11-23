@@ -11,6 +11,13 @@ import { loadWorld } from '../convex/lib/world';
 import { readNotes } from '../convex/sim';
 import { RESTORE_LOCK_STALE_MS } from '../convex/backup';
 import { canonicalJson, sha256Hex } from '../convex/engine/sha256';
+import { verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
+
+// Pass-through spies, so a test can make verification report "not verified" once.
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const m = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...m, verifyAuthenticationResponse: vi.fn(m.verifyAuthenticationResponse), verifyRegistrationResponse: vi.fn(m.verifyRegistrationResponse) };
+});
 
 const modules = import.meta.glob('../convex/**/*.ts');
 const make = () => {
@@ -661,7 +668,7 @@ describe('S1 restore lock and rollback', () => {
     // Passes the dry run (references are dropped there), then fails when the reference is restored: a trinket "remembering" a happening.
     file.data.trinkets = file.data.trinkets.map((x) => (x._id === trinketId ? { ...x, memoryId: happeningId } : x));
     await t.mutation(api.creature.name, { sessionToken: TOKEN, name: 'Changed' });
-    await expect(t.action(api.backup.restore, { sessionToken: TOKEN, storageId: await upload(t, file) })).rejects.toThrow(/put back the way it was/);
+    await expect(t.action(api.backup.restore, { sessionToken: TOKEN, storageId: await upload(t, file) })).rejects.toThrow(/put back as it was just before the restore/);
     const after = await t.run(async (ctx) => ({
       creatures: await ctx.db.query('creatures').collect(), locks: await ctx.db.query('locks').collect(),
       memories: (await ctx.db.query('memories').collect()).length, happenings: (await ctx.db.query('happenings').collect()).length,
@@ -670,6 +677,10 @@ describe('S1 restore lock and rollback', () => {
     expect(after.creatures[0].name).toBe('Changed'); // the state just before the failed restore, not the file's
     expect(after.creatures[0].restoring).toBeUndefined();
     expect(after.locks).toEqual([]);
+    // S20: the rollback is audited as a rollback, not as a finished restore.
+    const events = await t.run(async (ctx) => (await ctx.db.query('audit').collect()).map((x) => x.event));
+    expect(events).toContain('restore.rolled_back');
+    expect(events).not.toContain('restore.done');
     expect(after.memories).toBeGreaterThanOrEqual(before.memories);
     expect(after.happenings).toBe(before.happenings);
     expect((await t.query(api.creature.get, { sessionToken: TOKEN }))!.creature.name).toBe('Changed');
@@ -1039,5 +1050,89 @@ describe('S14 / S15 / S16', () => {
     expect(world.trinkets).toHaveLength(400);
     expect(keys.has('k429')).toBe(true);
     expect(keys.has('k000')).toBe(false);
+  });
+});
+
+describe('round 2 fixes', () => {
+  const env = () => { vi.stubEnv('NEST_RP_ID', 'localhost'); vi.stubEnv('NEST_ORIGINS', 'http://localhost:3000'); };
+
+  it('S18b: a waiting gift is still loaded when shelf and given exceed 400 trinkets', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 420; i++) await ctx.db.insert('trinkets', { creatureId: cid, key: `s${i}`, name: `S${i}`, description: 'd', regionId: 'tidepools', foundAt: 1_000_000 + i, rarity: 'common', place: 'shelf' });
+      for (let i = 0; i < 30; i++) await ctx.db.insert('trinkets', { creatureId: cid, key: `g${i}`, name: `G${i}`, description: 'd', regionId: 'tidepools', foundAt: 1_000_000 + i, rarity: 'common', place: 'given' });
+      await ctx.db.insert('trinkets', { creatureId: cid, key: 'gift', name: 'Gift', description: 'd', regionId: 'tidepools', foundAt: 1, rarity: 'common', place: 'forOwner' });
+    });
+    const world = await t.run(async (ctx) => await loadWorld(ctx, (await ctx.db.get(cid))!));
+    expect(world.trinkets.some((x) => x.place === 'forOwner' && x.key === 'gift')).toBe(true);
+    // Newest shelf trinkets by foundAt still win over the oldest.
+    const shelf = new Set(world.trinkets.filter((x) => x.place === 'shelf').map((x) => x.key));
+    expect(shelf.has('s419')).toBe(true);
+    expect(shelf.has('s0')).toBe(false);
+    expect(world.trinkets.filter((x) => x.place === 'given')).toHaveLength(30);
+  });
+
+  it('S18: restoring onto a fresh deployment brings the tag back; live rows are never changed', async () => {
+    const t = make();
+    await owned(t, { hatched: true });
+    const exp = await t.action(api.backup.exportNow, { sessionToken: TOKEN });
+    const file = await storedFile(t, exp.backupId);
+    // A fresh deployment: no tags at all.
+    await t.run(async (ctx) => { for (const x of await ctx.db.query('nfcTags').collect()) await ctx.db.delete(x._id); });
+    expect(await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET })).toMatchObject({ ok: false, code: 'bad_tag' });
+    await t.action(api.backup.restore, { sessionToken: TOKEN, storageId: await upload(t, file) });
+    expect((await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET })).ok).toBe(true);
+    expect(await t.run(async (ctx) => (await ctx.db.query('nfcTags').collect()).length)).toBe(1);
+    // A second restore does not duplicate or modify the live row (here: revoked after the first restore).
+    await t.run(async (ctx) => { const tag = (await ctx.db.query('nfcTags').first())!; await ctx.db.patch(tag._id, { revokedAt: 5 }); });
+    await t.action(api.backup.restore, { sessionToken: TOKEN, storageId: await upload(t, file) });
+    const tags = await t.run(async (ctx) => await ctx.db.query('nfcTags').collect());
+    expect(tags).toHaveLength(1);
+    expect(tags[0].revokedAt).toBe(5);
+  });
+
+  it('S17: a restoring flag with no live lock does not freeze the nest, and the next tick clears it', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    // The restore died: flag set, no lock row.
+    await t.run(async (ctx) => { await ctx.db.patch(cid, { restoring: true }); });
+    expect((await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET })).ok).toBe(true);
+    await t.mutation(api.interact.gesture, { sessionToken: TOKEN, kind: 'pet' }); // not 'busy'
+    vi.advanceTimersByTime(5 * 60_000);
+    await t.mutation(internal.sim.tick, {});
+    expect((await t.run(async (ctx) => (await ctx.db.get(cid))!)).restoring).toBeUndefined();
+  });
+
+  it('S17: a stale lock (> 10 min) is treated the same; a fresh lock still blocks', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    expect(await t.mutation(internal.backup.markRestoring, { token: 'a' })).toBe(true);
+    await expect(t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET })).rejects.toThrow(/being restored/);
+    expect(await t.mutation(internal.sim.tick, {})).toBeNull();
+    expect((await t.run(async (ctx) => (await ctx.db.get(cid))!)).restoring).toBe(true);
+    vi.advanceTimersByTime(RESTORE_LOCK_STALE_MS + 1000);
+    expect((await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET })).ok).toBe(true);
+    await t.mutation(internal.sim.tick, {});
+    expect((await t.run(async (ctx) => (await ctx.db.get(cid))!)).restoring).toBeUndefined();
+  });
+
+  it('S21: "not verified" burns the challenge like the other failure paths', async () => {
+    env();
+    const t = make();
+    await owned(t);
+    const mkChallenge = (kind: 'login' | 'register') => t.run(async (ctx) => ctx.db.insert('authChallenges', { challenge: 'c', kind, createdAt: Date.now(), expiresAt: Date.now() + 300_000 }));
+    // Login: verification returns verified: false.
+    const login = await mkChallenge('login');
+    vi.mocked(verifyAuthenticationResponse).mockResolvedValueOnce({ verified: false, authenticationInfo: { newCounter: 0 } } as never);
+    await expect(t.action(api.authNode.login, { challengeId: login, response: { id: 'cred' } })).rejects.toThrow(/could not be verified/);
+    expect((await t.run(async (ctx) => (await ctx.db.get(login))!)).usedAt).toBeDefined();
+    // Register: verified but no registrationInfo.
+    const reg = await mkChallenge('register');
+    vi.mocked(verifyRegistrationResponse).mockResolvedValueOnce({ verified: true } as never);
+    await expect(t.action(api.authNode.register, { claimCode: 'x', challengeId: reg, response: {} })).rejects.toThrow(/could not be verified/);
+    expect((await t.run(async (ctx) => (await ctx.db.get(reg))!)).usedAt).toBeDefined();
+    const failures = await t.run(async (ctx) => (await ctx.db.query('audit').collect()).filter((x) => x.event === 'auth.failed').map((x) => x.detail));
+    expect(failures).toEqual(expect.arrayContaining(['login: not verified', 'register: not verified']));
   });
 });

@@ -7,7 +7,7 @@ import { nudge } from './engine/growth';
 import { clamp, round } from './engine/rng';
 import { localTime } from './engine/time';
 import type { CreatureAction, Emotion } from './engine/types';
-import { clean, fail, getSettings, limiter, requireCreature, requireOwner } from './lib/core';
+import { clean, fail, getSettings, isRestoring, limiter, requireCreature, requireOwner } from './lib/core';
 import { searchTerms } from './lib/context';
 import { queueConstellation, queueNoteReply, queueReply } from './lib/queue';
 import { presenceOf, type Presence } from './lib/view';
@@ -18,7 +18,7 @@ async function current(ctx: MutationCtx, sessionToken: string, bucket: 'chat' | 
   await requireOwner(ctx, sessionToken);
   await limiter.limit(ctx, bucket, { key: 'owner', throws: true });
   const c0 = await requireCreature(ctx);
-  if (c0.restoring) fail('The nest is being restored. Try again in a minute.', 'busy');
+  if (await isRestoring(ctx, c0)) fail('The nest is being restored. Try again in a minute.', 'busy');
   const { creature } = await catchUp(ctx, c0, Date.now());
   return { c: creature, presence: await presenceOf(ctx, creature) };
 }
