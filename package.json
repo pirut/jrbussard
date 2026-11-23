@@ -37,7 +37,9 @@
         "build:frontend": "react-scripts build",
         "prayer:check": "npm --prefix prayer-backend run check",
         "prayer:test": "npm --prefix prayer-backend test",
-        "prayer:deploy": "npm --prefix prayer-backend run deploy"
+        "prayer:deploy": "npm --prefix prayer-backend run deploy",
+        "mind:check": "npm --prefix nest-mind run check",
+        "mind:test": "npm --prefix nest-mind test"
     },
     "eslintConfig": {
         "extends": [
