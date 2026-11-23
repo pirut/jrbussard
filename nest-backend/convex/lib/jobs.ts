@@ -81,6 +81,8 @@ export async function completeJob(ctx: MutationCtx, job: Doc<'jobs'>, outputText
   return { ok: true };
 }
 
+const sameWords = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
 function knownWords(job: Doc<'jobs'>) {
   return new Set([...STARTER_WORDS, ...job.context.vocabulary].map((w) => w.toLowerCase()));
 }
@@ -121,7 +123,9 @@ export async function applyOutput(ctx: MutationCtx, job: Doc<'jobs'>, output: Jo
       const o = output as ReplyOutput;
       await fillMessage(ctx, job, o.say, o.emotion, o.action, fallback);
       const source = job.kind === 'moment' ? 'touch' : 'conversation';
-      for (const r of o.remember) await addMemory(ctx, creature._id, { text: r.text, salience: r.salience, tags: r.tags, source, sourceIds: job.subjectId ? [job.subjectId] : [] });
+      // The hatch already wrote its one memory (see touch.begin); a reply to it does not remember the same moment again.
+      const remembered = job.kind === 'moment' && job.context.extra?.momentKind === 'hatch' ? [] : o.remember;
+      for (const r of remembered) await addMemory(ctx, creature._id, { text: r.text, salience: r.salience, tags: r.tags, source, sourceIds: job.subjectId ? [job.subjectId] : [] });
       for (const f of o.ownerFacts) await upsertBelief(ctx, creature._id, 'owner', f.key, f.statement, f.confidence, []);
       if (o.learnedWords.length) {
         const vocab = [...new Set([...creature.vocabulary, ...o.learnedWords])].slice(-500);
@@ -142,9 +146,18 @@ export async function applyOutput(ctx: MutationCtx, job: Doc<'jobs'>, output: Jo
     case 'journal': {
       const o = output as JournalOutput;
       const day = String(job.context.extra?.day ?? localTime(now, 'America/New_York').dayIndex);
+      // Each happening is journaled once. An entry that still carries a not-yet-journaled happening is always kept (even
+      // when its words repeat a recent entry, or the happening would never be journaled); only a pure text repeat is skipped.
+      const recent = await ctx.db.query('journal').withIndex('by_creature_and_at', (q) => q.eq('creatureId', creature._id)).order('desc').take(60);
+      const done = new Set<string>(recent.flatMap((r) => r.happeningIds as string[]));
+      const said = new Set(recent.slice(0, 8).map((r) => sameWords(r.text)));
       for (const e of o.entries) {
-        const ids = e.happeningIds.map((h) => ctx.db.normalizeId('happenings', h)).filter((x): x is Id<'happenings'> => !!x);
+        const all = e.happeningIds.map((h) => ctx.db.normalizeId('happenings', h)).filter((x): x is Id<'happenings'> => !!x);
+        const ids = all.filter((id) => !done.has(id));
+        if (!ids.length && (all.length || said.has(sameWords(e.text)))) continue;
         await ctx.db.insert('journal', { creatureId: creature._id, day, at: now, text: e.text, happeningIds: ids, fallback, jobId: job._id });
+        for (const id of ids) done.add(id);
+        said.add(sameWords(e.text));
       }
       break;
     }
@@ -154,7 +167,8 @@ export async function applyOutput(ctx: MutationCtx, job: Doc<'jobs'>, output: Jo
       for (const s of o.summaries) {
         const from = s.fromMemoryIds.map(mem).filter((x): x is Id<'memories'> => !!x);
         const sid = await addMemory(ctx, creature._id, { kind: 'consolidated', text: s.text, salience: s.salience, tags: s.tags, source: 'consolidation', sourceIds: from });
-        for (const f of from) await ctx.db.patch(f, { consolidatedInto: sid });
+        // The summary can merge into one of its own sources (same text); that memory is not consolidated into itself.
+        for (const f of from) if (f !== sid) await ctx.db.patch(f, { consolidatedInto: sid });
       }
       for (const a of o.archiveMemoryIds) {
         const id = mem(a);

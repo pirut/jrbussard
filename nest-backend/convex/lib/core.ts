@@ -84,7 +84,7 @@ export async function requireCreature(ctx: Ctx): Promise<Doc<'creatures'>> {
   return c;
 }
 
-export const DEFAULT_SETTINGS = { timezone: 'America/New_York', soundOn: true, voiceReplies: false, aiPreference: 'auto' as const };
+export const DEFAULT_SETTINGS = { timezone: 'America/New_York', soundOn: false, voiceReplies: false, aiPreference: 'auto' as const };
 
 export async function getSettings(ctx: Ctx): Promise<Omit<Doc<'settings'>, '_id' | '_creationTime'> & { _id?: Id<'settings'> }> {
   return (await ctx.db.query('settings').first()) ?? DEFAULT_SETTINGS;

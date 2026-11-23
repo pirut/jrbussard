@@ -4,6 +4,7 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import { internal } from './_generated/api';
 import type { Id, TableNames } from './_generated/dataModel';
 import { DAY } from './engine/time';
+import { rebaseActivity } from './engine/sim';
 import { RESTORE_LOCK_STALE_MS, audit, fail, requireOwner } from './lib/core';
 import {
   EXPORT_TABLES, RESTORE_TABLES, finalize, readExportPage, remapRefs, stripForInsert, validateExport, type ExportData, type ExportDoc, type ExportFile, type ExportTable,
@@ -198,7 +199,11 @@ export const restoreTags = internalMutation({
 export const finishRestore = internalMutation({
   args: { creatureId: v.id('creatures'), checksum: v.string(), rolledBack: v.optional(v.boolean()) },
   handler: async (ctx, a) => {
-    await ctx.db.patch(a.creatureId, { restoring: undefined, lastTickAt: Math.min((await ctx.db.get(a.creatureId))!.lastTickAt, Date.now()) });
+    const c = (await ctx.db.get(a.creatureId))!;
+    const lastTickAt = Math.min(c.lastTickAt, Date.now());
+    // The clock may move back (a backup taken from a sim that ran ahead). Re-plan the activity against the new clock
+    // so a restored creature does not stay in one activity until a time days away.
+    await ctx.db.patch(a.creatureId, { restoring: undefined, lastTickAt, activity: rebaseActivity(c.activity, c.lastTickAt, lastTickAt) });
     await audit(ctx, a.rolledBack ? 'restore.rolled_back' : 'restore.done', a.checksum.slice(0, 16));
   },
 });

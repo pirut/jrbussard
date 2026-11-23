@@ -64,6 +64,8 @@ export type CreatureView = {
     relationship: { trust: number; familiarity: number; visits: number; touches: number; conversations: number; lastSeenAt: number | null };
     marks: { id: string; kind: string; label: string; memoryId: Id<'memories'> | null; at: number }[];
     vocabularySize: number;
+    /** 0..1 from the genome; the client maps it to speech and chirp pitch. */
+    voicePitch: number;
     needsName: boolean;
   };
   phenotype: Phenotype;
@@ -107,6 +109,7 @@ export async function creatureView(ctx: Ctx, c: Doc<'creatures'>, now = Date.now
       relationship: { trust: c.relationship.trust, familiarity: c.relationship.familiarity, visits: c.relationship.visits, touches: c.relationship.touches, conversations: c.relationship.conversations, lastSeenAt: c.relationship.lastSeenAt ?? null },
       marks: c.marks.map((m) => ({ id: m.id, kind: m.kind, label: m.label, memoryId: m.memoryId ?? null, at: m.at })),
       vocabularySize: c.vocabulary.length,
+      voicePitch: c.genome.voicePitch,
       needsName: c.status === 'alive' && !c.name,
     },
     phenotype: computePhenotype({ seed: c.seed, stage: c.stage, genome: c.genome, traits: c.traits, affinities: c.affinities, morph: c.morph, marks: c.marks, vitals: c.vitals, egg: c.egg }),

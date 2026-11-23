@@ -34,14 +34,23 @@ export async function maybeConsolidate(ctx: MutationCtx, c: Doc<'creatures'>, fo
 export async function maybeJournal(ctx: MutationCtx, c: Doc<'creatures'>, now: number) {
   if (c.status !== 'alive' || (await openJob(ctx, c, 'journal'))) return false;
   const settings = await getSettings(ctx);
-  const last = await ctx.db.query('journal').withIndex('by_creature_and_at', (q) => q.eq('creatureId', c._id)).order('desc').first();
-  const since = Math.max(last?.at ?? 0, now - 30 * HOUR);
-  const hs = (await ctx.db.query('happenings').withIndex('by_creature_and_at', (q) => q.eq('creatureId', c._id).gt('at', since)).take(200)).filter((h) => h.salience >= 0.25).slice(-30);
+  // A happening is journaled at most once. Match by id, not by time: journal rows are stamped with the
+  // wall clock when written, happenings with sim time, and a restore or a catch-up can put them out of order.
+  const done = await journaledHappenings(ctx, c);
+  const hs = (await ctx.db.query('happenings').withIndex('by_creature_and_at', (q) => q.eq('creatureId', c._id).gt('at', now - 30 * HOUR)).take(200))
+    .filter((h) => h.salience >= 0.25 && !done.ids.has(h._id))
+    .slice(-30);
   if (!hs.length) return false;
   const lt = localTime(now - 12 * HOUR, settings.timezone);
   const day = `${lt.year}-${String(lt.month).padStart(2, '0')}-${String(lt.date).padStart(2, '0')}`;
-  await queueJournal(ctx, c, day, hs);
+  await queueJournal(ctx, c, day, hs, done.texts);
   return true;
+}
+
+/** Happening ids already in the journal (newest entries), and the newest entry texts, newest first. */
+export async function journaledHappenings(ctx: MutationCtx, c: Doc<'creatures'>) {
+  const rows = await ctx.db.query('journal').withIndex('by_creature_and_at', (q) => q.eq('creatureId', c._id)).order('desc').take(60);
+  return { ids: new Set<string>(rows.flatMap((r) => r.happeningIds as string[])), texts: rows.slice(0, 8).map((r) => r.text) };
 }
 
 export async function readNotes(ctx: MutationCtx, c: Doc<'creatures'>) {

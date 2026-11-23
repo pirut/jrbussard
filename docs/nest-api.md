@@ -79,6 +79,7 @@ type CreatureView = {
     relationship: { trust: number; familiarity: number; visits: number; touches: number; conversations: number; lastSeenAt: number | null };
     marks: { id: string; kind: 'star'|'scar'|'leaf'|'ripple'|'spiral'|'dot'; label: string; memoryId: string | null; at: number }[];
     vocabularySize: number;
+    voicePitch: number;             // 0..1 from the genome. Map to speechSynthesis pitch (and rate with stage) and to hatchling chirp pitch
   };
   phenotype: Phenotype;             // draw the creature from this
   pose: CreaturePose;               // emotion/action/asleep/energy right now
@@ -199,7 +200,7 @@ Dreams: `memories.list({ kind: 'dream' })`; unseen ones have `seen: false` (coun
 
 | Function | Kind | Args | Returns |
 |---|---|---|---|
-| `settings.get` | query | `{ sessionToken }` | `{ timezone, location: { lat, lon, label } \| null, soundOn, voiceReplies, aiPreference, ownerName: string \| null }` |
+| `settings.get` | query | `{ sessionToken }` | `{ timezone, location: { lat, lon, label } \| null, soundOn, voiceReplies, aiPreference, ownerName: string \| null }`. `soundOn` defaults to `false`: sound stays off until the owner turns it on. |
 | `settings.update` | mutation | `{ sessionToken, timezone?, location?: {lat, lon, label} \| null, soundOn?, voiceReplies?, aiPreference?, ownerName?: string \| null }` | `{ ok: true }`. `timezone` is IANA. `location` (rounded to ~1 km) turns on real weather; null turns it off. `ownerName` is what it calls you. |
 | `settings.sessions` | query | `{ sessionToken }` | `{ id, label, createdAt, lastUsedAt, expiresAt, current }[]` |
 | `settings.revokeSession` | mutation | `{ sessionToken, sessionId }` | `{ ok: true }` |
