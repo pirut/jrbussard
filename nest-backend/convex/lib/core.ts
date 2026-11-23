@@ -10,7 +10,13 @@ import { DAY, HOUR } from '../engine/time';
 export const SESSION_TTL = 90 * DAY;
 
 export const limiter = new RateLimiter(components.rateLimiter, {
-  auth: { kind: 'token bucket', rate: 10, period: MINUTE, capacity: 10 },
+  // One token per passkey step, from the right bucket, so a stranger spamming the open doors cannot lock the owner out:
+  //  auth        a step that holds a valid challenge or claim link (the owner finishing a sign-in or claim)
+  //  authOptions the unauthenticated "give me options" calls (anyone can make these)
+  //  authProbe   guesses: a claim code or challenge that turned out to be invalid
+  auth: { kind: 'token bucket', rate: 20, period: MINUTE, capacity: 20 },
+  authOptions: { kind: 'token bucket', rate: 30, period: MINUTE, capacity: 30 },
+  authProbe: { kind: 'token bucket', rate: 10, period: MINUTE, capacity: 10 },
   chat: { kind: 'token bucket', rate: 30, period: MINUTE, capacity: 30 },
   gesture: { kind: 'token bucket', rate: 120, period: MINUTE, capacity: 120 },
   touch: { kind: 'token bucket', rate: 20, period: MINUTE, capacity: 20 },

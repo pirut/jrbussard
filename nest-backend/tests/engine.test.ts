@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newEgg, hatch } from '../convex/engine/creature';
 import { EVENTS } from '../convex/engine/events';
-import { branchFor, earnedStage, morphAt, applyDailyDrift, makeGenome } from '../convex/engine/growth';
+import { branchFor, earnedStage, experienceFor, morphAt, applyDailyDrift, makeGenome } from '../convex/engine/growth';
 import { pickMoment, type MomentInput } from '../convex/engine/moments';
 import { computePhenotype } from '../convex/engine/phenotype';
 import { buildRequest, quote, type PromptContext } from '../convex/engine/prompt';
@@ -150,14 +150,41 @@ describe('simulation', () => {
 });
 
 describe('growth', () => {
+  const owner = (n: number, explorations = 0) => ({ owner: n, explorations });
   it('needs both age and experience, with an age-only fallback', () => {
-    expect(earnedStage('hatchling', 2, 100)).toBe('hatchling');
-    expect(earnedStage('hatchling', 3.5, 20)).toBe('fledgling');
-    expect(earnedStage('hatchling', 3.5, 2)).toBe('hatchling');
-    expect(earnedStage('hatchling', 6.1, 0)).toBe('fledgling');
-    expect(earnedStage('fledgling', 15, 70)).toBe('juvenile');
-    expect(earnedStage('juvenile', 400, 0)).toBe('adult'); // one stage at a time
-    expect(earnedStage('egg', 100, 100)).toBe('egg');
+    expect(earnedStage('hatchling', 2, owner(100))).toBe('hatchling');
+    expect(earnedStage('hatchling', 3.5, owner(20))).toBe('fledgling');
+    expect(earnedStage('hatchling', 3.5, owner(2))).toBe('hatchling');
+    expect(earnedStage('hatchling', 6.1, owner(0))).toBe('fledgling');
+    expect(earnedStage('fledgling', 15, owner(70))).toBe('juvenile');
+    expect(earnedStage('juvenile', 400, owner(0))).toBe('adult'); // one stage at a time
+    expect(earnedStage('egg', 100, owner(100))).toBe('egg');
+  });
+
+  it('a creature nobody visits grows up at about twice the age; a visited one at the normal age', () => {
+    // The sim explores on its own, so outings alone must never be enough: S9.
+    const rules = [['hatchling', 'fledgling', 3, 15], ['fledgling', 'juvenile', 14, 60], ['juvenile', 'adult', 60, 200], ['adult', 'elder', 180, 500]] as const;
+    for (const [from, to, days, exp] of rules) {
+      const lots = owner(0, 100_000); // endless outings, no owner
+      expect(earnedStage(from, days + 0.5, lots), `neglected ${to} at 1x`).toBe(from);
+      expect(earnedStage(from, days * 1.9, lots), `neglected ${to} at 1.9x`).toBe(from);
+      expect(earnedStage(from, days * 2 + 0.01, lots), `neglected ${to} at 2x`).toBe(to);
+      expect(earnedStage(from, days + 0.5, owner(exp)), `visited ${to} at 1x`).toBe(to);
+    }
+    // Outings count for a fifth, up to a quarter of the threshold: 12 owner + (100 outings → capped 3.75) clears 15; 11 does not.
+    expect(earnedStage('hatchling', 3.5, owner(12, 100))).toBe('fledgling');
+    expect(earnedStage('hatchling', 3.5, owner(11, 100))).toBe('hatchling');
+    expect(experienceFor(owner(0, 10), 15)).toBe(2); // 10 * 0.2
+    expect(experienceFor(owner(0, 10_000), 200)).toBe(50); // 25% of 200
+    expect(experienceFor(owner(40, 0), 60)).toBe(40);
+  });
+
+  it('in the simulation, a neglected creature is still a hatchling at day 4 and a fledgling by day 7; a visited one is a fledgling by day 4', () => {
+    const neglected = live(world('neglected'), 4).world.creature;
+    expect(neglected.counters.explorations).toBeGreaterThan(0); // it did go out
+    expect(neglected.stage).toBe('hatchling');
+    expect(live(world('neglected'), 7).world.creature.stage).toBe('fledgling');
+    expect(live(world('visited'), 4, 1).world.creature.stage).not.toBe('hatchling');
   });
 
   it('different lives branch into different bodies', () => {
@@ -276,11 +303,57 @@ describe('output validation', () => {
     const extra = validateOutput('reply', JSON.stringify({ ...good, setTrust: 1 }), vctx);
     expect(extra.ok).toBe(false);
     if (!extra.ok) expect(extra.error).toMatch(/unknown field/);
-    expect(validateOutput('reply', JSON.stringify({ ...good, sharedHappeningIds: ['nope'] }), vctx).ok).toBe(false);
     expect(validateOutput('reply', JSON.stringify({ ...good, emotion: 'furious' }), vctx).ok).toBe(false);
     expect(validateOutput('reply', JSON.stringify([good]), vctx).ok).toBe(false);
-    expect(validateOutput('consolidate', JSON.stringify({ summaries: [], archiveMemoryIds: ['m9'], beliefs: [], interests: [], dream: null, opinionShifts: [] }), vctx).ok).toBe(false);
-    expect(validateOutput('consolidate', JSON.stringify({ summaries: [], archiveMemoryIds: [], beliefs: [], interests: [], dream: { text: 'a dream', fromMemoryIds: [] }, opinionShifts: [] }), vctx).ok).toBe(false);
+  });
+  it('drops unknown ids instead of rejecting the whole answer (S2)', () => {
+    const shared = validateOutput('reply', JSON.stringify({ ...good, sharedHappeningIds: ['nope', 'h1'] }), vctx);
+    expect(shared.ok).toBe(true);
+    if (shared.ok) expect((shared.value as typeof good).sharedHappeningIds).toEqual(['h1']);
+    const c = validateOutput('consolidate', JSON.stringify({
+      summaries: [
+        { text: 'Kept, one real source.', salience: 0.5, tags: [], fromMemoryIds: ['m1', 'ghost'] },
+        { text: 'Dropped, every source invented.', salience: 0.5, tags: [], fromMemoryIds: ['ghost'] },
+      ],
+      archiveMemoryIds: ['m9', 'm2'],
+      beliefs: [{ subject: 'self', key: 'k', statement: 'I like tea.', confidence: 0.5, evidence: ['ghost', 'm1'] }],
+      interests: [],
+      dream: { text: 'a dream', fromMemoryIds: ['ghost', 'm2'] },
+      opinionShifts: [],
+    }), vctx);
+    expect(c.ok).toBe(true);
+    if (c.ok) {
+      const v = c.value as { summaries: { text: string; fromMemoryIds: string[] }[]; archiveMemoryIds: string[]; beliefs: { evidence: string[] }[]; dream: { fromMemoryIds: string[] } | null };
+      expect(v.summaries.map((x) => x.text)).toEqual(['Kept, one real source.']);
+      expect(v.summaries[0].fromMemoryIds).toEqual(['m1']);
+      expect(v.archiveMemoryIds).toEqual(['m2']);
+      expect(v.beliefs[0].evidence).toEqual(['m1']);
+      expect(v.dream?.fromMemoryIds).toEqual(['m2']);
+    }
+    // A dream is kept only with at least one valid source.
+    for (const fromMemoryIds of [[], ['ghost']]) {
+      const d = validateOutput('consolidate', JSON.stringify({ summaries: [], archiveMemoryIds: [], beliefs: [], interests: [], dream: { text: 'a dream', fromMemoryIds }, opinionShifts: [] }), vctx);
+      expect(d.ok).toBe(true);
+      if (d.ok) expect((d.value as { dream: unknown }).dream).toBeNull();
+    }
+    const j = validateOutput('journal', JSON.stringify({ entries: [{ happeningIds: ['h1', 'ghost'], text: 'A day.' }] }), vctx);
+    expect(j.ok).toBe(true);
+    if (j.ok) expect((j.value as { entries: { happeningIds: string[] }[] }).entries[0].happeningIds).toEqual(['h1']);
+  });
+  it('journal and consolidation prompts show no ids the validator would refuse (S2)', () => {
+    const base = ctx();
+    const eps = [{ id: 'e1', text: 'An episode.', at: base.now - HOUR, kind: 'episode', salience: 0.5 }];
+    const cons = buildRequest('consolidate', base, { kind: 'consolidate', episodes: eps });
+    expect(cons.instructions).not.toContain('[m1]'); // a context memory: not citable here
+    expect(cons.instructions).not.toContain('[h1]');
+    expect(cons.input[0].content).toContain('[e1]');
+    const jr = buildRequest('journal', base, { kind: 'journal', day: '2026-11-01', happenings: [{ id: 'j1', at: base.now - HOUR, summary: 'It napped.', memoryText: 'I napped.', kind: 'rest' }] });
+    expect(jr.instructions).not.toContain('[m1]');
+    expect(jr.instructions).not.toContain('[h1]');
+    expect(jr.input[0].content).toContain('[j1]');
+    const rep = buildRequest('reply', base, { kind: 'reply', ownerText: 'hi', via: 'text', presence: 'touch' });
+    expect(rep.instructions).toContain('[m1]');
+    expect(rep.instructions).toContain('[h1]');
   });
   it('caps long strings and arrays and accepts fenced JSON', () => {
     const r = validateOutput('reply', '```json\n' + JSON.stringify({ ...good, say: 'y'.repeat(900), remember: Array(9).fill(good.remember[0]) }) + '\n```', vctx);

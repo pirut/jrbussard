@@ -23,7 +23,8 @@ export async function loadWorld(ctx: Ctx, c: Doc<'creatures'>): Promise<SimWorld
   const [acq, regions, trinkets, interests, weather] = await Promise.all([
     ctx.db.query('acquaintances').withIndex('by_creature_and_key', (q) => q.eq('creatureId', c._id)).take(200),
     ctx.db.query('regionState').withIndex('by_creature_and_region', (q) => q.eq('creatureId', c._id)).take(20),
-    ctx.db.query('trinkets').withIndex('by_creature_and_place', (q) => q.eq('creatureId', c._id)).take(400),
+    // Newest first: past 400 trinkets the sim must see the recent shelf, not the oldest one.
+    ctx.db.query('trinkets').withIndex('by_creature_and_place', (q) => q.eq('creatureId', c._id)).order('desc').take(400),
     ctx.db.query('interests').withIndex('by_creature_and_strength', (q) => q.eq('creatureId', c._id)).order('desc').take(30),
     ctx.db.query('weather').first(),
   ]);

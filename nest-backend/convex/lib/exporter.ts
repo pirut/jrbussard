@@ -16,6 +16,13 @@ export type ExportDoc = Record<string, unknown> & { _id: string };
 export type ExportData = Record<ExportTable, ExportDoc[]>;
 export type ExportFile = { format: typeof EXPORT_FORMAT; exportedAt: number; schemaVersion: number; checksum: string; data: ExportData };
 
+/**
+ * The tables a restore replaces. `nfcTags` is excluded on purpose: a restore must never resurrect a
+ * tag the owner revoked or drop one made after the backup. Live tags stay exactly as they are
+ * (a backup still carries them, so the file is a complete record, but they are never read back).
+ */
+export const RESTORE_TABLES = EXPORT_TABLES.filter((t) => t !== 'nfcTags');
+
 const NO_CREATURE_REF: ExportTable[] = ['creatures', 'settings', 'weather', 'nfcTags'];
 
 export function toExportDoc(doc: Record<string, unknown>): ExportDoc {
@@ -30,6 +37,14 @@ export function checksumOf(data: ExportData): string {
 
 export function finalize(data: ExportData, now = Date.now()): ExportFile {
   return { format: EXPORT_FORMAT, exportedAt: now, schemaVersion: SCHEMA_VERSION, checksum: checksumOf(data), data };
+}
+
+export const EXPORT_PAGE_SIZE = 500;
+
+/** One page of one table, as export rows. Shared by `backup:exportPage` and `mind:backupPage`. */
+export async function readExportPage(ctx: QueryCtx, table: ExportTable, cursor: string | null) {
+  const res = await ctx.db.query(table).paginate({ cursor, numItems: EXPORT_PAGE_SIZE });
+  return { docs: res.page.map((d) => toExportDoc(d as unknown as Record<string, unknown>)), isDone: res.isDone, cursor: res.continueCursor };
 }
 
 /** Build the whole export inside one query (used by mind:backupSnapshot and small deployments). */
@@ -87,6 +102,11 @@ export function stripForInsert(table: ExportTable, doc: ExportDoc, creatureId: s
       break;
     case 'messages':
       delete out.visitId;
+      // Jobs are not restored, so a pending message could never be filled. Settle it.
+      if (out.pending === true) {
+        out.pending = false;
+        if (typeof out.text !== 'string' || !out.text.trim()) { out.text = '*is quiet for a moment*'; out.fallback = true; }
+      }
       break;
     case 'journal':
       out.happeningIds = [];

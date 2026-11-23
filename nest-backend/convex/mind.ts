@@ -6,10 +6,10 @@
 import { mutation, query } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import { safeEqual } from './engine/sha256';
-import { extractPartialSay } from './engine/schemas';
 import { fail as reject } from './lib/core';
-import { completeJob, routeJob } from './lib/jobs';
-import { buildExport } from './lib/exporter';
+import { completeJob, partialSayFor, routeJob } from './lib/jobs';
+import { buildExport, EXPORT_TABLES, readExportPage, EXPORT_FORMAT, type ExportTable } from './lib/exporter';
+import { SCHEMA_VERSION } from './schema';
 
 type PlanStatus = Doc<'mindStatus'>['planStatus'];
 type Usage = { inputTokens?: number; outputTokens?: number; totalTokens?: number };
@@ -75,6 +75,7 @@ export const claim = mutation({
     if (!job) return { ok: false as const, reason: 'not_found' };
     if (job.status !== 'queued') return { ok: false as const, reason: `status_${job.status}` };
     if (job.deadlineAt <= Date.now()) return { ok: false as const, reason: 'expired' };
+    if (raw.mindId === 'openai-api') return { ok: false as const, reason: 'reserved_id' };
     await ctx.db.patch(job._id, { status: 'claimed', claimedAt: Date.now(), claimedBy: raw.mindId, attempts: job.attempts + 1 });
     return { ok: true as const, request: job.request };
   },
@@ -86,8 +87,8 @@ export const progress = mutation({
     const id = ctx.db.normalizeId('jobs', raw.jobId);
     const job = id && (await ctx.db.get(id));
     if (!job || job.status !== 'claimed' || job.appliedAt) return { ok: false };
-    // The mind streams raw partial JSON; keep only the clean `say` text typed so far.
-    const say = extractPartialSay(raw.partialText.slice(0, 4000));
+    // The mind streams raw partial JSON; keep only the clean `say` text typed so far, at the creature's language level.
+    const say = partialSayFor(job, raw.partialText);
     if (say !== null) await ctx.db.patch(job._id, { partialText: say });
     return { ok: true };
   },
@@ -108,7 +109,9 @@ export const fail = mutation({
     check(requireMind(raw), { jobId: ['string', 64], code: ['string', 120], message: ['string', 4000], retryable: ['boolean'] });
     const id = ctx.db.normalizeId('jobs', raw.jobId) as Id<'jobs'> | null;
     const job = id && (await ctx.db.get(id));
-    if (!job || job.appliedAt) return { ok: true };
+    // Only a job a mind holds can be failed by a mind. One that went to the API (or back to the queue)
+    // is not this call's to re-route: doing so would start a second, billed call.
+    if (!job || job.appliedAt || job.status !== 'claimed' || !job.claimedBy || job.claimedBy === 'openai-api') return { ok: true };
     const error = `${raw.code}: ${raw.message}`.slice(0, 300);
     if (raw.retryable && job.attempts < 2 && job.deadlineAt - Date.now() > 3000) {
       await ctx.db.patch(job._id, { status: 'queued', claimedBy: undefined, claimedAt: undefined, error, partialText: undefined });
@@ -117,6 +120,25 @@ export const fail = mutation({
     await ctx.db.patch(job._id, { status: 'failed', error });
     await routeJob(ctx, job._id, 'mind', error);
     return { ok: true };
+  },
+});
+
+/**
+ * One page of one table, the same rows `nest-export/v1` holds in `data[table]`. Page through every table in
+ * `tables` (it lists them in order) until `isDone`, passing back `cursor`; then build the file:
+ * `{ format, exportedAt, schemaVersion, checksum: sha256Hex(canonicalJson(data)), data }`. No single call
+ * reads more than 500 documents, so it does not hit the per-query read limit that `backupSnapshot` will.
+ */
+export const backupPage = query({
+  handler: async (ctx, raw: { mindSecret: string; table: string; cursor: string | null }) => {
+    const a = requireMind(raw);
+    const allowed = new Set(['mindSecret', 'table', 'cursor']);
+    for (const k of Object.keys(a)) if (!allowed.has(k)) reject('Invalid request: unexpected field.', 'invalid');
+    if (typeof a.table !== 'string' || !(EXPORT_TABLES as readonly string[]).includes(a.table)) reject('Invalid request: bad table.', 'invalid');
+    const cursor = a.cursor ?? null;
+    if (cursor !== null && (typeof cursor !== 'string' || cursor.length > 4096)) reject('Invalid request: bad cursor.', 'invalid');
+    const page = await readExportPage(ctx, a.table as ExportTable, cursor as string | null);
+    return { ...page, format: EXPORT_FORMAT, schemaVersion: SCHEMA_VERSION, tables: [...EXPORT_TABLES] };
   },
 });
 

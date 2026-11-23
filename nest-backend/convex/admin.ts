@@ -25,6 +25,7 @@ export const status = internalQuery({
 export const devStore = internalMutation({
   args: { tokenHash: v.string(), seed: v.string(), tagId: v.string(), secretHash: v.string() },
   handler: async (ctx, a) => {
+    if (process.env.NEST_DEV_TOOLS !== '1') fail('Dev tools are disabled on this deployment.', 'forbidden');
     const now = Date.now();
     await ensureSettings(ctx);
     if (!(await ctx.db.query('creatures').first())) await createEgg(ctx, a.seed, now);
