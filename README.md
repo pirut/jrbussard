@@ -283,6 +283,25 @@ npx convex deploy --cmd 'npm run build'
 | [`convex/world.ts`](convex/world.ts) | Queries and mutations — the rules |
 | [`convex/tick.ts`](convex/tick.ts) | The heartbeat: monsters, weather, regrowth |
 
+## Contact cards
+
+`/contact` (JR) and `/contact/<slug>` are small noindex contact cards, kept
+out of the main bundle. Cards come from Convex (`contactCards` table,
+[`convex/contactCards.ts`](convex/contactCards.ts)); `jr` also has a built-in
+card in [`src/data/contactCards.js`](src/data/contactCards.js) that shows at
+once and whenever no saved row exists.
+
+To edit, open `/contact?edit` and sign in with Google (Clerk). Only emails in
+the Convex env var `ALLOWED_EMAILS` may write; everyone else sees the card
+read-only. After the first sign-in the controls stay on in that browser until
+you sign out. Clerk loads only for that case, never for visitors.
+
+Needs `REACT_APP_CLERK_PUBLISHABLE_KEY` in the frontend (without it editing is
+off) and, on each Convex deployment, `CLERK_JWT_ISSUER_DOMAIN` (the Clerk
+Frontend API URL) and `ALLOWED_EMAILS`. Convex refuses to push any functions,
+the Commons included, while `CLERK_JWT_ISSUER_DOMAIN` is unset. The Clerk
+session token carries `aud: "convex"`, `email` and `email_verified`.
+
 ## Adding a small project
 
 Everything about a hosted project lives in one place —

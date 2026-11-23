@@ -36,12 +36,12 @@ if (fs.existsSync(outDir)) {
 }
 fs.mkdirSync(outDir, { recursive: true });
 
-// Every top-level .ts file in convex/ is a module, except config and schema.
+// Every top-level .ts file in convex/ is a module, except the configs and schema.
 const modules = fs
   .readdirSync(convexDir)
   .filter((f) => f.endsWith(".ts") && !f.endsWith(".d.ts"))
   .map((f) => f.slice(0, -3))
-  .filter((m) => m !== "schema" && m !== "convex.config")
+  .filter((m) => m !== "schema" && m !== "convex.config" && m !== "auth.config")
   .sort();
 
 const banner = `/* Written by ${MARKER}. Not real codegen output; do not commit. */\n`;
