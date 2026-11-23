@@ -1,124 +1,81 @@
-import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import React, { Component, lazy, Suspense } from "react";
+import { useLocation, useParams } from "react-router-dom";
 import NotFound from "../pages/NotFound";
 import { findContactCard } from "../data/contactCards";
-import { buildVCard } from "./vcard";
+import { convex } from "../lib/convex";
+import { Card, Loading, Shell } from "./Card";
+import { useContactCard } from "./useContactCard";
+import { wantsEditor } from "./editorFlag";
 import "./contact.css";
 
 /*
- * A small, private-ish contact card. Deliberately light: no Three.js, no world.
- * Kept out of search results with a meta tag here and an X-Robots-Tag header
- * in vercel.json.
+ * /contact (JR) and /contact/<slug>. A small, private-ish contact card.
+ *
+ * Three ways it renders:
+ *   - No Convex URL configured: only the built-in cards in
+ *     src/data/contactCards.js (StaticContact).
+ *   - Everyone else: the saved Convex card for the slug, falling back to the
+ *     built-in one (PublicContact). `jr` shows its built-in card at once.
+ *   - The editor's own browser (`?edit`, or after signing in once): the same
+ *     card plus edit controls, in a separate lazy chunk (ContactAdmin) that
+ *     carries Clerk. Public visitors never download it. Needs
+ *     REACT_APP_CLERK_PUBLISHABLE_KEY; without it editing is simply off.
+ *
+ * If the Convex side fails (say the functions are not deployed yet) the
+ * boundary drops back to the built-in cards rather than a blank page.
  */
 
-function useNoIndex(title) {
-    useEffect(() => {
-        const meta = document.createElement("meta");
-        meta.name = "robots";
-        meta.content = "noindex, nofollow";
-        document.head.appendChild(meta);
-        const previous = document.title;
-        document.title = title;
-        return () => {
-            meta.remove();
-            document.title = previous;
-        };
-    }, [title]);
+const ContactAdmin = lazy(() => import("./ContactAdmin"));
+const clerkKey = process.env.REACT_APP_CLERK_PUBLISHABLE_KEY;
+
+function StaticContact({ slug }) {
+    const card = findContactCard(slug);
+    if (!card) return <NotFound />;
+    return (
+        <Shell title={`${card.name} · Contact`}>
+            <Card card={card} />
+        </Shell>
+    );
 }
 
-function Card({ card }) {
-    const [status, setStatus] = useState("");
-    useNoIndex(`${card.name} · Contact`);
-
-    useEffect(() => {
-        if (!status) return undefined;
-        const timer = setTimeout(() => setStatus(""), 2000);
-        return () => clearTimeout(timer);
-    }, [status]);
-
-    const saveContact = () => {
-        const blob = new Blob([buildVCard(card)], { type: "text/vcard;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${card.slug}.vcf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-    };
-
-    const share = async () => {
-        const url = window.location.href;
-        if (navigator.share) {
-            try {
-                await navigator.share({ title: `${card.name} · Contact`, url });
-                return;
-            } catch (err) {
-                if (err && err.name === "AbortError") return;
-            }
-        }
-        try {
-            await navigator.clipboard.writeText(url);
-            setStatus("Copied");
-        } catch (err) {
-            setStatus("Copy failed");
-        }
-    };
-
-    const sub = [card.title, card.company].filter(Boolean).join(" · ");
-    const phone = card.phone ? card.phone.replace(/[^\d+]/g, "") : "";
-
+function PublicContact({ slug }) {
+    const { card, loading } = useContactCard(slug);
+    if (loading) return <Loading />;
+    if (!card) return <NotFound />;
     return (
-        <main className="cc">
-            <article className="cc__card">
-                <pre className="cc__art" aria-hidden="true">{"┌──────────┐\n│ ·· ▒▒ ·· │\n└──────────┘"}</pre>
-                <h1 className="cc__name">{card.name}</h1>
-                {sub && <p className="cc__sub">{sub}</p>}
-                {card.location && <p className="cc__meta">{card.location}</p>}
-                {card.note && <p className="cc__note">{card.note}</p>}
-
-                <div className="cc__actions">
-                    {card.email && (
-                        <a className="cc__btn cc__btn--primary" href={`mailto:${card.email}`}>
-                            Email
-                        </a>
-                    )}
-                    {phone && (
-                        <>
-                            <a className="cc__btn" href={`tel:${phone}`}>Call</a>
-                            <a className="cc__btn" href={`sms:${phone}`}>Text</a>
-                        </>
-                    )}
-                    <button type="button" className="cc__btn" onClick={saveContact}>
-                        Save contact
-                    </button>
-                    <button type="button" className="cc__btn" onClick={share}>
-                        Share
-                    </button>
-                </div>
-                <p className="cc__status" role="status" aria-live="polite">{status}</p>
-
-                {card.email && <p className="cc__meta cc__email">{card.email}</p>}
-                {card.links && card.links.length > 0 && (
-                    <ul className="cc__links">
-                        {card.links.map((link) => (
-                            <li key={link.href}>
-                                <a href={link.href} target="_blank" rel="noopener noreferrer">
-                                    <span>{link.label}</span>
-                                    <span aria-hidden="true">↗</span>
-                                </a>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </article>
-        </main>
+        <Shell title={`${card.name} · Contact`}>
+            <Card card={card} />
+        </Shell>
     );
+}
+
+class FallBackToStatic extends Component {
+    state = { failed: false };
+    static getDerivedStateFromError() {
+        return { failed: true };
+    }
+    componentDidCatch(error) {
+        console.error("Contact card: falling back to the built-in cards.", error);
+    }
+    render() {
+        return this.state.failed ? <StaticContact slug={this.props.slug} /> : this.props.children;
+    }
 }
 
 export default function ContactPage() {
     const { slug } = useParams();
-    const card = findContactCard(slug);
-    return card ? <Card card={card} /> : <NotFound />;
+    const { search } = useLocation();
+    if (!convex) return <StaticContact slug={slug} />;
+    const admin = Boolean(clerkKey) && wantsEditor(search);
+    return (
+        <FallBackToStatic key={slug || "jr"} slug={slug}>
+            {admin ? (
+                <Suspense fallback={<PublicContact slug={slug} />}>
+                    <ContactAdmin slug={slug} publishableKey={clerkKey} />
+                </Suspense>
+            ) : (
+                <PublicContact slug={slug} />
+            )}
+        </FallBackToStatic>
+    );
 }
