@@ -4,6 +4,7 @@
    Coordinates of marks: `x` and `y` are 0..1 across the body's bounding box
    (0,0 is its top-left), `hue` is 0..360. */
 
+import { useMemo } from 'react';
 import { createRng, hslToHex, lerpHue, clamp } from './util';
 
 export const STAGES = ['egg', 'hatchling', 'fledgling', 'juvenile', 'adult', 'elder'];
@@ -158,6 +159,61 @@ export function validatePhenotype(p) {
   if (p.stage === 'egg') need(p.egg && unit(p.egg.warmth) && unit(p.egg.cracks), 'egg');
   else need(p.egg === undefined, 'egg only for stage egg');
   return errors;
+}
+
+const DEFAULT_PALETTE = { body: '#9fc3a8', belly: '#f1e6cf', accent: '#e0a86a', glow: '#ffd98a', eye: '#2a2236' };
+const num = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v) : fallback);
+const oneOf = (list, v, fallback) => (list.includes(v) ? v : fallback);
+
+/* Makes any phenotype safe to draw: every missing or malformed field gets a
+   default, so a half-built object from the server (no palette, no eyes,
+   an unknown shape) renders a plain creature instead of NaN or a crash.
+   A valid phenotype comes back as the same object. */
+export function normalizePhenotype(p) {
+  if (p && typeof p === 'object' && validatePhenotype(p).length === 0) return p;
+  const src = p && typeof p === 'object' ? p : {};
+  const stage = oneOf(STAGES, src.stage, 'adult');
+  const body = src.body || {};
+  const pal = src.palette || {};
+  const eyes = src.eyes || {};
+  const gait = src.gait || {};
+  const palette = Object.fromEntries(Object.keys(DEFAULT_PALETTE).map((k) => [k, HEX.test(pal[k]) ? pal[k] : DEFAULT_PALETTE[k]]));
+  const out = {
+    ...src,
+    seed: typeof src.seed === 'string' && src.seed ? src.seed : src.seed != null && src.seed !== '' ? String(src.seed) : 'unknown',
+    stage,
+    size: num(src.size, STAGE_SIZE[stage]),
+    body: {
+      ...body,
+      shape: oneOf(BODY_SHAPES, body.shape, 'round'),
+      squish: num(body.squish, 0.5),
+      ears: oneOf(EAR_TYPES, body.ears, 'none'),
+      tail: oneOf(TAIL_TYPES, body.tail, 'none'),
+    },
+    palette,
+    pattern: oneOf(PATTERNS, src.pattern, 'none'),
+    features: Array.isArray(src.features) ? [...new Set(src.features.filter((f) => FEATURES.includes(f)))] : [],
+    eyes: { ...eyes, size: num(eyes.size, 0.5), shape: oneOf(EYE_SHAPES, eyes.shape, 'round'), spacing: num(eyes.spacing, 0.5) },
+    glow: num(src.glow, 0.2),
+    marks: (Array.isArray(src.marks) ? src.marks : []).slice(0, 16).filter((m) => m && typeof m === 'object').map((m, i) => ({
+      ...m,
+      id: typeof m.id === 'string' && m.id ? m.id : `mark-${i + 1}`,
+      kind: oneOf(MARK_KINDS, m.kind, 'dot'),
+      x: num(m.x, 0.5),
+      y: num(m.y, 0.6),
+      hue: typeof m.hue === 'number' && Number.isFinite(m.hue) ? clamp(m.hue, 0, 360) : 0,
+      label: typeof m.label === 'string' ? m.label : '',
+    })),
+    gait: { ...gait, bounciness: num(gait.bounciness, 0.5), speed: num(gait.speed, 0.5), sway: num(gait.sway, 0.5) },
+  };
+  if (stage === 'egg') out.egg = { ...(src.egg || {}), warmth: num(src.egg?.warmth, 0.4), cracks: num(src.egg?.cracks, 0) };
+  else delete out.egg;
+  return out;
+}
+
+/* normalizePhenotype, kept stable between renders for the same input. */
+export function useNormalizedPhenotype(phenotype) {
+  return useMemo(() => normalizePhenotype(phenotype), [phenotype]);
 }
 
 export const DEFAULT_POSE = { emotion: 'calm', action: 'none', asleep: false, energy: 0.7 };

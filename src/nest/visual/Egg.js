@@ -5,7 +5,8 @@
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { GROUND, VIEWBOX } from './geometry';
 import { useGestureHandlers } from './gestures';
-import { spring, stepSpring, usePrefersReducedMotion, useAnimationLoop } from './motion';
+import { spring, stepSpring, usePrefersReducedMotion, useAnimationLoop, SLOW_FPS } from './motion';
+import { useNormalizedPhenotype } from './phenotype';
 import { cleanId, clamp, createRng, mix, darken, lighten, smoothClosedPath } from './util';
 
 export const EGG = { rx: 31, ry: 40, cy: GROUND - 39, splitY: GROUND - 26 };
@@ -63,8 +64,29 @@ export function eggGeometry(seed) {
   return { path, cracks, ring, topClip, bottomClip, spots, pattern, top };
 }
 
-/* The egg drawing. piece: 'whole' | 'top' | 'bottom'. */
-export function EggArt({ phenotype, warmth = 0.4, cracks = 0, piece = 'whole', ids, geo, glowCracks = true }) {
+/* Drives a `live` EggArt without re-rendering it: writes the crack growth
+   and glow straight onto the elements under `root` (for the hatch sequence,
+   which would otherwise re-render every frame). Same maths as EggArt. */
+export function applyEggLive(root, warmth, cracks) {
+  if (!root) return;
+  const ringP = clamp((cracks - 0.72) / 0.28);
+  root.querySelectorAll('[data-egg]').forEach((el) => {
+    const kind = el.getAttribute('data-egg');
+    if (kind === 'glow') {
+      el.setAttribute('opacity', (warmth * 0.42).toFixed(3));
+      return;
+    }
+    const p = kind === 'ring' ? ringP : clamp(cracks * 3.2 - Number(el.getAttribute('data-i')) * 0.9);
+    el.setAttribute('stroke-dasharray', `${p.toFixed(3)} 1`);
+    el.setAttribute('visibility', p > 0 ? 'visible' : 'hidden');
+    if (el.getAttribute('data-halo') === '1') el.setAttribute('opacity', kind === 'ring' ? '0.8' : (0.35 + warmth * 0.5).toFixed(3));
+  });
+}
+
+/* The egg drawing. piece: 'whole' | 'top' | 'bottom'.
+   live: render every crack (hidden until drawn) so applyEggLive can animate
+   them by attribute. */
+export function EggArt({ phenotype, warmth = 0.4, cracks = 0, piece = 'whole', ids, geo, glowCracks = true, live = false }) {
   const pal = phenotype.palette;
   const shell = mix(mix('#f6ecd9', pal.body, 0.16), '#ffd9a0', warmth * 0.25);
   const ink = darken(mix(shell, pal.body, 0.4), 0.55);
@@ -78,7 +100,7 @@ export function EggArt({ phenotype, warmth = 0.4, cracks = 0, piece = 'whole', i
     <g clipPath={clip}>
       <path d={geo.path} fill={`url(#${ids.shell})`} />
       <g clipPath={`url(#${ids.clip})`}>
-        <ellipse cx="0" cy={EGG.cy + 8} rx={EGG.rx * 0.9} ry={EGG.ry * 0.8} fill={pal.glow} opacity={warmth * 0.42} />
+        <ellipse data-egg={live ? 'glow' : undefined} cx="0" cy={EGG.cy + 8} rx={EGG.rx * 0.9} ry={EGG.ry * 0.8} fill={pal.glow} opacity={warmth * 0.42} />
         {pat === 'stripes' && [0, 1].map((k) => (
           <path key={k} d={`M-40 ${EGG.cy - 10 + k * 20}Q-20 ${EGG.cy - 16 + k * 20} 0 ${EGG.cy - 10 + k * 20}T40 ${EGG.cy - 10 + k * 20}`} stroke={fleck} strokeWidth="5" fill="none" opacity="0.55" />
         ))}
@@ -100,18 +122,19 @@ export function EggArt({ phenotype, warmth = 0.4, cracks = 0, piece = 'whole', i
       <path d={geo.path} fill="none" stroke={ink} strokeWidth="2.2" />
       {geo.cracks.map((d, i) => {
         const p = crackProgress(i);
-        if (p <= 0) return null;
+        if (p <= 0 && !live) return null;
+        const liveProps = live ? { 'data-egg': 'crack', 'data-i': i, visibility: p > 0 ? 'visible' : 'hidden' } : {};
         return (
           <g key={i}>
-            {glowCracks && <path d={d} pathLength="1" strokeDasharray={`${p} 1`} stroke={lighten(pal.glow, 0.3)} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity={0.35 + warmth * 0.5} />}
-            <path d={d} pathLength="1" strokeDasharray={`${p} 1`} stroke={ink} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            {glowCracks && <path {...liveProps} data-halo={live ? '1' : undefined} d={d} pathLength="1" strokeDasharray={`${p} 1`} stroke={lighten(pal.glow, 0.3)} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity={0.35 + warmth * 0.5} />}
+            <path {...liveProps} d={d} pathLength="1" strokeDasharray={`${p} 1`} stroke={ink} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </g>
         );
       })}
-      {ringP > 0 && (
+      {(ringP > 0 || live) && (
         <g clipPath={`url(#${ids.clip})`}>
-          {glowCracks && <path d={geo.ring} pathLength="1" strokeDasharray={`${ringP} 1`} stroke={lighten(pal.glow, 0.35)} strokeWidth="4.5" fill="none" strokeLinejoin="round" opacity="0.8" />}
-          <path d={geo.ring} pathLength="1" strokeDasharray={`${ringP} 1`} stroke={ink} strokeWidth="1.6" fill="none" strokeLinejoin="round" />
+          {glowCracks && <path {...(live ? { 'data-egg': 'ring', 'data-halo': '1', visibility: ringP > 0 ? 'visible' : 'hidden' } : {})} d={geo.ring} pathLength="1" strokeDasharray={`${ringP} 1`} stroke={lighten(pal.glow, 0.35)} strokeWidth="4.5" fill="none" strokeLinejoin="round" opacity="0.8" />}
+          <path {...(live ? { 'data-egg': 'ring', visibility: ringP > 0 ? 'visible' : 'hidden' } : {})} d={geo.ring} pathLength="1" strokeDasharray={`${ringP} 1`} stroke={ink} strokeWidth="1.6" fill="none" strokeLinejoin="round" />
         </g>
       )}
     </g>
@@ -145,7 +168,8 @@ export function useEggIds() {
   return useMemo(() => ({ shell: `nest-${uid}-shell`, halo: `nest-${uid}-halo`, clip: `nest-${uid}-eclip`, top: `nest-${uid}-top`, bottom: `nest-${uid}-bot` }), [uid]);
 }
 
-export default function Egg({ phenotype, onGesture, voice, interactive = true, className = '', style, label }) {
+export default function Egg({ phenotype: phenotypeIn, onGesture, voice, interactive = true, className = '', style, label }) {
+  const phenotype = useNormalizedPhenotype(phenotypeIn);
   const ids = useEggIds();
   const geo = useMemo(() => eggGeometry(phenotype.seed), [phenotype.seed]);
   const warmth = clamp(phenotype.egg?.warmth ?? 0.4);
@@ -181,6 +205,9 @@ export default function Egg({ phenotype, onGesture, voice, interactive = true, c
   }, [reduced]);
   const handlers = useGestureHandlers({ onGesture, onReaction, enabled: interactive });
 
+  const reducedRef = useRef(reduced);
+  reducedRef.current = reduced;
+  const reducedFps = useRef(() => (reducedRef.current ? SLOW_FPS : 0)).current;
   useAnimationLoop(svgRef, (dt, t) => {
     const s = st.current;
     const red = reduced ? 0.25 : 1;
@@ -199,7 +226,7 @@ export default function Egg({ phenotype, onGesture, voice, interactive = true, c
     stepSpring(s.glow, clamp(glowT, 0, 1.3), dt);
     els.current.wob?.setAttribute('transform', `translate(0 ${s.y.x.toFixed(2)}) rotate(${s.rot.x.toFixed(2)} 0 ${GROUND})`);
     els.current.halo?.setAttribute('opacity', (clamp(s.glow.x) * (0.55 + 0.1 * Math.sin(t * 2.2))).toFixed(3));
-  });
+  }, reducedFps);
 
   return (
     <svg ref={svgRef} className={`nest-creature nest-egg${interactive ? ' nest-interactive' : ''} ${className}`} viewBox={VIEWBOX} style={style} role="img" aria-label={label || 'an egg'}>

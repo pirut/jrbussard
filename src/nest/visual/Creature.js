@@ -22,22 +22,25 @@ import {
   CheekFeathers, Crest, MossCap, Whiskers, MarkShape, Mouth, Brows, Extras, sparklePath,
 } from './parts';
 import { useGestureHandlers } from './gestures';
-import { spring, stepSpring, usePrefersReducedMotion, usePointerTracker, useAnimationLoop, pointer } from './motion';
+import { spring, stepSpring, usePrefersReducedMotion, usePointerTracker, useAnimationLoop, pointer, SLOW_FPS } from './motion';
 import { cleanId, clamp, lerp, mix, darken, lighten, hslToHex, createRng } from './util';
-import { DEFAULT_POSE } from './phenotype';
+import { DEFAULT_POSE, useNormalizedPhenotype } from './phenotype';
 import Egg from './Egg';
 
 export default function Creature(props) {
-  if (props.phenotype?.stage === 'egg') return <Egg {...props} />;
-  return <Being {...props} />;
+  // a half-built phenotype from the server must still draw (spec §10)
+  const phenotype = useNormalizedPhenotype(props.phenotype);
+  if (phenotype.stage === 'egg') return <Egg {...props} phenotype={phenotype} />;
+  return <Being {...props} phenotype={phenotype} />;
 }
 
 const hasF = (p, f) => p.features?.includes(f);
 
 function Being({
-  phenotype, pose = DEFAULT_POSE, onGesture, onMarkTap, actionNonce = 0, voice,
+  phenotype, pose: poseIn, onGesture, onMarkTap, actionNonce = 0, voice,
   interactive = true, quiet = false, className = '', style, label,
 }) {
+  const pose = poseIn ?? DEFAULT_POSE;
   const uid = cleanId(useId());
   const ids = useMemo(() => {
     const names = ['body', 'clip', 'halo', 'flame', 'spark', 'iris', 'eyeL', 'eyeR', 'shade', 'hold', 'galaxy', 'belly', 'blush', 'third'];
@@ -47,6 +50,16 @@ function Being({
   const pattern = useMemo(() => buildPattern(phenotype, geo), [phenotype, geo]);
   const c = useMemo(() => creatureColors(phenotype.palette, phenotype.stage), [phenotype.palette, phenotype.stage]);
   const marks = useMemo(() => placeMarks(phenotype.marks, geo), [phenotype.marks, geo]);
+  // invisible tap radius per mark, in creature units: ~20 where the marks
+  // are far enough apart, never overlapping a neighbour, never below the old 13
+  const tapRadius = useMemo(() => {
+    const scale = 0.7 * geo.part + 0.1;
+    return marks.map((mk) => {
+      let nearest = Infinity;
+      for (const o of marks) if (o !== mk) nearest = Math.min(nearest, Math.hypot(o.px - mk.px, o.py - mk.py));
+      return Math.max(13 * scale, Math.min(20, nearest / 2 - 0.5)) / scale;
+    });
+  }, [marks, geo.part]);
   const tiltDir = useMemo(() => (createRng(`nest-tilt:${phenotype.seed}`)() > 0.5 ? 1 : -1), [phenotype.seed]);
   const speckles = useMemo(() => {
     if (!hasF(phenotype, 'starspeckles')) return [];
@@ -87,7 +100,11 @@ function Being({
     clearTimeout(reactionTimer.current);
     if (ms) reactionTimer.current = setTimeout(() => setReaction(null), ms);
   }, []);
-  useEffect(() => () => clearTimeout(reactionTimer.current), []);
+  useEffect(() => () => {
+    clearTimeout(reactionTimer.current);
+    // an unmount mid-pet must not leave the purr running
+    voiceRef.current?.purr?.(false);
+  }, []);
 
   const onReaction = useCallback((kind, point) => {
     const m = M.current;
@@ -173,6 +190,7 @@ function Being({
     };
   }
 
+  const loopFps = useRef(() => (P.current.asleep || P.current.reduced ? SLOW_FPS : 0)).current;
   useAnimationLoop(svgRef, (dt, t) => {
     const st = state.current;
     const p = P.current;
@@ -443,7 +461,7 @@ function Being({
       E.halo.setAttribute('opacity', f2(clamp(base * (0.9 + 0.1 * Math.sin(t * 1.3)) + st.halo.x)));
     }
     if (E.third) E.third.setAttribute('transform', `scale(1 ${f2(Math.max(0.08, st.third.x))})`);
-  });
+  }, loopFps);
 
   /* ---- static drawing ---- */
   const { w, h, cy, top, part } = geo;
@@ -647,7 +665,7 @@ function Being({
           {bodyOutline}
 
           {/* marks: permanent, tappable */}
-          {marks.map((mk) => {
+          {marks.map((mk, mi) => {
             const color = hslToHex(mk.hue, 0.75, 0.72);
             return (
               <g
@@ -661,7 +679,7 @@ function Being({
                 onClick={onMarkTap ? (e) => { e.stopPropagation(); onMarkTap(mk.id); } : undefined}
                 onKeyDown={onMarkTap ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMarkTap(mk.id); } } : undefined}
               >
-                {onMarkTap && <circle r="13" fill="transparent" />}
+                {onMarkTap && <circle r={tapRadius[mi].toFixed(1)} fill="transparent" />}
                 <circle r="6" fill={color} opacity="0.16" className="nest-pulse" />
                 <MarkShape kind={mk.kind} color={color} />
               </g>

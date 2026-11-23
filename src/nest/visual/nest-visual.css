@@ -26,9 +26,13 @@
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
+/* touch-action must sit on the interactive <svg> box itself: WebKit ignores
+   it on SVG children, so a stroke would scroll the page and a quick tap
+   could double-tap-zoom. */
+svg.nest-creature.nest-interactive { touch-action: none; }
 .nest-interactive .nest-creature-body { touch-action: none; cursor: grab; }
 .nest-interactive .nest-creature-body:active { cursor: grabbing; }
-.nest-mark { cursor: pointer; outline: none; }
+.nest-mark { cursor: pointer; outline: none; touch-action: none; }
 .nest-mark:focus-visible circle:first-child { stroke: #fff6d6; stroke-width: 1.5; }
 
 .nest-creature .nest-flicker,
@@ -154,6 +158,15 @@
   color: inherit;
   -webkit-tap-highlight-color: transparent;
   transition: transform 160ms ease;
+}
+/* The stage is scaled down on small phones (--nest-scale), so a 44-unit
+   button can measure 38 px. Habitat sets --nest-nav-pad to the stage units
+   needed to bring it back to 44 CSS px; this invisible pad is that big, so
+   the real hit area is at least 44 px at any scale (0 when scale >= 1). */
+.nest-nav::before {
+  content: '';
+  position: absolute;
+  inset: calc(var(--nest-nav-pad, 0px) * -1);
 }
 .nest-nav:active { transform: scale(0.95); }
 .nest-nav:focus-visible { outline: 2px solid var(--nest-amber); outline-offset: 4px; border-radius: 14px; }
