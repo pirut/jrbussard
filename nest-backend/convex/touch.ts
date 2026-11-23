@@ -25,14 +25,15 @@ export const storeTag = internalMutation({
   },
 });
 
-async function verifyTag(ctx: MutationCtx, tagId: string, secret: string): Promise<Doc<'nfcTags'>> {
+/** The tag if tagId + secret are good and it is not revoked; otherwise null (the caller records it and answers). */
+async function verifyTag(ctx: MutationCtx, tagId: string, secret: string): Promise<Doc<'nfcTags'> | null> {
   const tag = typeof tagId === 'string' && tagId.length <= 32 ? await ctx.db.query('nfcTags').withIndex('by_tagId', (q) => q.eq('tagId', tagId)).unique() : null;
-  if (!tag || tag.revokedAt || typeof secret !== 'string' || !safeEqual(tag.secretHash, hashTagSecret(tagId, secret))) {
-    await audit(ctx, 'touch.rejected', String(tagId).slice(0, 32));
-    fail('This tag is not recognised.', 'bad_tag');
-  }
+  if (!tag || tag.revokedAt || typeof secret !== 'string' || !safeEqual(tag.secretHash, hashTagSecret(tagId, secret))) return null;
   return tag;
 }
+
+export type BeginOk = { ok: true; visitId: Id<'visits'>; momentKind: MomentKind; fallbackText: string; messageId: Id<'messages'>; jobId: Id<'jobs'> | null };
+export type BeginRejected = { ok: false; code: 'bad_tag'; message: string };
 
 /** Latest touch visit that is still present, if any. */
 export async function activeTouchVisit(ctx: QueryCtx | MutationCtx, creatureId: Id<'creatures'>, now = Date.now()): Promise<Doc<'visits'> | null> {
@@ -42,10 +43,15 @@ export async function activeTouchVisit(ctx: QueryCtx | MutationCtx, creatureId: 
 
 export const begin = mutation({
   args: { sessionToken: v.string(), tagId: v.string(), secret: v.string(), clientTime: v.optional(v.number()) },
-  handler: async (ctx, a): Promise<{ visitId: Id<'visits'>; momentKind: MomentKind; fallbackText: string; messageId: Id<'messages'>; jobId: Id<'jobs'> | null }> => {
+  handler: async (ctx, a): Promise<BeginOk | BeginRejected> => {
     await requireOwner(ctx, a.sessionToken);
     await limiter.limit(ctx, 'touch', { key: 'owner', throws: true });
     const tag = await verifyTag(ctx, a.tagId, a.secret);
+    if (!tag) {
+      // Answered, not thrown: a throw would roll back this audit row, and a rejected tag is worth remembering.
+      await audit(ctx, 'touch.rejected', String(a.tagId).slice(0, 32));
+      return { ok: false, code: 'bad_tag', message: 'This tag is not recognised.' };
+    }
     const now = Date.now();
     let c = await requireCreature(ctx);
     if (c.restoring) fail('The nest is being restored. Try again in a minute.', 'busy');
@@ -123,12 +129,12 @@ export const begin = mutation({
       const text = momentKind === 'first_touch' ? '*the egg rocks, very slightly, toward your hand*' : next.egg.cracks > 0.4 ? '*a tiny tap-tap from inside, and a new crack*' : '*the egg is warm, and something inside shifts*';
       const messageId = await ctx.db.insert('messages', { creatureId: c._id, visitId, role: 'creature', text, at: now, via: 'moment', fallback: false, pending: false, action: 'wiggle', emotion: 'curious' });
       if (!open) await ctx.db.patch(visitId, { momentMessageId: messageId });
-      return { visitId, momentKind, fallbackText: text, messageId, jobId: null };
+      return { ok: true, visitId, momentKind, fallbackText: text, messageId, jobId: null };
     }
     const detail = momentKind === 'gift' && gift ? `the present is ${gift.name}: ${gift.description}` : wasAwayAt ? `you were in ${REGIONS[wasAwayAt].name}` : undefined;
     const q = await queueMoment(ctx, fresh, { momentKind, detail, visitId });
     await ctx.db.patch(visitId, { momentMessageId: q.messageId });
-    return { visitId, momentKind, fallbackText: q.fallbackText, messageId: q.messageId, jobId: q.jobId };
+    return { ok: true, visitId, momentKind, fallbackText: q.fallbackText, messageId: q.messageId, jobId: q.jobId };
   },
 });
 

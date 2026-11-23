@@ -35,16 +35,31 @@ export const STAGE_RULES: Array<{ stage: Stage; days: number; exp: number }> = [
   { stage: 'elder', days: 180, exp: 500 },
 ];
 
-export function experienceOf(c: Pick<SimCreature, 'relationship' | 'counters'>): number {
-  return c.relationship.visits + c.relationship.conversations + c.counters.explorations + c.counters.games;
+/** Weight of one exploration, and the share of a stage's threshold that exploring can ever supply. */
+export const EXPLORATION_WEIGHT = 0.2;
+export const EXPLORATION_CAP = 0.25;
+
+export type Experience = { /** visits + conversations + games: time spent with the owner. */ owner: number; /** The creature's own outings (the sim runs these without anyone there). */ explorations: number };
+
+export function experienceOf(c: Pick<SimCreature, 'relationship' | 'counters'>): Experience {
+  return { owner: c.relationship.visits + c.relationship.conversations + c.counters.games, explorations: c.counters.explorations };
+}
+
+/**
+ * Experience counted against one stage's threshold. The owner's time counts in full. Exploring counts for
+ * a fifth, and never for more than a quarter of the threshold, so a creature nobody visits cannot grow up
+ * on its own outings: it falls back to the age-only rule (2x the stage's age).
+ */
+export function experienceFor(e: Experience, threshold: number): number {
+  return e.owner + Math.min(e.explorations * EXPLORATION_WEIGHT, threshold * EXPLORATION_CAP);
 }
 
 /** Stage earned by age and lived experience; age alone (2x) also works, so neglect still grows it slowly. */
-export function earnedStage(current: Stage, ageDays: number, experience: number): Stage {
+export function earnedStage(current: Stage, ageDays: number, experience: Experience): Stage {
   if (current === 'egg') return 'egg';
   let stage: Stage = 'hatchling';
   for (const rule of STAGE_RULES) {
-    if ((ageDays >= rule.days && experience >= rule.exp) || ageDays >= rule.days * 2) stage = rule.stage;
+    if ((ageDays >= rule.days && experienceFor(experience, rule.exp) >= rule.exp) || ageDays >= rule.days * 2) stage = rule.stage;
     else break;
   }
   // Never regress.

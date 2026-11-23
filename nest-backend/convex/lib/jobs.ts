@@ -5,7 +5,7 @@ import type { MutationCtx } from '../_generated/server';
 import { STARTER_WORDS } from '../engine/growth';
 import type { MindRequest } from '../engine/prompt';
 import {
-  enforceLanguage, validateOutput, type ConsolidateOutput, type ConstellationOutput, type JobKind, type JobOutput, type JournalOutput,
+  enforceLanguage, extractPartialSay, validateOutput, type ConsolidateOutput, type ConstellationOutput, type JobKind, type JobOutput, type JournalOutput,
   type NameReactionOutput, type ReplyOutput,
 } from '../engine/schemas';
 import { markPosition } from '../engine/phenotype';
@@ -83,6 +83,17 @@ export async function completeJob(ctx: MutationCtx, job: Doc<'jobs'>, outputText
 
 function knownWords(job: Doc<'jobs'>) {
   return new Set([...STARTER_WORDS, ...job.context.vocabulary].map((w) => w.toLowerCase()));
+}
+
+/**
+ * The `say` typed so far, held to the creature's language level exactly as the final text will be
+ * (hatchlings only ever show *sounds*). Null when there is nothing safe to show yet.
+ */
+export function partialSayFor(job: Doc<'jobs'>, rawPartial: string): string | null {
+  const say = extractPartialSay(rawPartial.slice(0, 4000));
+  if (say === null) return null;
+  const text = enforceLanguage(say, job.context.languageLevel, knownWords(job));
+  return text || null;
 }
 
 async function fillMessage(ctx: MutationCtx, job: Doc<'jobs'>, say: string, emotion: ReplyOutput['emotion'], action: ReplyOutput['action'], fallback: boolean) {
@@ -164,7 +175,9 @@ export async function applyOutput(ctx: MutationCtx, job: Doc<'jobs'>, output: Jo
       const o = output as NameReactionOutput;
       await fillMessage(ctx, job, o.say, o.emotion, o.action, fallback);
       if (creature.name) {
-        const mid = await addMemory(ctx, creature._id, { text: `My person gave me my name: ${creature.name}. ${o.nameFeeling}`.trim(), salience: 0.95, valence: 0.6, tags: ['name', 'owner'], source: 'owner' });
+        const was = job.context.extra?.previousName;
+        const text = was ? `My person renamed me ${creature.name}. I used to be ${was}. ${o.nameFeeling}` : `My person gave me my name: ${creature.name}. ${o.nameFeeling}`;
+        const mid = await addMemory(ctx, creature._id, { text: text.trim(), salience: 0.95, valence: 0.6, tags: ['name', 'owner'], source: 'owner' });
         await ctx.db.patch(mid, { pinned: true });
       }
       break;

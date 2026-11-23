@@ -7,6 +7,9 @@ import type { Id } from '../convex/_generated/dataModel';
 import { createEgg } from '../convex/auth';
 import { DEFAULT_SETTINGS, hashCode, hashTagSecret, hashToken, SESSION_TTL } from '../convex/lib/core';
 import { queueConsolidate } from '../convex/lib/queue';
+import { loadWorld } from '../convex/lib/world';
+import { readNotes } from '../convex/sim';
+import { RESTORE_LOCK_STALE_MS } from '../convex/backup';
 import { canonicalJson, sha256Hex } from '../convex/engine/sha256';
 
 const modules = import.meta.glob('../convex/**/*.ts');
@@ -41,6 +44,13 @@ async function owned(t: T, opts: { hatched?: boolean } = {}) {
     }
   }
   return cid;
+}
+
+/** touch:begin for the good tag; fails the test if it was rejected. */
+async function begin(t: T, over: Record<string, string> = {}) {
+  const r = await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET, ...over });
+  if (!r.ok) throw new Error('touch was rejected: ' + r.code);
+  return r;
 }
 
 async function settle(t: T) {
@@ -134,7 +144,7 @@ describe('auth gating', () => {
     // Functions that are allowed without a session: the passkey ceremony, the claimed flag, the session probe,
     // and the mind functions (which use the mind secret, tested below).
     const exempt = new Set(['authNode:registrationOptions', 'authNode:register', 'authNode:loginOptions', 'authNode:login', 'public:status', 'auth:session',
-      'mind:heartbeat', 'mind:queue', 'mind:claim', 'mind:progress', 'mind:complete', 'mind:fail', 'mind:backupSnapshot']);
+      'mind:heartbeat', 'mind:queue', 'mind:claim', 'mind:progress', 'mind:complete', 'mind:fail', 'mind:backupSnapshot', 'mind:backupPage']);
     const found: string[] = [];
     for (const [path, load] of Object.entries(modules)) {
       if (/_generated|convex\.config|crons|schema|\/engine\/|\/lib\//.test(path)) continue;
@@ -241,15 +251,19 @@ describe('touch, hatch and naming', () => {
   it('rejects a bad tag secret, warms the egg, hatches on touch, and lets the owner name it', async () => {
     const t = make();
     await owned(t);
-    await expect(t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: 'wrong' })).rejects.toThrow(/not recognised/);
-    const first = await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET });
+    // A bad tag is answered, not thrown, so the audit row of the attempt survives (a throw would roll it back).
+    expect(await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: 'wrong' })).toEqual({ ok: false, code: 'bad_tag', message: 'This tag is not recognised.' });
+    expect(await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: 'nosuchtag', secret: SECRET })).toMatchObject({ ok: false, code: 'bad_tag' });
+    const rejected = await t.run(async (ctx) => (await ctx.db.query('audit').collect()).filter((x) => x.event === 'touch.rejected'));
+    expect(rejected.map((x) => x.detail)).toEqual([TAG, 'nosuchtag']);
+    const first = await begin(t);
     expect(first.momentKind).toBe('first_touch');
     expect(first.jobId).toBeNull();
     vi.advanceTimersByTime(5 * 60_000);
-    const second = await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET });
+    const second = await begin(t);
     expect(second.momentKind).toBe('ordinary');
     vi.advanceTimersByTime(5 * 60_000);
-    const third = await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET });
+    const third = await begin(t);
     expect(third.momentKind).toBe('hatch');
     await settle(t);
     const view = (await t.query(api.creature.get, { sessionToken: TOKEN }))!;
@@ -286,14 +300,14 @@ describe('touch, hatch and naming', () => {
       void c;
     });
     vi.advanceTimersByTime(40 * 60_000);
-    const r = await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET });
+    const r = await begin(t);
     expect(['returned_from_region', 'homecoming_long_absence', 'ordinary', 'quiet_visit', 'gift', 'morning']).toContain(r.momentKind);
     const c = await t.run(async (ctx) => (await ctx.db.get(cid))!);
     expect(c.location).toBe('nest');
     const ran = await t.run(async (ctx) => ctx.db.query('happenings').filter((q) => q.eq(q.field('kind'), 'came_running')).collect());
     expect(ran.length).toBeGreaterThanOrEqual(r.momentKind === 'returned_from_region' ? 1 : 0);
     vi.advanceTimersByTime(60_000);
-    const again = await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET });
+    const again = await begin(t);
     expect(again.momentKind).toBe('knock_again');
     expect(again.visitId).toBe(r.visitId);
   });
@@ -500,7 +514,7 @@ describe('admin dev tools', () => {
     vi.stubEnv('NEST_DEV_TOOLS', '1');
     const r = await t.action(internal.admin.devSetup, {});
     expect((await t.query(api.creature.get, { sessionToken: r.sessionToken }))!.creature.status).toBe('egg');
-    expect((await t.mutation(api.touch.begin, { sessionToken: r.sessionToken, tagId: r.tagId, secret: r.tagSecret })).momentKind).toBe('first_touch');
+    expect((await begin(t, { sessionToken: r.sessionToken, tagId: r.tagId, secret: r.tagSecret })).momentKind).toBe('first_touch');
   });
 });
 
@@ -573,5 +587,457 @@ describe('export and restore', () => {
     expect(snap.format).toBe('nest-export/v1');
     expect(snap.data.creatures).toHaveLength(1);
     expect(snap.checksum).toBe(sha256Hex(canonicalJson(snap.data)));
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// Review fix round 1 (S1–S16)
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+async function storedFile(t: T, backupId: Id<'backups'>) {
+  const text = await t.run(async (ctx) => await (await ctx.storage.get((await ctx.db.get(backupId))!.storageId))!.text());
+  return JSON.parse(text) as { format: string; exportedAt: number; schemaVersion: number; checksum: string; data: Record<string, Record<string, unknown>[]> };
+}
+/** A file with its checksum fixed up, uploaded, ready for `backup:restore`. */
+async function upload(t: T, file: Awaited<ReturnType<typeof storedFile>>) {
+  const fixed = { ...file, checksum: sha256Hex(canonicalJson(file.data)) };
+  return await t.run(async (ctx) => ctx.storage.store(new Blob([JSON.stringify(fixed)])));
+}
+const mindHeartbeat = (t: T, over: Record<string, unknown> = {}) =>
+  t.mutation(api.mind.heartbeat, { mindSecret: MIND_SECRET, mindId: 'mini', provider: 'chatgpt-plan', model: 'm', planStatus: 'ok', canServe: true, version: '1', ...over } as never);
+
+describe('S1 restore lock and rollback', () => {
+  it('one restore at a time: a double tap is refused, not interleaved into two creatures', async () => {
+    const t = make();
+    await owned(t, { hatched: true });
+    await t.mutation(api.creature.name, { sessionToken: TOKEN, name: 'Pebble' });
+    await settle(t);
+    const exp = await t.action(api.backup.exportNow, { sessionToken: TOKEN });
+    const results = await Promise.allSettled([
+      t.action(api.backup.restoreBackup, { sessionToken: TOKEN, backupId: exp.backupId }),
+      t.action(api.backup.restoreBackup, { sessionToken: TOKEN, backupId: exp.backupId }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(String(refused.reason?.message ?? refused.reason)).toMatch(/already running/);
+    const state = await t.run(async (ctx) => ({ creatures: await ctx.db.query('creatures').collect(), locks: await ctx.db.query('locks').collect() }));
+    expect(state.creatures).toHaveLength(1);
+    expect(state.creatures[0].name).toBe('Pebble');
+    expect(state.creatures[0].restoring).toBeUndefined();
+    expect(state.locks).toEqual([]);
+    // And a restore afterwards works again.
+    expect((await t.action(api.backup.restoreBackup, { sessionToken: TOKEN, backupId: exp.backupId })).ok).toBe(true);
+  });
+
+  it('the lock is atomic, token-owned, and goes stale after 10 minutes', async () => {
+    const t = make();
+    await owned(t, { hatched: true });
+    expect(await t.mutation(internal.backup.markRestoring, { token: 'a' })).toBe(true);
+    expect(await t.mutation(internal.backup.markRestoring, { token: 'b' })).toBe(false);
+    expect((await t.run(async (ctx) => (await ctx.db.query('creatures').first())!)).restoring).toBe(true);
+    await t.mutation(internal.backup.releaseRestore, { token: 'b' }); // not the holder: no effect
+    expect(await t.run(async (ctx) => (await ctx.db.query('locks').collect()).length)).toBe(1);
+    vi.advanceTimersByTime(RESTORE_LOCK_STALE_MS + 1000);
+    expect(await t.mutation(internal.backup.markRestoring, { token: 'c' })).toBe(true); // took over a dead one
+    await t.mutation(internal.backup.releaseRestore, { token: 'c' });
+    const after = await t.run(async (ctx) => ({ locks: await ctx.db.query('locks').collect(), c: (await ctx.db.query('creatures').first())! }));
+    expect(after.locks).toEqual([]);
+    expect(after.c.restoring).toBeUndefined();
+  });
+
+  it('a failure after the wipe puts the nest back, clears the lock and the restoring flag', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    await t.mutation(api.creature.name, { sessionToken: TOKEN, name: 'Pebble' });
+    await settle(t);
+    const { trinketId, happeningId } = await t.run(async (ctx) => ({
+      trinketId: await ctx.db.insert('trinkets', { creatureId: cid, key: 'tr-x', name: 'Pebble', description: 'd', regionId: 'tidepools', foundAt: Date.now(), rarity: 'common', place: 'shelf' }),
+      happeningId: await ctx.db.insert('happenings', { creatureId: cid, at: Date.now(), kind: 'x', summary: 's', memoryText: 'm', data: {}, salience: 0.2, seen: false, shareable: false }),
+    }));
+    const before = await t.run(async (ctx) => ({ memories: (await ctx.db.query('memories').collect()).length, happenings: (await ctx.db.query('happenings').collect()).length }));
+    const exp = await t.action(api.backup.exportNow, { sessionToken: TOKEN });
+    const file = await storedFile(t, exp.backupId);
+    // Passes the dry run (references are dropped there), then fails when the reference is restored: a trinket "remembering" a happening.
+    file.data.trinkets = file.data.trinkets.map((x) => (x._id === trinketId ? { ...x, memoryId: happeningId } : x));
+    await t.mutation(api.creature.name, { sessionToken: TOKEN, name: 'Changed' });
+    await expect(t.action(api.backup.restore, { sessionToken: TOKEN, storageId: await upload(t, file) })).rejects.toThrow(/put back the way it was/);
+    const after = await t.run(async (ctx) => ({
+      creatures: await ctx.db.query('creatures').collect(), locks: await ctx.db.query('locks').collect(),
+      memories: (await ctx.db.query('memories').collect()).length, happenings: (await ctx.db.query('happenings').collect()).length,
+    }));
+    expect(after.creatures).toHaveLength(1);
+    expect(after.creatures[0].name).toBe('Changed'); // the state just before the failed restore, not the file's
+    expect(after.creatures[0].restoring).toBeUndefined();
+    expect(after.locks).toEqual([]);
+    expect(after.memories).toBeGreaterThanOrEqual(before.memories);
+    expect(after.happenings).toBe(before.happenings);
+    expect((await t.query(api.creature.get, { sessionToken: TOKEN }))!.creature.name).toBe('Changed');
+    // The nest accepts touches again.
+    expect((await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET })).ok).toBe(true);
+  });
+});
+
+describe('S11 the dry-run sentinel is not matched by message', () => {
+  it('a row whose bad value spells the old sentinel is refused, not mistaken for success', async () => {
+    const t = make();
+    await owned(t, { hatched: true });
+    await t.mutation(api.creature.name, { sessionToken: TOKEN, name: 'Pebble' });
+    const exp = await t.action(api.backup.exportNow, { sessionToken: TOKEN });
+    const file = await storedFile(t, exp.backupId);
+    // The schema error for this value echoes it. Matched by message, it would pass the dry run and wipe the nest.
+    file.data.memories = [...file.data.memories, { ...file.data.memories[0], _id: 'jx-bad-memory', salience: 'dry_run_ok nest-dry-run-ok' }];
+    await expect(t.action(api.backup.restore, { sessionToken: TOKEN, storageId: await upload(t, file) })).rejects.toThrow(/does not fit this version/);
+    const state = await t.run(async (ctx) => ({ c: await ctx.db.query('creatures').collect(), locks: await ctx.db.query('locks').collect(), pre: (await ctx.db.query('backups').collect()).filter((b) => b.reason === 'pre-restore') }));
+    expect(state.c).toHaveLength(1);
+    expect(state.c[0].name).toBe('Pebble');
+    expect(state.c[0].restoring).toBeUndefined();
+    expect(state.locks).toEqual([]);
+    expect(state.pre).toEqual([]); // refused before anything was touched, and before a backup was needed
+  });
+});
+
+describe('S6 restore leaves NFC tags alone', () => {
+  it('keeps a tag revoked after the backup revoked, and a tag made after the backup alive', async () => {
+    const t = make();
+    await owned(t, { hatched: true });
+    const exp = await t.action(api.backup.exportNow, { sessionToken: TOKEN });
+    await t.run(async (ctx) => {
+      const tag = (await ctx.db.query('nfcTags').first())!;
+      await ctx.db.patch(tag._id, { revokedAt: Date.now() });
+      await ctx.db.insert('nfcTags', { tagId: 'newtag234abc', secretHash: hashTagSecret('newtag234abc', 'fresh-secret-0123456789'), label: 'New', createdAt: Date.now(), touchCount: 0 });
+    });
+    await t.action(api.backup.restoreBackup, { sessionToken: TOKEN, backupId: exp.backupId });
+    const tags = await t.run(async (ctx) => await ctx.db.query('nfcTags').collect());
+    expect(tags.map((x) => x.tagId).sort()).toEqual([TAG, 'newtag234abc'].sort());
+    expect(tags.find((x) => x.tagId === TAG)!.revokedAt).toBeDefined(); // not resurrected
+    expect(await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: TAG, secret: SECRET })).toMatchObject({ ok: false, code: 'bad_tag' });
+    expect((await t.mutation(api.touch.begin, { sessionToken: TOKEN, tagId: 'newtag234abc', secret: 'fresh-secret-0123456789' })).ok).toBe(true);
+  });
+});
+
+describe('S12 restored pending messages are settled', () => {
+  it('never leaves a creature message pending with no job', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('messages', { creatureId: cid, role: 'creature', text: '', at: Date.now(), via: 'text', fallback: false, pending: true });
+      await ctx.db.insert('messages', { creatureId: cid, role: 'creature', text: '*wiggles*', at: Date.now() + 1, via: 'text', fallback: false, pending: true });
+    });
+    const exp = await t.action(api.backup.exportNow, { sessionToken: TOKEN });
+    await t.action(api.backup.restoreBackup, { sessionToken: TOKEN, backupId: exp.backupId });
+    const msgs = await t.run(async (ctx) => await ctx.db.query('messages').collect());
+    expect(msgs.filter((m) => m.pending)).toEqual([]);
+    expect(msgs.every((m) => m.text.length > 0)).toBe(true);
+    expect(msgs.find((m) => m.text === '*wiggles*')!.fallback).toBe(false);
+  });
+});
+
+describe('S2 ids the prompt shows are ids the validator allows', () => {
+  it('a consolidation prompt cites only episode ids; one stray id no longer discards the answer', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    const cid = await owned(t, { hatched: true });
+    const { eps, ctxMem } = await t.run(async (ctx) => {
+      const mk = (text: string, pinned = false) => ctx.db.insert('memories', { creatureId: cid, kind: 'episode', text, at: Date.now(), salience: 0.9, valence: 0, tags: [], source: 'happening', sourceIds: [], pinned, archived: false, recallCount: 0 });
+      return { eps: [await mk('I found a pebble.'), await mk('I met a heron.')], ctxMem: await mk('I am pinned and shown as context.', true) };
+    });
+    await mindHeartbeat(t);
+    const { jobId } = await t.run(async (ctx) => {
+      const c = (await ctx.db.get(cid))!;
+      return await queueConsolidate(ctx, c, (await Promise.all(eps.map((id) => ctx.db.get(id)))) as never);
+    });
+    const job = await t.run(async (ctx) => (await ctx.db.get(jobId))!);
+    const req = job.request as { instructions: string; input: { content: string }[] };
+    const shown = [...(req.instructions + req.input.map((i) => i.content).join('\n')).matchAll(/\[([a-z0-9]{20,40})\]/g)].map((m) => m[1]);
+    expect(shown.length).toBeGreaterThan(0);
+    const allowed = new Set([...job.context.memoryIds, ...job.context.happeningIds]);
+    for (const id of shown) expect(allowed.has(id), `prompt shows ${id}`).toBe(true);
+    expect(shown).not.toContain(ctxMem);
+    // Stray ids are dropped, the rest applies.
+    await t.mutation(api.mind.claim, { mindSecret: MIND_SECRET, jobId, mindId: 'mini' });
+    const out = { summaries: [{ text: 'A pebble and a heron.', salience: 0.8, tags: [], fromMemoryIds: [eps[0], 'ghost-id'] }], archiveMemoryIds: ['ghost-id', eps[1]], beliefs: [], interests: [], dream: { text: 'A dream.', fromMemoryIds: ['ghost-id'] }, opinionShifts: [] };
+    expect(await t.mutation(api.mind.complete, { mindSecret: MIND_SECRET, jobId, provider: 'chatgpt-plan', model: 'gpt', outputText: JSON.stringify(out) })).toEqual({ ok: true });
+    const done = await t.run(async (ctx) => (await ctx.db.get(jobId))!);
+    expect(done.status).toBe('done');
+    const mems = await t.run(async (ctx) => await ctx.db.query('memories').collect());
+    expect(mems.find((m) => m.kind === 'consolidated')!.sourceIds).toEqual([eps[0]]);
+    expect(mems.find((m) => m.kind === 'dream')).toBeUndefined();
+    expect(mems.find((m) => m._id === eps[1])!.archived).toBe(true);
+  });
+});
+
+describe('S3 streamed text honours the language level', () => {
+  it('a hatchling shows no words while typing, only finished *sounds*; an adult shows everything', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    const cid = await owned(t, { hatched: true });
+    await mindHeartbeat(t);
+    const r = await t.mutation(api.interact.say, { sessionToken: TOKEN, text: 'hello little one' });
+    await t.mutation(api.mind.claim, { mindSecret: MIND_SECRET, jobId: r.jobId, mindId: 'mini' });
+    const partial = async () => (await t.query(api.interact.messages, { sessionToken: TOKEN, paginationOpts: { numItems: 5, cursor: null } })).page.find((m) => m.id === r.messageId)?.partialText ?? null;
+    await t.mutation(api.mind.progress, { mindSecret: MIND_SECRET, jobId: r.jobId, partialText: '{"say":"Hello there my friend, how are' });
+    expect(await partial()).toBeNull(); // words are not shown to a hatchling
+    await t.mutation(api.mind.progress, { mindSecret: MIND_SECRET, jobId: r.jobId, partialText: '{"say":"Hello there my friend *chirrup* and I am glad' });
+    expect(await partial()).toBe('*chirrup*');
+    // A grown creature streams as before.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(cid, { languageLevel: 4, stage: 'adult' });
+    });
+    await mindHeartbeat(t);
+    const r2 = await t.mutation(api.interact.say, { sessionToken: TOKEN, text: 'hello again' });
+    await t.run(async (ctx) => { const j = (await ctx.db.get(r2.jobId))!; await ctx.db.patch(j._id, { context: { ...j.context, languageLevel: 4 } }); });
+    await t.mutation(api.mind.claim, { mindSecret: MIND_SECRET, jobId: r2.jobId, mindId: 'mini' });
+    await t.mutation(api.mind.progress, { mindSecret: MIND_SECRET, jobId: r2.jobId, partialText: '{"say":"Hello there my friend' });
+    const adult = (await t.query(api.interact.messages, { sessionToken: TOKEN, paginationOpts: { numItems: 5, cursor: null } })).page.find((m) => m.id === r2.messageId)?.partialText;
+    expect(adult).toBe('Hello there my friend');
+  });
+
+  it('the API path is held to the same level', async () => {
+    const t = make();
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test');
+    await owned(t, { hatched: true });
+    const r = await t.mutation(api.interact.say, { sessionToken: TOKEN, text: 'hello' });
+    await t.mutation(internal.jobs.apiProgress, { jobId: r.jobId, partialText: '{"say":"Hello there my friend *chirp* ok' });
+    expect((await t.run(async (ctx) => (await ctx.db.get(r.jobId))!)).partialText).toBe('*chirp*');
+  });
+});
+
+describe('S4 auth rate limits cannot lock the owner out', () => {
+  const env = () => { vi.stubEnv('NEST_RP_ID', 'localhost'); vi.stubEnv('NEST_ORIGINS', 'http://localhost:3000'); };
+  const rateLimited = (e: unknown) => JSON.stringify((e as { data?: unknown })?.data ?? String(e)).includes('RateLimited');
+
+  it('spamming loginOptions exhausts only its own bucket; a started login and a claim still go through', async () => {
+    env();
+    const t = make();
+    await owned(t);
+    // 30 unauthenticated option calls fit in the bucket, one token each.
+    for (let i = 0; i < 30; i++) await t.action(api.authNode.loginOptions, {});
+    const blocked = await t.action(api.authNode.loginOptions, {}).then(() => null, (e: unknown) => e);
+    expect(rateLimited(blocked)).toBe(true);
+    // A challenge that was already issued still finishes (here it fails for the right reason: the passkey is unknown, not "slow down").
+    const challengeId = await t.run(async (ctx) => ctx.db.insert('authChallenges', { challenge: 'c', kind: 'login', createdAt: Date.now(), expiresAt: Date.now() + 300_000 }));
+    const finish = await t.action(api.authNode.login, { challengeId, response: { id: 'not-a-credential' } }).then(() => null, (e: unknown) => e);
+    expect(rateLimited(finish)).toBe(false);
+    expect(String((finish as Error).message)).toMatch(/Unknown passkey/);
+    // One try per challenge: the failed attempt burned it.
+    expect((await t.run(async (ctx) => (await ctx.db.get(challengeId))!)).usedAt).toBeDefined();
+    // A valid claim link still gets its options while the open door is exhausted.
+    await t.mutation(internal.auth.storeClaim, { codeHash: hashCode('device-code'), purpose: 'device' });
+    const opts = await t.action(api.authNode.registrationOptions, { claimCode: 'device-code' });
+    expect(opts.purpose).toBe('device');
+  });
+
+  it('wrong claim codes and dead challenges spend the guessers\' bucket, not the owner\'s', async () => {
+    env();
+    const t = make();
+    await owned(t);
+    await t.mutation(internal.auth.storeClaim, { codeHash: hashCode('device-code'), purpose: 'device' });
+    for (let i = 0; i < 10; i++) await expect(t.action(api.authNode.registrationOptions, { claimCode: `guess-${i}` })).rejects.toThrow(/expired or was already used/);
+    const blocked = await t.action(api.authNode.registrationOptions, { claimCode: 'guess-x' }).then(() => null, (e: unknown) => e);
+    expect(rateLimited(blocked)).toBe(true);
+    expect((await t.action(api.authNode.registrationOptions, { claimCode: 'device-code' })).purpose).toBe('device');
+    expect((await t.action(api.authNode.loginOptions, {})).challengeId).toBeTruthy();
+  });
+
+  it('one token per step: a login (options then verify) takes one from each bucket, not two from one', async () => {
+    env();
+    const t = make();
+    await owned(t);
+    for (let i = 0; i < 30; i++) {
+      const { challengeId } = await t.action(api.authNode.loginOptions, {});
+      expect(challengeId).toBeTruthy();
+    }
+    // 30 full logins' worth of option calls and the 31st is the first refusal: nothing cost two.
+    expect(rateLimited(await t.action(api.authNode.loginOptions, {}).then(() => null, (e: unknown) => e))).toBe(true);
+  });
+});
+
+describe('S5 a job handed to the API is not re-routed by the mind', () => {
+  async function toApi(t: T) {
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test');
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {}))); // an API call that never answers
+    await owned(t, { hatched: true });
+    await mindHeartbeat(t);
+    const r = await t.mutation(api.interact.say, { sessionToken: TOKEN, text: 'hi there' });
+    await t.mutation(api.mind.claim, { mindSecret: MIND_SECRET, jobId: r.jobId, mindId: 'mini' });
+    await t.mutation(api.mind.fail, { mindSecret: MIND_SECRET, jobId: r.jobId, code: 'subscription_sharing_usage_limit_exceeded', message: 'limit', retryable: false });
+    const job = await t.run(async (ctx) => (await ctx.db.get(r.jobId))!);
+    expect(job.claimedBy).toBe('openai-api'); // the mind gave up; the API has it
+    return { jobId: r.jobId, job };
+  }
+  const pick = (j: { status: string; claimedBy?: string; attempts: number; claimedAt?: number; error?: string }) => ({ status: j.status, claimedBy: j.claimedBy, attempts: j.attempts, claimedAt: j.claimedAt, error: j.error });
+
+  it('the mind-stage deadline leaves it alone', async () => {
+    const t = make();
+    const { jobId, job } = await toApi(t);
+    vi.advanceTimersByTime(30_000);
+    await t.mutation(internal.jobs.deadline, { jobId, stage: 'mind' });
+    expect(pick((await t.run(async (ctx) => (await ctx.db.get(jobId))!)))).toEqual(pick(job));
+  });
+
+  it('a late mind.fail does not start a second call', async () => {
+    const t = make();
+    const { jobId, job } = await toApi(t);
+    for (const retryable of [false, true]) await t.mutation(api.mind.fail, { mindSecret: MIND_SECRET, jobId, code: 'late', message: 'late', retryable });
+    expect(pick((await t.run(async (ctx) => (await ctx.db.get(jobId))!)))).toEqual(pick(job));
+  });
+
+  it('mind.fail ignores a job nobody holds, and the API id is not a mind id', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    await owned(t, { hatched: true });
+    await mindHeartbeat(t);
+    const r = await t.mutation(api.interact.say, { sessionToken: TOKEN, text: 'hi' });
+    await t.mutation(api.mind.fail, { mindSecret: MIND_SECRET, jobId: r.jobId, code: 'x', message: 'x', retryable: false }); // still queued: not claimed by anyone
+    expect((await t.run(async (ctx) => (await ctx.db.get(r.jobId))!)).status).toBe('queued');
+    expect(await t.mutation(api.mind.claim, { mindSecret: MIND_SECRET, jobId: r.jobId, mindId: 'openai-api' })).toEqual({ ok: false, reason: 'reserved_id' });
+  });
+});
+
+describe('S7 removing a passkey signs its sessions out', () => {
+  it('revokes only the sessions that passkey opened', async () => {
+    const t = make();
+    await owned(t);
+    const B = 'phone-b-session-token-'.padEnd(43, 'b');
+    const C = 'phone-c-session-token-'.padEnd(43, 'c');
+    const ids = await t.run(async (ctx) => {
+      const now = Date.now();
+      const pkB = await ctx.db.insert('passkeys', { credentialId: 'cred-b', publicKey: 'pk', counter: 0, transports: [], label: 'Phone B', createdAt: now });
+      const pkC = await ctx.db.insert('passkeys', { credentialId: 'cred-c', publicKey: 'pk', counter: 0, transports: [], label: 'Phone C', createdAt: now });
+      await ctx.db.insert('sessions', { tokenHash: hashToken(B), createdAt: now, lastUsedAt: now, expiresAt: now + SESSION_TTL, label: 'B', passkeyId: pkB });
+      await ctx.db.insert('sessions', { tokenHash: hashToken(C), createdAt: now, lastUsedAt: now, expiresAt: now + SESSION_TTL, label: 'C', passkeyId: pkC });
+      return { pkB };
+    });
+    expect(await t.query(api.auth.session, { sessionToken: B })).toMatchObject({ valid: true });
+    await t.mutation(api.settings.removePasskey, { sessionToken: TOKEN, passkeyId: ids.pkB });
+    expect(await t.query(api.auth.session, { sessionToken: B })).toEqual({ valid: false });
+    expect(await t.query(api.auth.session, { sessionToken: C })).toMatchObject({ valid: true });
+    expect(await t.query(api.auth.session, { sessionToken: TOKEN })).toMatchObject({ valid: true });
+  });
+
+  it('login and registration record the passkey on the session', async () => {
+    const t = make();
+    await owned(t);
+    const pk = (await t.run(async (ctx) => (await ctx.db.query('passkeys').first())!))._id;
+    const login = await t.run(async (ctx) => ctx.db.insert('authChallenges', { challenge: 'c', kind: 'login', createdAt: Date.now(), expiresAt: Date.now() + 300_000 }));
+    await t.mutation(internal.auth.finishLogin, { challengeId: login, credentialId: 'cred', newCounter: 1, tokenHash: hashToken('login-token'.padEnd(43, 'l')), label: 'iPhone' });
+    await t.mutation(internal.auth.storeClaim, { codeHash: hashCode('dev-code'), purpose: 'device' });
+    const reg = await t.run(async (ctx) => ctx.db.insert('authChallenges', { challenge: 'c', kind: 'register', claimCodeHash: hashCode('dev-code'), createdAt: Date.now(), expiresAt: Date.now() + 300_000 }));
+    await t.mutation(internal.auth.finishRegistration, { challengeId: reg, claimCode: 'dev-code', tokenHash: hashToken('reg-token'.padEnd(43, 'r')), seed: 's', credentialId: 'cred-new', publicKey: 'pk', counter: 0, transports: [], label: 'iPad' });
+    const sessions = await t.run(async (ctx) => await ctx.db.query('sessions').collect());
+    expect(sessions.find((s) => s.tokenHash === hashToken('login-token'.padEnd(43, 'l')))!.passkeyId).toBe(pk);
+    const newPk = await t.run(async (ctx) => (await ctx.db.query('passkeys').withIndex('by_credentialId', (q) => q.eq('credentialId', 'cred-new')).unique())!._id);
+    expect(sessions.find((s) => s.tokenHash === hashToken('reg-token'.padEnd(43, 'r')))!.passkeyId).toBe(newPk);
+  });
+});
+
+describe('S8 renaming', () => {
+  it('retires the old name memories and tells the creature the name changed, not that it is new', async () => {
+    const t = make();
+    await owned(t, { hatched: true });
+    await t.mutation(api.creature.name, { sessionToken: TOKEN, name: 'Bramble' });
+    await settle(t);
+    const pinnedNames = async () => (await t.run(async (ctx) => await ctx.db.query('memories').filter((q) => q.eq(q.field('pinned'), true)).collect())).filter((m) => m.tags.includes('name'));
+    expect((await pinnedNames()).map((m) => m.text).join(' ')).toMatch(/Bramble/);
+    const renamed = await t.mutation(api.creature.name, { sessionToken: TOKEN, name: 'Thistle' });
+    const job = await t.run(async (ctx) => (await ctx.db.get(renamed.jobId!))!);
+    const instructions = (job.request as { instructions: string }).instructions;
+    expect(instructions).toMatch(/changed your name/);
+    expect(instructions).toMatch(/Bramble/);
+    expect(instructions).not.toMatch(/first time you hear it/);
+    await settle(t);
+    const names = await pinnedNames();
+    expect(names).toHaveLength(1);
+    expect(names[0].text).toMatch(/renamed me Thistle/);
+    expect(names[0].text).toMatch(/Bramble/);
+    const old = (await t.run(async (ctx) => await ctx.db.query('memories').collect())).find((m) => /gave me my name: Bramble/.test(m.text))!;
+    expect(old.pinned).toBe(false);
+    expect(old.archived).toBe(true);
+    // First naming is unchanged.
+  });
+});
+
+describe('S10 mind:backupPage', () => {
+  it('pages every table and rebuilds the same data and checksum as the snapshot', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    await owned(t, { hatched: true });
+    await t.mutation(internal.sim.tick, { now: Date.now() + 30 * 3600_000 });
+    await settle(t);
+    const snap = await t.query(api.mind.backupSnapshot, { mindSecret: MIND_SECRET });
+    const first = await t.query(api.mind.backupPage, { mindSecret: MIND_SECRET, table: 'creatures', cursor: null });
+    expect([...first.tables].sort()).toEqual(Object.keys(snap.data).sort());
+    expect(first.format).toBe('nest-export/v1');
+    const data: Record<string, unknown[]> = {};
+    for (const table of first.tables) {
+      const rows: unknown[] = [];
+      let cursor: string | null = null;
+      for (;;) {
+        const page: { docs: unknown[]; isDone: boolean; cursor: string } = await t.query(api.mind.backupPage, { mindSecret: MIND_SECRET, table, cursor });
+        rows.push(...page.docs);
+        if (page.isDone) break;
+        cursor = page.cursor;
+      }
+      data[table] = rows;
+    }
+    expect(sha256Hex(canonicalJson(data))).toBe(snap.checksum);
+    expect(data.memories.length).toBeGreaterThan(0);
+  });
+
+  it('checks the secret, the table and the arguments without echoing the secret', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    await owned(t);
+    await expect(t.query(api.mind.backupPage, { mindSecret: 'nope', table: 'creatures', cursor: null })).rejects.toThrow(/Not authorised/);
+    for (const bad of [{ table: 'sessions', cursor: null }, { table: 'creatures', cursor: 5 }, { table: 'creatures', cursor: null, extra: 1 }]) {
+      const err = await t.query(api.mind.backupPage, { mindSecret: MIND_SECRET, ...bad } as never).then(() => null, (e: Error) => e);
+      expect(String(err?.message)).toMatch(/Invalid request/);
+      expect(String(err?.message)).not.toContain(MIND_SECRET);
+    }
+  });
+});
+
+describe('S13 reading notes', () => {
+  it('marks read only the notes it sent, and the rest wait for the next time', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(cid, { location: 'nest', activity: { kind: 'rest', startedAt: Date.now(), endsAt: Date.now() + 3600_000 } });
+      for (let i = 0; i < 8; i++) await ctx.db.insert('messages', { creatureId: cid, role: 'owner', text: `note ${i}`, at: Date.now() + i, via: 'note', fallback: false, pending: false });
+    });
+    const unread = () => t.run(async (ctx) => (await ctx.db.query('messages').collect()).filter((m) => m.via === 'note' && m.role === 'owner' && !m.noteReadAt).map((m) => m.text).sort());
+    const read = () => t.run(async (ctx) => { const c = (await ctx.db.get(cid))!; return await readNotes(ctx, c); });
+    expect(await read()).toBe(true);
+    expect(await unread()).toEqual(['note 5', 'note 6', 'note 7']); // five sent (the oldest), three waiting
+    expect(await read()).toBe(true);
+    expect(await unread()).toEqual([]);
+    expect(await read()).toBe(false);
+  });
+});
+
+describe('S14 / S15 / S16', () => {
+  it('S15: devStore refuses on its own unless NEST_DEV_TOOLS=1', async () => {
+    const t = make();
+    const args = { tokenHash: hashToken('x'.repeat(43)), seed: 's', tagId: 'tagx', secretHash: 'h' };
+    await expect(t.mutation(internal.admin.devStore, args)).rejects.toThrow(/disabled/);
+    expect(await t.run(async (ctx) => (await ctx.db.query('sessions').collect()).length)).toBe(0);
+    vi.stubEnv('NEST_DEV_TOOLS', '1');
+    await t.mutation(internal.admin.devStore, args);
+    expect(await t.run(async (ctx) => (await ctx.db.query('sessions').collect()).length)).toBe(1);
+  });
+
+  it('S16: the sim sees the newest 400 trinkets, not the oldest', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 430; i++) await ctx.db.insert('trinkets', { creatureId: cid, key: `k${String(i).padStart(3, '0')}`, name: `T${i}`, description: 'd', regionId: 'tidepools', foundAt: 1_000_000 + i, rarity: 'common', place: 'shelf' });
+    });
+    const world = await t.run(async (ctx) => await loadWorld(ctx, (await ctx.db.get(cid))!));
+    const keys = new Set(world.trinkets.map((x) => x.key));
+    expect(world.trinkets).toHaveLength(400);
+    expect(keys.has('k429')).toBe(true);
+    expect(keys.has('k000')).toBe(false);
   });
 });

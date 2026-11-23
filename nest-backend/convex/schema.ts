@@ -277,7 +277,9 @@ export default defineSchema({
     expiresAt: v.number(),
     label: v.string(),
     revokedAt: v.optional(v.number()),
-  }).index('by_tokenHash', ['tokenHash']),
+    /** The passkey this session was opened with (absent on dev-tool sessions). Removing the passkey revokes it. */
+    passkeyId: v.optional(v.id('passkeys')),
+  }).index('by_tokenHash', ['tokenHash']).index('by_passkeyId', ['passkeyId']),
   claimLinks: defineTable({
     codeHash: v.string(),
     purpose: v.union(v.literal('owner'), v.literal('device')),
@@ -293,6 +295,8 @@ export default defineSchema({
     expiresAt: v.number(),
     usedAt: v.optional(v.number()),
   }),
+  /** Singleton locks (name → holder). Never exported or restored. */
+  locks: defineTable({ name: v.string(), token: v.string(), heldAt: v.number() }).index('by_name', ['name']),
   audit: defineTable({ at: v.number(), event: v.string(), detail: v.optional(v.string()) }).index('by_at', ['at']),
 });
 

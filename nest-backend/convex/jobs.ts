@@ -1,8 +1,7 @@
 // Job deadlines and the cloud API-key provider's callbacks.
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from './_generated/server';
-import { completeJob, routeJob } from './lib/jobs';
-import { extractPartialSay } from './engine/schemas';
+import { completeJob, partialSayFor, routeJob } from './lib/jobs';
 
 /** At deadlineAt: if the current provider has not finished, move to the next one. */
 export const deadline = internalMutation({
@@ -11,6 +10,9 @@ export const deadline = internalMutation({
     const job = await ctx.db.get(a.jobId);
     if (!job || job.appliedAt) return;
     if (a.stage === 'api' && job.claimedBy !== 'openai-api') return;
+    // The mind's deadline only concerns the mind. If the job already went to the API (the mind failed
+    // it), re-routing would start a second, billed call for the same job.
+    if (a.stage === 'mind' && job.claimedBy === 'openai-api') return;
     await routeJob(ctx, job._id, a.stage, a.stage === 'mind' ? 'mind did not finish in time' : 'API did not finish in time');
   },
 });
@@ -49,8 +51,8 @@ export const apiProgress = internalMutation({
   args: { jobId: v.id('jobs'), partialText: v.string() },
   handler: async (ctx, a) => {
     const job = await ctx.db.get(a.jobId);
-    const say = extractPartialSay(a.partialText.slice(0, 4000));
-    if (job && !job.appliedAt && say !== null) await ctx.db.patch(job._id, { partialText: say });
+    const say = job && !job.appliedAt ? partialSayFor(job, a.partialText) : null;
+    if (job && say !== null) await ctx.db.patch(job._id, { partialText: say });
   },
 });
 

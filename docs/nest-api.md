@@ -7,8 +7,8 @@ Design and contracts: [nest-design.md](nest-design.md). Setup: [nest-setup.md](n
 ## Conventions
 
 - **Session.** Every function below takes `sessionToken: string` (from `localStorage['nest.session']`) unless marked *no session*. Without a valid session it throws a `ConvexError` with `data.code === 'unauthenticated'` and message `Please sign in.` Send the user to sign in on that code.
-- **Errors.** All expected failures are `ConvexError` with `data = { code, message }`. `message` is plain English for the UI. Codes used: `unauthenticated`, `invalid`, `not_found`, `expired`, `claimed`, `unclaimed`, `duplicate`, `misconfigured`, `bad_tag`, `busy` (restore running), `egg`, `away`, `asleep`, `needs_touch`, `not_night`, `last_passkey`, `forbidden`. Rate limits throw the rate limiter's own error (`data.kind === 'RateLimited'`, with `retryAfter` ms).
-- **Rate limits.** chat (say, notes, show and tell): 30/min; gestures: 120/min; touches: 20/min; other writes: 60/min; auth ceremony: 10/min.
+- **Errors.** All expected failures are `ConvexError` with `data = { code, message }`. `message` is plain English for the UI. Codes used: `unauthenticated`, `invalid`, `not_found`, `expired`, `claimed`, `unclaimed`, `duplicate`, `misconfigured`, `bad_tag`, `busy` (restore running), `restore_failed`, `egg`, `away`, `asleep`, `needs_touch`, `not_night`, `last_passkey`, `forbidden`. Rate limits throw the rate limiter's own error (`data.kind === 'RateLimited'`, with `retryAfter` ms).
+- **Rate limits.** chat (say, notes, show and tell): 30/min; gestures: 120/min; touches: 20/min; other writes: 60/min; sign-in: `loginOptions` 30/min, `registrationOptions` with a valid claim 20/min, invalid claim codes or dead challenges 10/min (separate buckets, one token per call; finishing a sign-in or claim with a valid challenge is not limited, and a failed attempt burns its challenge).
 - **Times** are epoch milliseconds. **Ids** are Convex ids (strings).
 - **Pagination** args are Convex's `paginationOpts: { numItems, cursor }` (use `usePaginatedQuery`). Pages return `{ page, isDone, continueCursor }`. `numItems` is capped per function (noted).
 - **Pending replies.** Talking returns at once with `fallbackText` and a pending creature message. Watch `interact.messages`: while `pending` is true, show a typing state and `partialText` (clean streamed text, may be null). When the job resolves, `text` is final. `fallback: true` means it came from the deterministic in-voice templates (no AI was available).
@@ -106,9 +106,9 @@ Returns `{ ok: true, messageId: string | null, jobId: string | null, fallbackTex
 
 Call on `/nest/touch/:tagId` with `secret` from `location.hash`. Clear the hash from the address bar afterwards (`history.replaceState`).
 
-Returns `{ visitId: string, momentKind: MomentKind, fallbackText: string, messageId: string, jobId: string | null }`. Show `fallbackText` immediately; the moment message (`messageId`) may be replaced by an AI line within seconds. `jobId` is null for egg moments (scripted).
+Returns `{ ok: true, visitId: string, momentKind: MomentKind, fallbackText: string, messageId: string, jobId: string | null }`, or `{ ok: false, code: 'bad_tag', message: string }` for a wrong, unknown or revoked tag (answered, not thrown, so the rejected attempt is recorded in the audit log). Show `fallbackText` immediately; the moment message (`messageId`) may be replaced by an AI line within seconds. `jobId` is null for egg moments (scripted).
 
-Effects: runs the sim up to now; brings it home if it was out (`returned_from_region`); wakes it if asleep (`late_night_wake`); warms the egg and hatches it on the third touch (`hatch`); opens or extends a 30-minute touch visit; updates the relationship. Errors: `bad_tag` (unknown, revoked, or wrong secret), `busy`.
+Effects: runs the sim up to now; brings it home if it was out (`returned_from_region`); wakes it if asleep (`late_night_wake`); warms the egg and hatches it on the third touch (`hatch`); opens or extends a 30-minute touch visit; updates the relationship. Errors (thrown): `unauthenticated`, `busy`. A bad tag is the `ok: false` result above.
 
 | Function | Kind | Args | Returns |
 |---|---|---|---|
@@ -217,7 +217,7 @@ Dreams: `memories.list({ kind: 'dream' })`; unseen ones have `seen: false` (coun
 | `backup.restore` | action | `{ sessionToken, storageId }` | `{ ok: true, counts: Record<table, number>, preRestoreBackupId }` |
 | `backup.restoreBackup` | action | `{ sessionToken, backupId }` | same as `restore` |
 
-Restore validates format, version and checksum, dry-runs every table, saves a `pre-restore` backup, then replaces everything (never merges). Errors are `invalid` with a reason (e.g. `Checksum does not match…`). During a restore other writes throw `busy`. Sessions and passkeys are not part of exports and survive a restore.
+Restore validates format, version and checksum, takes the one restore lock (a second restore while one runs throws `busy`), dry-runs every table, saves a `pre-restore` backup, then replaces everything (never merges). NFC tags are not replaced: revoked tags stay revoked and newer tags stay. If it fails after the wipe, the `pre-restore` backup is put back automatically and it throws `restore_failed`. Errors before that are `invalid` with a reason (e.g. `Checksum does not match…`). During a restore other writes throw `busy`. Sessions and passkeys are not part of exports and survive a restore.
 
 ## mind (Mac mini only; not for the frontend)
 
@@ -230,8 +230,13 @@ Each takes `mindSecret` (compared in constant time with `NEST_MIND_SECRET`; all 
 | `mind.claim` | mutation | `{ mindSecret, jobId, mindId }` | `{ ok: true, request } \| { ok: false, reason }` |
 | `mind.progress` | mutation | `{ mindSecret, jobId, partialText }` (raw partial JSON) | `{ ok }` |
 | `mind.complete` | mutation | `{ mindSecret, jobId, provider: 'chatgpt-plan'\|'openai-api', model, outputText, usage?: { inputTokens?, outputTokens?, totalTokens? } }` | `{ ok: true } \| { ok: false, error }` (invalid output → next provider or fallback) |
-| `mind.fail` | mutation | `{ mindSecret, jobId, code, message, retryable }` | `{ ok }` (retryable with time left → queued again, max 2 attempts) |
-| `mind.backupSnapshot` | query | `{ mindSecret }` | the full `nest-export/v1` file |
+| `mind.fail` | mutation | `{ mindSecret, jobId, code, message, retryable }` | `{ ok }` (retryable with time left → queued again, max 2 attempts). Ignored unless a mind holds the job, so a late fail cannot re-route a job already handed to the API. |
+| `mind.backupSnapshot` | query | `{ mindSecret }` | the full `nest-export/v1` file. One query: it will hit Convex's 16,384-document read limit after about a year of use. Prefer `backupPage`. |
+| `mind.backupPage` | query | `{ mindSecret, table, cursor: string \| null }` | `{ docs, isDone, cursor, format: 'nest-export/v1', schemaVersion, tables: string[] }`: one page (up to 500 rows) of one table, in the shape of `data[table]` in the export. |
+
+`mind.claim` refuses the mind id `openai-api` (`{ ok: false, reason: 'reserved_id' }`); `mind.progress` stores the typed-so-far `say` held to the creature's language level (a hatchling's partial text is only finished `*sounds*`).
+
+**Backing up with `backupPage`.** For each name in `tables` (the first reply lists them, in order): call with `cursor: null`, then with the returned `cursor`, until `isDone`; collect the `docs`. Then `data = { [table]: docs }` and the file is `{ format, exportedAt: Date.now(), schemaVersion, checksum: sha256Hex(canonicalJson(data)), data }`, which is byte-for-byte what `backupSnapshot` returned (apart from `exportedAt`) and what Restore accepts. `canonicalJson` is the sorted-key JSON in `nest-backend/convex/engine/sha256.ts`. Pages are read at different moments, so a backup taken while the creature is busy can mix times; that is fine for a daily copy, and the checksum only covers what was read.
 
 ## Internal (CLI / server only)
 

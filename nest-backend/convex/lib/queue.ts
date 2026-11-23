@@ -86,12 +86,12 @@ export async function queueConsolidate(ctx: MutationCtx, c: Doc<'creatures'>, ep
   return await make(ctx, c, 'consolidate', pctx, event, fb, { memoryIds: eps.map((m) => m.id) });
 }
 
-export async function queueNameReaction(ctx: MutationCtx, c: Doc<'creatures'>, name: string, visitId?: Id<'visits'>) {
+export async function queueNameReaction(ctx: MutationCtx, c: Doc<'creatures'>, name: string, visitId?: Id<'visits'>, previous?: string) {
   const pctx = await buildContext(ctx, c);
-  const event: JobEvent = { kind: 'name_reaction', name };
+  const event: JobEvent = { kind: 'name_reaction', name, previous };
   const messageId = await pendingMessage(ctx, c, 'moment', visitId);
   const fb = fallbackNameReaction(pctx, name);
-  const r = await make(ctx, c, 'name_reaction', pctx, event, fb, { messageId, ownerText: name });
+  const r = await make(ctx, c, 'name_reaction', pctx, event, fb, { messageId, ownerText: name, extra: previous ? { previousName: previous } : undefined });
   return { ...r, messageId, fallbackText: fb.say };
 }
 

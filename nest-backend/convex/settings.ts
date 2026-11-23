@@ -89,6 +89,10 @@ export const removePasskey = mutation({
     const p = await ctx.db.get(a.passkeyId);
     if (!p) fail('Passkey not found.', 'not_found');
     await ctx.db.delete(p._id);
+    // A removed passkey must not leave its sessions alive (a lost phone's passkey, removed, signs that phone out).
+    const live = await ctx.db.query('sessions').withIndex('by_passkeyId', (q) => q.eq('passkeyId', p._id)).take(200);
+    const now = Date.now();
+    for (const s of live) if (!s.revokedAt) await ctx.db.patch(s._id, { revokedAt: now });
     await audit(ctx, 'passkey.removed', p.label);
     return { ok: true };
   },

@@ -49,8 +49,10 @@ export async function readNotes(ctx: MutationCtx, c: Doc<'creatures'>) {
   const notes = (await ctx.db.query('messages').withIndex('by_creature_and_via', (q) => q.eq('creatureId', c._id).eq('via', 'note')).order('desc').take(20)).filter((n) => n.role === 'owner' && !n.noteReadAt);
   if (!notes.length) return false;
   const now = Date.now();
-  for (const n of notes) await ctx.db.patch(n._id, { noteReadAt: now });
-  await queueNoteReply(ctx, c, notes.reverse().slice(-5));
+  // Read the oldest five, in order, and mark only those. The rest wait for the next tick instead of vanishing unread.
+  const batch = notes.reverse().slice(0, 5);
+  for (const n of batch) await ctx.db.patch(n._id, { noteReadAt: now });
+  await queueNoteReply(ctx, c, batch);
   return true;
 }
 

@@ -34,11 +34,15 @@ export const name = mutation({
     await ctx.db.patch(c._id, { name });
     await audit(ctx, previous ? 'creature.renamed' : 'creature.named');
     if (previous) {
+      // The old name's pinned memories ("my person gave me my name: <old>") would now contradict the new one. Retire them.
+      for (const m of await ctx.db.query('memories').withIndex('by_creature_and_pinned', (q) => q.eq('creatureId', c._id).eq('pinned', true)).take(100)) {
+        if (m.tags.includes('name')) await ctx.db.patch(m._id, { pinned: false, archived: true });
+      }
       await addMemory(ctx, c._id, { text: `My person changed my name from ${previous} to ${name}.`, salience: 0.85, valence: 0.1, tags: ['name', 'owner'], source: 'owner' });
     }
     const presence = await presenceOf(ctx, c);
     const fresh = (await ctx.db.get(c._id))!;
-    const q = await queueNameReaction(ctx, fresh, name, presence.mode === 'touch' ? presence.visitId : undefined);
+    const q = await queueNameReaction(ctx, fresh, name, presence.mode === 'touch' ? presence.visitId : undefined, previous);
     return { ok: true, messageId: q.messageId, jobId: q.jobId, fallbackText: q.fallbackText };
   },
 });

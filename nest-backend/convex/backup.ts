@@ -1,25 +1,23 @@
 // Export, restore and daily backups (spec §9).
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx } from './_generated/server';
 import { internal } from './_generated/api';
 import type { Id, TableNames } from './_generated/dataModel';
 import { DAY } from './engine/time';
 import { audit, fail, requireOwner } from './lib/core';
 import {
-  EXPORT_TABLES, finalize, remapRefs, stripForInsert, toExportDoc, validateExport, type ExportData, type ExportDoc, type ExportFile, type ExportTable,
+  EXPORT_TABLES, RESTORE_TABLES, finalize, readExportPage, remapRefs, stripForInsert, validateExport, type ExportData, type ExportDoc, type ExportFile, type ExportTable,
 } from './lib/exporter';
 
 const vTable = v.union(...EXPORT_TABLES.map((t) => v.literal(t)));
-const PAGE = 500;
 const CHUNK = 250;
-const DRY_RUN_OK = 'nest-dry-run-ok';
+const DRY_RUN_OK = 'dry_run_ok';
+/** A restore that holds the lock longer than this is presumed dead (an action cannot run longer than ~10 min). */
+export const RESTORE_LOCK_STALE_MS = 10 * 60_000;
 
 export const exportPage = internalQuery({
   args: { table: vTable, cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, a) => {
-    const res = await ctx.db.query(a.table).paginate({ cursor: a.cursor, numItems: PAGE });
-    return { docs: res.page.map((d) => toExportDoc(d as unknown as Record<string, unknown>)), isDone: res.isDone, cursor: res.continueCursor };
-  },
+  handler: async (ctx, a) => await readExportPage(ctx, a.table, a.cursor),
 });
 
 async function collectExport(ctx: ActionCtx): Promise<ExportFile> {
@@ -48,7 +46,7 @@ async function storeBackup(ctx: ActionCtx, reason: 'daily' | 'pre-restore' | 'ma
   const text = JSON.stringify(file);
   const storageId = await ctx.storage.store(new Blob([text], { type: 'application/json' }));
   const backupId: Id<'backups'> = await ctx.runMutation(internal.backup.recordBackup, { storageId, sizeBytes: text.length, reason, checksum: file.checksum });
-  return { backupId, storageId, sizeBytes: text.length, checksum: file.checksum };
+  return { backupId, storageId, sizeBytes: text.length, checksum: file.checksum, text };
 }
 
 /** Download a fresh export from settings: stores a manual backup and returns a URL. */
@@ -117,7 +115,7 @@ export const dryRun = internalMutation({
   handler: async (ctx, a) => {
     const cid = await ctx.db.insert('creatures', stripForInsert('creatures', a.creature, null) as never);
     if (a.table !== 'creatures') for (const d of a.docs) await ctx.db.insert(a.table, stripForInsert(a.table, d, cid) as never);
-    throw new Error(DRY_RUN_OK);
+    throw new ConvexError({ code: DRY_RUN_OK }); // Rolls everything back; the caller recognises it by `data.code`.
   },
 });
 
@@ -130,11 +128,32 @@ export const wipeChunk = internalMutation({
   },
 });
 
+/**
+ * Claim the one restore lock (atomic: a mutation). Refuses while another restore holds it, unless that
+ * hold is stale. On success the creature is marked `restoring`, so ticks and touches wait.
+ */
 export const markRestoring = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { token: v.string() },
+  handler: async (ctx, a) => {
+    const now = Date.now();
+    const lock = await ctx.db.query('locks').withIndex('by_name', (q) => q.eq('name', 'restore')).unique();
+    if (lock && now - lock.heldAt < RESTORE_LOCK_STALE_MS) return false;
+    if (lock) await ctx.db.patch(lock._id, { token: a.token, heldAt: now });
+    else await ctx.db.insert('locks', { name: 'restore', token: a.token, heldAt: now });
     const c = await ctx.db.query('creatures').first();
     if (c) await ctx.db.patch(c._id, { restoring: true });
+    return true;
+  },
+});
+
+/** Let go of the restore lock (only if this token still holds it) and let the nest run again. */
+export const releaseRestore = internalMutation({
+  args: { token: v.string() },
+  handler: async (ctx, a) => {
+    const lock = await ctx.db.query('locks').withIndex('by_name', (q) => q.eq('name', 'restore')).unique();
+    if (!lock || lock.token !== a.token) return;
+    await ctx.db.delete(lock._id);
+    for (const c of await ctx.db.query('creatures').take(5)) if (c.restoring) await ctx.db.patch(c._id, { restoring: undefined });
   },
 });
 
@@ -167,7 +186,36 @@ export const finishRestore = internalMutation({
 
 const chunks = <T>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 
-export async function restoreFromText(ctx: ActionCtx, text: string): Promise<{ ok: true; counts: Record<string, number>; preRestoreBackupId: Id<'backups'> }> {
+type RestoreResult = { ok: true; counts: Record<string, number>; preRestoreBackupId: Id<'backups'> };
+
+const isDryRunOk = (e: unknown) => e instanceof ConvexError && (e.data as { code?: string } | undefined)?.code === DRY_RUN_OK;
+
+/** Wipe the creature's tables and insert `data` (the replace step; it never merges). Tags are left alone. */
+async function replaceAll(ctx: ActionCtx, data: ExportData, checksum: string): Promise<Record<string, number>> {
+  const creature = data.creatures[0];
+  for (const t of [...RESTORE_TABLES.filter((x) => x !== 'creatures'), 'jobs' as const, 'creatures' as const]) {
+    while ((await ctx.runMutation(internal.backup.wipeChunk, { table: t })) > 0);
+  }
+  const map = new Map<string, string>();
+  const [newCreatureId] = await ctx.runMutation(internal.backup.insertChunk, { table: 'creatures', docs: [creature], creatureId: null });
+  map.set(creature._id, newCreatureId);
+  const counts: Record<string, number> = { creatures: 1 };
+  for (const t of RESTORE_TABLES.filter((x) => x !== 'creatures')) {
+    counts[t] = data[t].length;
+    for (const chunk of chunks(data[t], CHUNK)) {
+      const ids: string[] = await ctx.runMutation(internal.backup.insertChunk, { table: t, docs: chunk, creatureId: newCreatureId as Id<'creatures'> });
+      chunk.forEach((d, i) => map.set(d._id, ids[i]));
+    }
+  }
+  for (const t of RESTORE_TABLES) {
+    const patches = data[t].map((d) => ({ id: map.get(d._id)!, patch: remapRefs(t as ExportTable, d, map) })).filter((p) => p.patch);
+    for (const chunk of chunks(patches, CHUNK)) await ctx.runMutation(internal.backup.patchChunk, { table: t, patches: chunk as { id: string; patch: Record<string, unknown> }[] });
+  }
+  await ctx.runMutation(internal.backup.finishRestore, { creatureId: newCreatureId as Id<'creatures'>, checksum });
+  return counts;
+}
+
+export async function restoreFromText(ctx: ActionCtx, text: string): Promise<RestoreResult> {
   let raw: unknown;
   try { raw = JSON.parse(text); } catch { fail('That file is not valid JSON.', 'invalid'); }
   const checked = validateExport(raw);
@@ -175,47 +223,50 @@ export async function restoreFromText(ctx: ActionCtx, text: string): Promise<{ o
   const { data, checksum } = checked.file;
   const creature = data.creatures[0];
 
-  // 1. Dry run every table against the real schema (rolled back each time).
-  for (const t of EXPORT_TABLES) {
-    for (const chunk of t === 'creatures' ? [[]] : chunks(data[t], CHUNK)) {
-      try {
-        await ctx.runMutation(internal.backup.dryRun, { creature, table: t, docs: chunk });
-      } catch (e) {
-        const msg = String((e as Error).message ?? e);
-        if (!msg.includes(DRY_RUN_OK)) fail(`The backup does not fit this version (table ${t}): ${msg.slice(0, 200)}`, 'invalid');
+  // 0. One restore at a time. A second tap (or a second device) is refused, not interleaved.
+  const token = crypto.randomUUID();
+  if (!(await ctx.runMutation(internal.backup.markRestoring, { token }))) fail('A restore is already running. Give it a few minutes.', 'busy');
+  let pre: Awaited<ReturnType<typeof storeBackup>> | null = null;
+  let replacing = false;
+  try {
+    // 1. Dry run every table against the real schema (rolled back each time).
+    for (const t of RESTORE_TABLES) {
+      for (const chunk of t === 'creatures' ? [[]] : chunks(data[t], CHUNK)) {
+        try {
+          await ctx.runMutation(internal.backup.dryRun, { creature, table: t, docs: chunk });
+        } catch (e) {
+          if (isDryRunOk(e)) continue;
+          fail(`The backup does not fit this version (table ${t}): ${String((e as Error).message ?? e).slice(0, 200)}`, 'invalid');
+        }
       }
     }
+    // 2. Automatic pre-restore backup. Never merges, never loses the current state.
+    pre = await storeBackup(ctx, 'pre-restore');
+    // 3. Replace.
+    replacing = true;
+    const counts = await replaceAll(ctx, data, checksum);
+    return { ok: true, counts, preRestoreBackupId: pre.backupId };
+  } catch (e) {
+    if (!replacing || !pre) throw e; // Nothing was touched yet.
+    // Something broke after the wipe. Put the nest back the way it was.
+    let rolledBack = false;
+    try {
+      const before = (JSON.parse(pre.text) as ExportFile);
+      await replaceAll(ctx, before.data, before.checksum);
+      rolledBack = true;
+    } catch { /* reported below */ }
+    fail(rolledBack
+      ? 'The restore failed halfway, so your nest was put back the way it was. Nothing was lost.'
+      : 'The restore failed halfway and could not be undone automatically. Restore the latest "pre-restore" backup from settings.', 'restore_failed');
+  } finally {
+    await ctx.runMutation(internal.backup.releaseRestore, { token });
   }
-  // 2. Automatic pre-restore backup. Never merges, never loses the current state.
-  const pre = await storeBackup(ctx, 'pre-restore');
-  // 3. Replace.
-  await ctx.runMutation(internal.backup.markRestoring, {});
-  for (const t of [...EXPORT_TABLES.filter((x) => x !== 'creatures'), 'jobs' as const, 'creatures' as const]) {
-    while ((await ctx.runMutation(internal.backup.wipeChunk, { table: t })) > 0);
-  }
-  const map = new Map<string, string>();
-  const [newCreatureId] = await ctx.runMutation(internal.backup.insertChunk, { table: 'creatures', docs: [creature], creatureId: null });
-  map.set(creature._id, newCreatureId);
-  const counts: Record<string, number> = { creatures: 1 };
-  for (const t of EXPORT_TABLES.filter((x) => x !== 'creatures')) {
-    counts[t] = data[t].length;
-    for (const chunk of chunks(data[t], CHUNK)) {
-      const ids: string[] = await ctx.runMutation(internal.backup.insertChunk, { table: t, docs: chunk, creatureId: newCreatureId as Id<'creatures'> });
-      chunk.forEach((d, i) => map.set(d._id, ids[i]));
-    }
-  }
-  for (const t of EXPORT_TABLES) {
-    const patches = data[t].map((d) => ({ id: map.get(d._id)!, patch: remapRefs(t as ExportTable, d, map) })).filter((p) => p.patch);
-    for (const chunk of chunks(patches, CHUNK)) await ctx.runMutation(internal.backup.patchChunk, { table: t, patches: chunk as { id: string; patch: Record<string, unknown> }[] });
-  }
-  await ctx.runMutation(internal.backup.finishRestore, { creatureId: newCreatureId as Id<'creatures'>, checksum });
-  return { ok: true, counts, preRestoreBackupId: pre.backupId };
 }
 
 /** Restore from an uploaded export file (storage id from generateUploadUrl). */
 export const restore = action({
   args: { sessionToken: v.string(), storageId: v.id('_storage') },
-  handler: async (ctx, a): Promise<{ ok: true; counts: Record<string, number>; preRestoreBackupId: Id<'backups'> }> => {
+  handler: async (ctx, a): Promise<RestoreResult> => {
     if (!(await ctx.runQuery(internal.auth.checkSession, { sessionToken: a.sessionToken }))) fail('Please sign in.', 'unauthenticated');
     const blob = await ctx.storage.get(a.storageId);
     if (!blob) fail('Upload not found.', 'not_found');
@@ -232,7 +283,7 @@ export const getBackupStorage = internalQuery({
 /** Restore from one of the stored backups. */
 export const restoreBackup = action({
   args: { sessionToken: v.string(), backupId: v.id('backups') },
-  handler: async (ctx, a): Promise<{ ok: true; counts: Record<string, number>; preRestoreBackupId: Id<'backups'> }> => {
+  handler: async (ctx, a): Promise<RestoreResult> => {
     if (!(await ctx.runQuery(internal.auth.checkSession, { sessionToken: a.sessionToken }))) fail('Please sign in.', 'unauthenticated');
     const storageId = await ctx.runQuery(internal.backup.getBackupStorage, { backupId: a.backupId });
     const blob = storageId && (await ctx.storage.get(storageId));

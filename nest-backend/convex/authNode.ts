@@ -26,9 +26,12 @@ export const registrationOptions = action({
   args: { claimCode: v.string() },
   handler: async (ctx, { claimCode }): Promise<{ challengeId: string; options: unknown; purpose: 'owner' | 'device' }> => {
     const { rpID } = rp();
-    await ctx.runMutation(internal.auth.consumeAuthToken, {});
     const claim: { purpose: 'owner' | 'device'; expiresAt: number } | null = await ctx.runQuery(internal.auth.checkClaim, { code: claimCode });
-    if (!claim) fail('This claim link has expired or was already used.', 'expired');
+    if (!claim) {
+      await ctx.runMutation(internal.auth.consumeAuthToken, { bucket: 'authProbe' }); // A guess costs the guessers' bucket, not the owner's.
+      fail('This claim link has expired or was already used.', 'expired');
+    }
+    await ctx.runMutation(internal.auth.consumeAuthToken, { bucket: 'auth' });
     const existing: Passkey[] = await ctx.runQuery(internal.auth.listPasskeysInternal, {});
     const options = await generateRegistrationOptions({
       rpName: 'The Nest', rpID, userName: 'owner', userDisplayName: 'Owner', userID: new TextEncoder().encode('nest-owner'),
@@ -46,14 +49,18 @@ export const register = action({
   args: { claimCode: v.string(), challengeId: v.string(), response: v.any(), label: v.optional(v.string()) },
   handler: async (ctx, a): Promise<{ sessionToken: string; purpose: 'owner' | 'device' }> => {
     const { rpID, origins } = rp();
-    await ctx.runMutation(internal.auth.consumeAuthToken, {});
     const ch = await ctx.runQuery(internal.auth.getChallenge, { challengeId: a.challengeId });
-    if (!ch || ch.kind !== 'register') fail('This sign-in attempt expired. Try again.', 'expired');
+    if (!ch || ch.kind !== 'register') {
+      await ctx.runMutation(internal.auth.consumeAuthToken, { bucket: 'authProbe' });
+      fail('This sign-in attempt expired. Try again.', 'expired');
+    }
+    // A valid challenge costs nothing here: it exists only because a claim code (a secret) was presented, and a failed
+    // attempt burns it, so tries are bounded by the options step.
     let verification;
     try {
       verification = await verifyRegistrationResponse({ response: a.response, expectedChallenge: ch.challenge, expectedOrigin: origins, expectedRPID: rpID, requireUserVerification: true });
     } catch (e) {
-      await ctx.runMutation(internal.auth.failedAttempt, { reason: 'register: ' + String((e as Error).message).slice(0, 120) });
+      await ctx.runMutation(internal.auth.failedAttempt, { reason: 'register: ' + String((e as Error).message).slice(0, 120), challengeId: ch._id as Id<'authChallenges'> });
       fail('That passkey could not be verified.', 'unauthenticated');
     }
     if (!verification.verified || !verification.registrationInfo) fail('That passkey could not be verified.', 'unauthenticated');
@@ -72,7 +79,7 @@ export const loginOptions = action({
   args: {},
   handler: async (ctx): Promise<{ challengeId: string; options: unknown }> => {
     const { rpID } = rp();
-    await ctx.runMutation(internal.auth.consumeAuthToken, {});
+    await ctx.runMutation(internal.auth.consumeAuthToken, { bucket: 'authOptions' }); // Anyone can call this, so it has a bucket of its own.
     const passkeys: Passkey[] = await ctx.runQuery(internal.auth.listPasskeysInternal, {});
     if (!passkeys.length) fail('This nest has not been claimed yet.', 'unclaimed');
     const options = await generateAuthenticationOptions({ rpID, userVerification: 'required', allowCredentials: passkeys.map((p) => ({ id: p.credentialId, transports: p.transports as never })) });
@@ -85,13 +92,17 @@ export const login = action({
   args: { challengeId: v.string(), response: v.any(), label: v.optional(v.string()) },
   handler: async (ctx, a): Promise<{ sessionToken: string }> => {
     const { rpID, origins } = rp();
-    await ctx.runMutation(internal.auth.consumeAuthToken, {});
     const ch = await ctx.runQuery(internal.auth.getChallenge, { challengeId: a.challengeId });
-    if (!ch || ch.kind !== 'login') fail('This sign-in attempt expired. Try again.', 'expired');
+    if (!ch || ch.kind !== 'login') {
+      await ctx.runMutation(internal.auth.consumeAuthToken, { bucket: 'authProbe' });
+      fail('This sign-in attempt expired. Try again.', 'expired');
+    }
+    // One try per challenge: a failed attempt burns it (below), so guessing is bounded by `loginOptions`' own bucket and
+    // can never spend the tokens the owner needs to finish.
     const passkeys: Passkey[] = await ctx.runQuery(internal.auth.listPasskeysInternal, {});
     const pk = passkeys.find((p) => p.credentialId === a.response?.id);
     if (!pk) {
-      await ctx.runMutation(internal.auth.failedAttempt, { reason: 'login: unknown credential' });
+      await ctx.runMutation(internal.auth.failedAttempt, { reason: 'login: unknown credential', challengeId: ch._id as Id<'authChallenges'> });
       fail('Unknown passkey.', 'unauthenticated');
     }
     let verification;
@@ -101,7 +112,7 @@ export const login = action({
         credential: { id: pk.credentialId, publicKey: new Uint8Array(Buffer.from(pk.publicKey, 'base64url')), counter: pk.counter, transports: pk.transports as never },
       });
     } catch (e) {
-      await ctx.runMutation(internal.auth.failedAttempt, { reason: 'login: ' + String((e as Error).message).slice(0, 120) });
+      await ctx.runMutation(internal.auth.failedAttempt, { reason: 'login: ' + String((e as Error).message).slice(0, 120), challengeId: ch._id as Id<'authChallenges'> });
       fail('That passkey could not be verified.', 'unauthenticated');
     }
     if (!verification.verified) fail('That passkey could not be verified.', 'unauthenticated');

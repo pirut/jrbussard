@@ -37,7 +37,6 @@ export const checkClaim = internalQuery({
 export const storeChallenge = internalMutation({
   args: { challenge: v.string(), kind: v.union(v.literal('register'), v.literal('login')), claimCode: v.optional(v.string()) },
   handler: async (ctx, a) => {
-    await limiter.limit(ctx, 'auth', { key: 'global', throws: true });
     const now = Date.now();
     const id = await ctx.db.insert('authChallenges', { challenge: a.challenge, kind: a.kind, claimCodeHash: a.claimCode ? hashCode(a.claimCode) : undefined, createdAt: now, expiresAt: now + CHALLENGE_TTL });
     // Clean up old challenges.
@@ -83,8 +82,8 @@ export const finishRegistration = internalMutation({
     if (await ctx.db.query('passkeys').withIndex('by_credentialId', (q) => q.eq('credentialId', a.credentialId)).unique()) fail('This passkey is already registered.', 'duplicate');
     await ctx.db.patch(ch._id, { usedAt: now });
     await ctx.db.patch(claim._id, { usedAt: now });
-    await ctx.db.insert('passkeys', { credentialId: a.credentialId, publicKey: a.publicKey, counter: a.counter, transports: a.transports, label: a.label.slice(0, 60), createdAt: now, lastUsedAt: now });
-    await ctx.db.insert('sessions', { tokenHash: a.tokenHash, createdAt: now, lastUsedAt: now, expiresAt: now + SESSION_TTL, label: a.label.slice(0, 60) });
+    const passkeyId = await ctx.db.insert('passkeys', { credentialId: a.credentialId, publicKey: a.publicKey, counter: a.counter, transports: a.transports, label: a.label.slice(0, 60), createdAt: now, lastUsedAt: now });
+    await ctx.db.insert('sessions', { tokenHash: a.tokenHash, createdAt: now, lastUsedAt: now, expiresAt: now + SESSION_TTL, label: a.label.slice(0, 60), passkeyId });
     if (claim.purpose === 'owner') {
       await ensureSettings(ctx);
       if (!(await ctx.db.query('creatures').first())) await createEgg(ctx, a.seed, now);
@@ -118,23 +117,29 @@ export const finishLogin = internalMutation({
     if (!pk) fail('Unknown passkey.', 'unauthenticated');
     await ctx.db.patch(ch._id, { usedAt: now });
     await ctx.db.patch(pk._id, { counter: Math.max(pk.counter, a.newCounter), lastUsedAt: now });
-    await ctx.db.insert('sessions', { tokenHash: a.tokenHash, createdAt: now, lastUsedAt: now, expiresAt: now + SESSION_TTL, label: a.label.slice(0, 60) });
+    await ctx.db.insert('sessions', { tokenHash: a.tokenHash, createdAt: now, lastUsedAt: now, expiresAt: now + SESSION_TTL, label: a.label.slice(0, 60), passkeyId: pk._id });
     await audit(ctx, 'session.login', pk.label);
     return { ok: true };
   },
 });
 
 export const failedAttempt = internalMutation({
-  args: { reason: v.string() },
-  handler: async (ctx, { reason }) => {
+  args: { reason: v.string(), challengeId: v.optional(v.id('authChallenges')) },
+  handler: async (ctx, { reason, challengeId }) => {
+    // One try per challenge, so a stranger holding one cannot keep guessing against it.
+    if (challengeId) {
+      const ch = await ctx.db.get(challengeId);
+      if (ch && !ch.usedAt) await ctx.db.patch(ch._id, { usedAt: Date.now() });
+    }
     await audit(ctx, 'auth.failed', reason);
   },
 });
 
+/** Spend one token from one of the auth buckets (see lib/core.ts). Throws when it is empty. */
 export const consumeAuthToken = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    await limiter.limit(ctx, 'auth', { key: 'global', throws: true });
+  args: { bucket: v.union(v.literal('auth'), v.literal('authOptions'), v.literal('authProbe')) },
+  handler: async (ctx, { bucket }) => {
+    await limiter.limit(ctx, bucket, { key: 'global', throws: true });
   },
 });
 

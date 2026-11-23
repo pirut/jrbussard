@@ -114,11 +114,12 @@ const factKey = (x: unknown, where: string) => {
   const k = s(x, 60, where).toLowerCase().replace(/[^a-z0-9:_-]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 48);
   return k || bad(`${where} is empty`);
 };
-const ref = (allowed: Set<string>, where: string) => (x: unknown) => {
-  const id = s(x, 64, where);
-  if (!allowed.has(id)) bad(`${where} references unknown id`);
-  return id;
-};
+/**
+ * Ids the model cites. An id we never showed it is dropped, not fatal: one stray id must not throw away
+ * an otherwise good answer (the validator's job is to keep invented ids out of state, and this does).
+ */
+const refs = (allowed: Set<string>, where: string) => (xs: unknown, max: number): string[] =>
+  [...new Set(list(xs, max, where, (x) => s(x, 64, where)).filter((id) => allowed.has(id)))];
 
 export function tokenize(text: string): string[] {
   return (text.toLowerCase().match(/[\p{L}][\p{L}'’-]*/gu) ?? []).map((w) => w.replace(/[’']/g, "'"));
@@ -146,7 +147,7 @@ function validateReply(o: Record<string, unknown>, ctx: ValidationContext): Repl
     // Words are learned only if the owner actually said them in this exchange.
     learnedWords: [...new Set(list(o.learnedWords, 5, 'learnedWords', (w, i) => s(w, 24, `learnedWords[${i}]`).toLowerCase()))].filter((w) => ownerWords.has(w)),
     interests: list(o.interests, 2, 'interests', (x, i) => s(x, 60, `interests[${i}]`).toLowerCase()).filter(Boolean),
-    sharedHappeningIds: [...new Set(list(o.sharedHappeningIds, 3, 'sharedHappeningIds', ref(happenings, 'sharedHappeningIds')))],
+    sharedHappeningIds: refs(happenings, 'sharedHappeningIds')(o.sharedHappeningIds, 3),
   };
 }
 
@@ -174,37 +175,40 @@ export function validateOutput(kind: JobKind, text: string, ctx: ValidationConte
         const entries = list(o.entries, 6, 'entries', (e, i) => {
           if (!isObj(e)) return bad(`entries[${i}] must be an object`);
           only(e, ['happeningIds', 'text'], `entries[${i}]`);
-          return { happeningIds: [...new Set(list(e.happeningIds, 20, 'happeningIds', ref(happenings, `entries[${i}].happeningIds`)))], text: s(e.text, 900, `entries[${i}].text`) };
+          return { happeningIds: refs(happenings, `entries[${i}].happeningIds`)(e.happeningIds, 20), text: s(e.text, 900, `entries[${i}].text`) };
         }).filter((e) => e.text);
         return { ok: true, value: { entries } };
       }
       case 'consolidate': {
         only(o, ['summaries', 'archiveMemoryIds', 'beliefs', 'interests', 'dream', 'opinionShifts'], 'output');
-        const memRef = ref(memories, 'memory');
+        const memRefs = refs(memories, 'memory');
         const summaries = list(o.summaries, 6, 'summaries', (x, i) => {
           if (!isObj(x)) return bad(`summaries[${i}] must be an object`);
           only(x, ['text', 'salience', 'tags', 'fromMemoryIds'], `summaries[${i}]`);
-          return { text: s(x.text, 600, `summaries[${i}].text`), salience: n(x.salience, 'salience'), tags: list(x.tags, 5, 'tags', tag), fromMemoryIds: [...new Set(list(x.fromMemoryIds, 40, 'fromMemoryIds', memRef))] };
+          const cited = Array.isArray(x.fromMemoryIds) ? x.fromMemoryIds.length : 0;
+          const fromMemoryIds = memRefs(x.fromMemoryIds, 40);
+          // A summary that cites sources, none of them real, is made up: drop it.
+          return { text: cited > 0 && !fromMemoryIds.length ? '' : s(x.text, 600, `summaries[${i}].text`), salience: n(x.salience, 'salience'), tags: list(x.tags, 5, 'tags', tag), fromMemoryIds };
         }).filter((x) => x.text);
         const beliefs = list(o.beliefs, 8, 'beliefs', (x, i) => {
           if (!isObj(x)) return bad(`beliefs[${i}] must be an object`);
           only(x, ['subject', 'key', 'statement', 'confidence', 'evidence'], `beliefs[${i}]`);
-          return { subject: oneOf(x.subject, ['owner', 'self', 'world'] as const, 'subject'), key: factKey(x.key, 'key'), statement: s(x.statement, 200, 'statement'), confidence: n(x.confidence, 'confidence'), evidence: [...new Set(list(x.evidence, 8, 'evidence', memRef))] };
+          return { subject: oneOf(x.subject, ['owner', 'self', 'world'] as const, 'subject'), key: factKey(x.key, 'key'), statement: s(x.statement, 200, 'statement'), confidence: n(x.confidence, 'confidence'), evidence: memRefs(x.evidence, 8) };
         }).filter((x) => x.statement);
         let dream: ConsolidateOutput['dream'] = null;
         if (o.dream !== null && o.dream !== undefined) {
           if (!isObj(o.dream)) bad('dream must be an object or null');
           const d = o.dream as Record<string, unknown>;
           only(d, ['text', 'fromMemoryIds'], 'dream');
-          const from = [...new Set(list(d.fromMemoryIds, 8, 'dream.fromMemoryIds', memRef))];
-          if (!from.length) bad('dream must come from real memories');
-          dream = { text: s(d.text, 900, 'dream.text'), fromMemoryIds: from };
+          const from = memRefs(d.fromMemoryIds, 8);
+          // A dream is kept only if it comes from at least one real memory.
+          if (from.length) dream = { text: s(d.text, 900, 'dream.text'), fromMemoryIds: from };
         }
         return {
           ok: true,
           value: {
             summaries,
-            archiveMemoryIds: [...new Set(list(o.archiveMemoryIds, 40, 'archiveMemoryIds', memRef))],
+            archiveMemoryIds: memRefs(o.archiveMemoryIds, 40),
             beliefs,
             interests: list(o.interests, 4, 'interests', (x, i) => s(x, 60, `interests[${i}]`).toLowerCase()).filter(Boolean),
             dream: dream && dream.text ? dream : null,
