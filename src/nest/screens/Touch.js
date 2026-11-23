@@ -74,7 +74,7 @@ function TouchLanding() {
       <p>{error === 'none' ? 'Touch its home again to come in.' : error}</p>
       <div className="nest-form-row">
         {error !== 'none' && secret.current && <Button onClick={run}>Try again</Button>}
-        <Button variant="soft" onClick={() => navigate('/nest', { replace: true })}>Look through the window</Button>
+        <Button variant="soft" onClick={() => { consumeTouchSecret(tagId); navigate('/nest', { replace: true }); }}>Look through the window</Button>
       </div>
     </div>
   );

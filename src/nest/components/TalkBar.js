@@ -38,7 +38,9 @@ export default function TalkBar({ mode = 'talk', reason, onSend, onHistory, disa
   const speech = useSpeechInput({
     onFinal: (heard) => {
       const t = prepareText(heard, mode);
-      if (t) deliver(t, 'voice');
+      if (!t) return;
+      /* Still sending the last one: keep the words where they can be sent. */
+      deliver(t, 'voice').then((ok) => { if (ok === false) setText(t); });
     },
   });
 
@@ -80,7 +82,7 @@ export default function TalkBar({ mode = 'talk', reason, onSend, onHistory, disa
           aria-label={speech.listening ? 'Listening. Let go to send.' : 'Hold to talk'}
           aria-pressed={speech.listening}
           disabled={disabled}
-          onPointerDown={(e) => { e.preventDefault(); try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch (err) { /* ok */ } unlockSpeech(); speech.start(); }}
+          onPointerDown={(e) => { e.preventDefault(); try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch (err) { /* ok */ } speech.start(); }}
           onPointerUp={() => { unlockSpeech(); speech.stop(); }}
           onPointerCancel={() => speech.stop()}
           onContextMenu={(e) => e.preventDefault()}

@@ -1,7 +1,7 @@
 /* /nest/*: the creature's home. Its own Convex client (nest-creature),
    a passkey session in localStorage, and the burrow with its sheets. */
 
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState, useSyncExternalStore } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { ConvexProvider, ConvexReactClient, useQuery } from 'convex/react';
 import { useNestFonts } from './visual/fonts';
@@ -10,7 +10,7 @@ import './nest-app.css';
 import { api } from './api';
 import { SessionProvider, useSession } from './context';
 import { isUnauthenticated } from './errors';
-import { takeFragmentSecrets, peekSecrets } from './session';
+import { takeFragmentSecrets, peekSecrets, subscribeSecrets } from './session';
 import Door from './screens/Door';
 import Claim from './screens/Claim';
 import Home from './screens/Home';
@@ -71,9 +71,13 @@ export function gateState({ token, status, session }) {
   return status?.claimed ? 'signin' : 'unclaimed';
 }
 
+const claimCodeNow = () => peekSecrets().claim;
+
 function Gate() {
   const { token, signOut } = useSession();
   const location = useLocation();
+  /* A device link reopened in this tab changes the claim code in place. */
+  const claimCode = useSyncExternalStore(subscribeSecrets, claimCodeNow);
   const status = useQuery(api.public.status, {});
   const session = useQuery(api.auth.session, token ? { sessionToken: token } : 'skip');
   useEffect(() => {
@@ -81,7 +85,7 @@ function Gate() {
   }, [token, session, signOut]);
 
   if (location.pathname.replace(/\/+$/, '') === '/nest/claim') {
-    return <Claim code={peekSecrets().claim} />;
+    return <Claim code={claimCode} />;
   }
   const state = gateState({ token, status, session });
   if (state === 'loading') return <Door mode="loading" />;

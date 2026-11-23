@@ -29,7 +29,7 @@ import { copyWhen } from './screens/Settings';
 import Door from './screens/Door';
 import { toggleStar, starField, isNight } from './screens/Games';
 import { SessionProvider } from './context';
-import { takeFragmentSecrets, resetSecretsForTests, writeSession } from './session';
+import { takeFragmentSecrets, resetSecretsForTests, writeSession, peekSecrets, subscribeSecrets } from './session';
 /* eslint-enable import/first */
 
 global.IS_REACT_ACT_ENVIRONMENT = true;
@@ -365,5 +365,71 @@ describe('fix round 1', () => {
       act(() => { jest.advanceTimersByTime(8100); });
       expect(container.textContent).toMatch(/slow tonight/);
     });
+  });
+});
+
+describe('fix round 2', () => {
+  test('N2: a hold made while the last message is sending lands in the input', async () => {
+    const recs = [];
+    window.webkitSpeechRecognition = class {
+      constructor() { recs.push(this); }
+      start() {}
+      stop() { this.onend?.(); }
+      abort() {}
+    };
+    let finish;
+    const onSend = jest.fn(() => new Promise((r) => { finish = r; }));
+    act(() => root.render(<TalkBar mode="talk" onSend={onSend} />));
+    const mic = container.querySelector('.nest-talk-mic');
+    const hold = (words) => {
+      act(() => { mic.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+      act(() => { recs[recs.length - 1].onresult({ results: [{ isFinal: true, 0: { transcript: words } }] }); });
+      act(() => { mic.dispatchEvent(new Event('pointerup', { bubbles: true })); });
+    };
+    hold('first');
+    hold('second words');
+    await act(async () => { await Promise.resolve(); });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('input').value).toBe('second words');
+    await act(async () => { finish(true); });
+    delete window.webkitSpeechRecognition;
+  });
+
+  test('N1: pressing the mic does not start a silent utterance', () => {
+    const spoken = [];
+    resetSpeechForTests();
+    window.SpeechSynthesisUtterance = function U(t) { this.text = t; };
+    window.speechSynthesis = { speak: (u) => spoken.push(u), cancel: () => {} };
+    window.webkitSpeechRecognition = class { start() {} stop() {} abort() {} };
+    act(() => root.render(<TalkBar mode="talk" onSend={() => {}} />));
+    act(() => { container.querySelector('.nest-talk-mic').dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    expect(spoken).toHaveLength(0);
+    delete window.webkitSpeechRecognition;
+    delete window.SpeechSynthesisUtterance;
+    delete window.speechSynthesis;
+  });
+
+  test('N3: leaving through the window spends an unspent touch secret', async () => {
+    writeSession('session-1');
+    window.history.replaceState(null, '', '/nest/touch/abcdefghjkmn#tag-secret');
+    takeFragmentSecrets();
+    mockBegin.mockRejectedValue(Object.assign(new Error('busy'), { data: { code: 'busy', message: 'x' } }));
+    renderTouch(jest.fn());
+    await flush();
+    expect(peekSecrets().touch).not.toBeNull();
+    const leave = [...container.querySelectorAll('button')].find((b) => /Look through the window/.test(b.textContent));
+    await act(async () => { leave.click(); });
+    expect(peekSecrets().touch).toBeNull();
+    expect(container.querySelector('[data-testid=where]').textContent).toBe('/nest');
+  });
+
+  test('N4: a claim link reopened in the same tab notifies listeners', () => {
+    const seen = jest.fn();
+    const off = subscribeSecrets(seen);
+    window.history.replaceState(null, '', '/nest/claim#code_two');
+    takeFragmentSecrets();
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(peekSecrets().claim).toBe('code_two');
+    off();
   });
 });

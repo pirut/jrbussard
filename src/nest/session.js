@@ -115,7 +115,10 @@ function stamp() {
 export function takeFragmentSecrets(win = typeof window !== 'undefined' ? window : null) {
   if (!win) return taken;
   const intent = routeIntent(win.location.pathname, win.location.hash);
-  if (intent.kind === 'claim' && intent.code) taken = { ...taken, claim: intent.code };
+  if (intent.kind === 'claim' && intent.code) {
+    taken = { ...taken, claim: intent.code };
+    listeners.forEach((fn) => fn());
+  }
   if (intent.kind === 'touch' && intent.secret) {
     taken = { ...taken, touch: { tagId: intent.tagId, secret: intent.secret, at: stamp() } };
     listeners.forEach((fn) => fn());
