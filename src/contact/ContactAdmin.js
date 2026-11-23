@@ -44,6 +44,10 @@ function AdminView({ slug }) {
     const [editing, setEditing] = useState(Boolean(state && state.openEditor));
 
     const allowed = Boolean(isSignedIn && status && status.allowed);
+    /* A session that predates the sign-in button (or private mode) still opens next time. */
+    useEffect(() => {
+        if (allowed) rememberEditor();
+    }, [allowed]);
     /* Signed out with no ?edit means the session ended: go back to public. */
     const showControls = hasEditParam(search) || (isLoaded && isSignedIn);
     useEffect(() => {
@@ -174,7 +178,7 @@ function NewCardForm() {
             setError("Use 1–32 lowercase letters, digits or dashes.");
             return;
         }
-        navigate(`/contact/${next}`, { state: { openEditor: true } });
+        navigate(`/contact/${next}?edit`, { state: { openEditor: true } });
     };
 
     return (

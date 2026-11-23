@@ -38,5 +38,8 @@ describe("contact card rules", () => {
         expect(normalizeCard({ slug: "x", name: "X", phone: "+1 (561) 555-0100" }).errors).toEqual({});
         expect(normalizeCard({ slug: "x", name: "X", phone: "ext. 5" }).errors).toHaveProperty("phone");
         expect(normalizeCard({ slug: "x", name: "X", email: "a@b" }).errors).toHaveProperty("email");
+        ["a@b.co?bcc=x@y.z", "a@b.co&x=1", "a@b.co#x", "a/b@c.co"].forEach((email) => {
+            expect(normalizeCard({ slug: "x", name: "X", email }).errors).toHaveProperty("email");
+        });
     });
 });

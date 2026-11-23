@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { MAX_LINKS, NAME_MAX, LINK_HREF_MAX, LINK_LABEL_MAX, TEXT_FIELDS, normalizeCard } from "../lib/contactCard";
 import { contactApi } from "./contactApi";
@@ -60,6 +60,44 @@ export default function CardEditor({ slug, initial, stored, onDone }) {
         return () => window.removeEventListener("beforeunload", warn);
     }, [dirty]);
 
+    /*
+     * Back button and iOS back-swipe: beforeunload doesn't see in-app
+     * navigation, so the editor owns one extra history entry. Going back
+     * pops it; if there are unsaved changes we ask, and put it back on
+     * Cancel. Save/Cancel/Delete give the entry back before leaving.
+     */
+    const dirtyRef = useRef(dirty);
+    dirtyRef.current = dirty;
+    const guarding = useRef(false);
+    useEffect(() => {
+        if (!(window.history.state && window.history.state.ccEditor)) {
+            window.history.pushState({ ...window.history.state, ccEditor: true }, "");
+        }
+        guarding.current = true;
+        const onPop = () => {
+            if (!guarding.current) return;
+            if (dirtyRef.current && !window.confirm("Discard your changes?")) {
+                window.history.pushState({ ...window.history.state, ccEditor: true }, "");
+                return;
+            }
+            /* Our entry is gone and the page is the same: go back once more to actually leave. */
+            guarding.current = false;
+            window.history.back();
+        };
+        window.addEventListener("popstate", onPop);
+        return () => {
+            guarding.current = false;
+            window.removeEventListener("popstate", onPop);
+        };
+    }, []);
+    const finish = () => {
+        if (guarding.current && window.history.state && window.history.state.ccEditor) {
+            guarding.current = false;
+            window.history.back();
+        }
+        onDone();
+    };
+
     const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
     const setLink = (i, key, value) =>
         setForm((f) => ({ ...f, links: f.links.map((l, j) => (j === i ? { ...l, [key]: value } : l)) }));
@@ -78,7 +116,7 @@ export default function CardEditor({ slug, initial, stored, onDone }) {
         setMessage("");
         try {
             await upsert({ card: checked.card });
-            onDone();
+            finish();
         } catch (err) {
             const data = err && err.data;
             setErrors((data && data.errors) || {});
@@ -89,7 +127,7 @@ export default function CardEditor({ slug, initial, stored, onDone }) {
 
     const cancel = () => {
         if (dirty && !window.confirm("Discard your changes?")) return;
-        onDone();
+        finish();
     };
 
     const destroy = async () => {
@@ -100,7 +138,7 @@ export default function CardEditor({ slug, initial, stored, onDone }) {
         setBusy(true);
         try {
             await remove({ slug });
-            onDone();
+            finish();
         } catch (err) {
             setMessage((err && err.data && err.data.message) || "Couldn't delete. Try again.");
             setBusy(false);

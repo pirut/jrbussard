@@ -62,6 +62,27 @@ describe("contact cards", () => {
     expect(await t.query(api.contactCards.get, { slug: "dad" })).toBeNull();
   });
 
+  it("rejects identities with no email claim or no emailVerified claim", async () => {
+    const t = make();
+    const noEmail = t.withIdentity({ subject: "user_x", emailVerified: true });
+    expect(await failure(noEmail.mutation(api.contactCards.upsert, { card: dad }))).toMatchObject({
+      code: "forbidden",
+    });
+    const noVerified = t.withIdentity({ subject: "user_y", email: EDITOR });
+    expect(await failure(noVerified.mutation(api.contactCards.upsert, { card: dad }))).toMatchObject({
+      code: "forbidden",
+    });
+  });
+
+  it("rejects remove from a signed-in caller who is not allowed", async () => {
+    const t = make();
+    await t.withIdentity(editor).mutation(api.contactCards.upsert, { card: dad });
+    expect(
+      await failure(t.withIdentity(stranger).mutation(api.contactCards.remove, { slug: "dad" })),
+    ).toMatchObject({ code: "forbidden" });
+    expect(await t.query(api.contactCards.get, { slug: "dad" })).not.toBeNull();
+  });
+
   it("refuses everyone when ALLOWED_EMAILS is unset", async () => {
     vi.stubEnv("ALLOWED_EMAILS", "");
     const t = make();

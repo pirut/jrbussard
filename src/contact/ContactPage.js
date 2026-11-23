@@ -68,7 +68,7 @@ export default function ContactPage() {
     if (!convex) return <StaticContact slug={slug} />;
     const admin = Boolean(clerkKey) && wantsEditor(search);
     return (
-        <FallBackToStatic slug={slug}>
+        <FallBackToStatic key={slug || "jr"} slug={slug}>
             {admin ? (
                 <Suspense fallback={<PublicContact slug={slug} />}>
                     <ContactAdmin slug={slug} publishableKey={clerkKey} />

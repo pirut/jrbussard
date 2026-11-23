@@ -29,7 +29,7 @@ export const NAME_MAX = 80;
 export const LINK_LABEL_MAX = 40;
 export const LINK_HREF_MAX = 300;
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL = /^[^\s@?&#/]+@[^\s@?&#/]+\.[^\s@?&#/]+$/;
 const PHONE = /^[0-9 +\-()]+$/;
 
 export function isValidSlug(slug) {
