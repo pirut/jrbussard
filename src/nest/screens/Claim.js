@@ -2,7 +2,7 @@
    load. One tap registers a passkey (Face ID), stores the session, and goes
    home. Device links use the same route. */
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useAction } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
 import { startRegistration } from '@simplewebauthn/browser';
@@ -10,6 +10,7 @@ import { api } from '../api';
 import { useSession } from '../context';
 import { errorCode, errorText } from '../errors';
 import { Button, Notice } from '../ui';
+import { consumeClaimCode } from '../session';
 import { DoorScene, deviceLabel } from './Door';
 
 export function claimErrorText(e) {
@@ -25,7 +26,11 @@ export function claimErrorText(e) {
   return errorText(e, 'The door did not open. Try again.');
 }
 
-export default function Claim({ code }) {
+export default function Claim({ code: given }) {
+  /* The code is spent after a good register; keep showing this screen. */
+  const held = useRef(given);
+  if (given) held.current = given;
+  const code = held.current;
   const { setToken } = useSession();
   const navigate = useNavigate();
   const registrationOptions = useAction(api.authNode.registrationOptions);
@@ -50,6 +55,7 @@ export default function Claim({ code }) {
       const { challengeId, options, purpose } = await registrationOptions({ claimCode: code });
       const response = await startRegistration({ optionsJSON: options });
       const out = await register({ claimCode: code, challengeId, response, label: deviceLabel() });
+      consumeClaimCode();
       setDone(out.purpose || purpose);
       setToken(out.sessionToken);
       setTimeout(() => navigate('/nest', { replace: true }), 900);

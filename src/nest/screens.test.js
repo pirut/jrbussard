@@ -23,7 +23,10 @@ import { presenceLabel, talkMode } from './screens/Home';
 import { mindSummary } from './screens/Settings';
 import { nameProblem, cleanName, eggLine } from './screens/Onboarding';
 import { gateState } from './NestRoot';
-import { voiceParams, speakableText, seedUnit } from './speech';
+import { voiceParams, speakableText, seedUnit, unlockSpeech, speechUnlocked, resetSpeechForTests } from './speech';
+import { errorText } from './errors';
+import { copyWhen } from './screens/Settings';
+import Door from './screens/Door';
 import { toggleStar, starField, isNight } from './screens/Games';
 import { SessionProvider } from './context';
 import { takeFragmentSecrets, resetSecretsForTests, writeSession } from './session';
@@ -106,6 +109,27 @@ describe('touch landing', () => {
     expect(container.textContent).toContain('Touch its home again');
   });
 
+  test('touching the tag again in the same tab runs again, once per touch, on the new secret', async () => {
+    mockBegin.mockResolvedValueOnce({ ok: false, code: 'bad_tag', message: 'x' });
+    mockBegin.mockResolvedValueOnce({ ok: true, visitId: 'v2', momentKind: 'gift', fallbackText: 'f', messageId: 'm2', jobId: null });
+    const setMoment = jest.fn();
+    renderTouch(setMoment);
+    await flush();
+    expect(mockBegin).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('doesn’t open this nest');
+    /* Safari reuses the tab: only the fragment changes. */
+    act(() => {
+      window.history.replaceState(null, '', '/nest/touch/abcdefghjkmn#second-secret');
+      takeFragmentSecrets();
+    });
+    await flush();
+    expect(mockBegin).toHaveBeenCalledTimes(2);
+    expect(mockBegin.mock.calls[1][0]).toMatchObject({ tagId: 'abcdefghjkmn', secret: 'second-secret' });
+    expect(setMoment).toHaveBeenCalledWith(expect.objectContaining({ kind: 'gift', messageId: 'm2' }));
+    await flush();
+    expect(mockBegin).toHaveBeenCalledTimes(2);
+  });
+
   test('beginTouch maps the result and throws on ok:false', async () => {
     const m = await beginTouch(async () => ({ ok: true, momentKind: 'gift', fallbackText: 'f', messageId: 'x', jobId: null, visitId: 'v' }), 't', 's', 5);
     expect(m).toEqual({ kind: 'gift', fallbackText: 'f', messageId: 'x', jobId: null, visitId: 'v', at: 5 });
@@ -150,6 +174,34 @@ describe('talk bar', () => {
     expect(onSend).toHaveBeenCalledWith('back soon?', 'text');
     expect(input.value).toBe('back soon?');
     expect(input.placeholder).toMatch(/note/);
+  });
+
+  test('two quick voice holds send one message while the first is still sending', async () => {
+    const recs = [];
+    window.webkitSpeechRecognition = class {
+      constructor() { recs.push(this); }
+      start() {}
+      stop() { this.onend?.(); }
+      abort() {}
+    };
+    let finish;
+    const onSend = jest.fn(() => new Promise((r) => { finish = r; }));
+    act(() => root.render(<TalkBar mode="talk" onSend={onSend} />));
+    const mic = container.querySelector('.nest-talk-mic');
+    const hold = (words) => {
+      act(() => { mic.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+      const rec = recs[recs.length - 1];
+      act(() => { rec.onresult({ results: [{ isFinal: true, 0: { transcript: words } }] }); });
+      act(() => { mic.dispatchEvent(new Event('pointerup', { bubbles: true })); });
+    };
+    hold('hello');
+    hold('hello again');
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith('hello', 'voice');
+    await act(async () => { finish(true); });
+    hold('and now');
+    expect(onSend).toHaveBeenCalledTimes(2);
+    delete window.webkitSpeechRecognition;
   });
 
   test('hides the mic when speech recognition is missing', () => {
@@ -249,5 +301,69 @@ describe('burrow decisions', () => {
     expect(stars.every((s) => s.x > 0 && s.x < 1 && s.y > 0 && s.y < 1)).toBe(true);
     expect(isNight(22)).toBe(true);
     expect(isNight(12)).toBe(false);
+  });
+});
+
+describe('fix round 1', () => {
+  test('unauthenticated has its own line with a way forward', () => {
+    const text = errorText({ data: { code: 'unauthenticated', message: 'x' } });
+    expect(text).toMatch(/wasn’t recognised/);
+    expect(text).toMatch(/device link/);
+    expect(text).not.toBe('Please sign in again.');
+  });
+
+  test('an export without a date says "this file"', () => {
+    expect(copyWhen(undefined)).toBe('this file');
+    expect(copyWhen(null)).toBe('this file');
+    expect(copyWhen('')).toBe('this file');
+    expect(copyWhen('not a date')).toBe('this file');
+    expect(copyWhen(Date.UTC(2026, 10, 23, 12))).not.toBe('this file');
+    expect(copyWhen(Date.UTC(2026, 10, 23, 12))).not.toMatch(/Invalid/);
+  });
+
+  describe('speech unlock', () => {
+    let spoken;
+    beforeEach(() => {
+      spoken = [];
+      resetSpeechForTests();
+      window.SpeechSynthesisUtterance = function U(t) { this.text = t; };
+      window.speechSynthesis = { speak: (u) => spoken.push(u), cancel: () => {} };
+    });
+    afterEach(() => {
+      delete window.SpeechSynthesisUtterance;
+      delete window.speechSynthesis;
+    });
+
+    test('stays locked until the silent utterance starts, so later taps retry', () => {
+      unlockSpeech();
+      expect(spoken).toHaveLength(1);
+      expect(speechUnlocked()).toBe(false);
+      /* iOS dropped it: nothing fired. The next gesture tries again. */
+      unlockSpeech();
+      expect(spoken).toHaveLength(2);
+      spoken[1].onstart();
+      expect(speechUnlocked()).toBe(true);
+      unlockSpeech();
+      expect(spoken).toHaveLength(2);
+    });
+  });
+
+  describe('loading door', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+      try { delete navigator.onLine; } catch (e) { /* fine */ }
+    });
+
+    test('says so when offline, and when it is slow', () => {
+      jest.useFakeTimers();
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+      act(() => root.render(<Door mode="loading" />));
+      expect(container.textContent).toMatch(/No signal/);
+      act(() => { window.dispatchEvent(new Event('online')); });
+      expect(container.textContent).not.toMatch(/No signal/);
+      expect(container.textContent).toContain('…');
+      act(() => { jest.advanceTimersByTime(8100); });
+      expect(container.textContent).toMatch(/slow tonight/);
+    });
   });
 });

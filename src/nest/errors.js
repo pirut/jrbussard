@@ -14,7 +14,7 @@ export function errorCode(e) {
 export function errorText(e, fallback = 'Something went quiet. Try again in a moment.') {
   const code = errorCode(e);
   if (code === 'rate_limited') return 'A little too fast. Give it a moment.';
-  if (code === 'unauthenticated') return 'Please sign in again.';
+  if (code === 'unauthenticated') return 'That key wasn’t recognised. Try again, or open a device link from your other phone.';
   if (code && typeof e?.data?.message === 'string' && e.data.message) return e.data.message;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'You are offline. The nest is still here.';
   return fallback;

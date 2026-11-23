@@ -2,7 +2,7 @@
    (not claimed), when you are signed out of a claimed nest, or while it
    loads. One line of copy. No sign-up form. */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAction } from 'convex/react';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { api } from '../api';
@@ -119,17 +119,40 @@ export function DoorScene({ glow = 0.6, children, dim = false }) {
   );
 }
 
-export default function Door({ mode }) {
+export const SLOW_MS = 8000;
+
+/* Why the door is still loading: offline, or just slow. null while it is
+   young. Listens for the network coming and going. */
+export function useWaitingNotice(slowMs = SLOW_MS) {
+  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const on = () => setOffline(false);
+    const off = () => setOffline(true);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    const t = setTimeout(() => setSlow(true), slowMs);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+      clearTimeout(t);
+    };
+  }, [slowMs]);
+  if (offline) return 'offline';
+  return slow ? 'slow' : null;
+}
+
+function LoadingDoor() {
+  const waiting = useWaitingNotice();
+  const line = waiting === 'offline'
+    ? 'No signal. The lantern will wait for you.'
+    : waiting === 'slow' ? 'The door is slow tonight. Check your connection.' : '…';
+  return <DoorScene glow={0.35} dim><p className="nest-door-line nest-door-line-faint" role="status">{line}</p></DoorScene>;
+}
+
+/* Only ever rendered inside the nest's Convex provider: it calls an action. */
+function SignInDoor() {
   const { run, busy, error } = usePasskeyLogin();
-  if (mode === 'loading') {
-    return <DoorScene glow={0.35} dim><p className="nest-door-line nest-door-line-faint" role="status">…</p></DoorScene>;
-  }
-  if (mode === 'unconfigured') {
-    return <DoorScene glow={0.15}><p className="nest-door-line">The door is shut for now.</p></DoorScene>;
-  }
-  if (mode === 'unclaimed') {
-    return <DoorScene glow={0.25}><p className="nest-door-line">Something is asleep behind this door.</p></DoorScene>;
-  }
   return (
     <DoorScene glow={0.7}>
       <p className="nest-door-line">The lantern is lit. It knows you.</p>
@@ -137,4 +160,18 @@ export default function Door({ mode }) {
       <Notice tone="error">{error}</Notice>
     </DoorScene>
   );
+}
+
+/* loading, unconfigured and unclaimed need no backend and may render outside
+   the nest provider (no URL set; the gallery's loading fallback). Only
+   'signin' does. */
+export default function Door({ mode }) {
+  if (mode === 'loading') return <LoadingDoor />;
+  if (mode === 'unconfigured') {
+    return <DoorScene glow={0.15}><p className="nest-door-line">The door is shut for now.</p></DoorScene>;
+  }
+  if (mode === 'unclaimed') {
+    return <DoorScene glow={0.25}><p className="nest-door-line">Something is asleep behind this door.</p></DoorScene>;
+  }
+  return <SignInDoor />;
 }

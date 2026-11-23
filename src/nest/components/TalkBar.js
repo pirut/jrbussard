@@ -4,7 +4,7 @@
    The parent supplies onSend(text, via) and handles errors. */
 
 import React, { useRef, useState } from 'react';
-import { useSpeechInput } from '../speech';
+import { unlockSpeech, useSpeechInput } from '../speech';
 
 export const MAX_TEXT = { talk: 1000, note: 1000 };
 
@@ -23,18 +23,30 @@ export function prepareText(text, mode = 'talk') {
 export default function TalkBar({ mode = 'talk', reason, onSend, onHistory, disabled, busy, hasHistory }) {
   const [text, setText] = useState('');
   const inputRef = useRef(null);
+  /* One send at a time. A ref, not the busy prop: two quick voice holds can
+     both settle before the parent re-renders. */
+  const sending = useRef(false);
+  const deliver = async (t, via) => {
+    if (sending.current || disabled || busy) return false;
+    sending.current = true;
+    try {
+      return await onSend(t, via);
+    } finally {
+      sending.current = false;
+    }
+  };
   const speech = useSpeechInput({
     onFinal: (heard) => {
       const t = prepareText(heard, mode);
-      if (t) onSend(t, 'voice');
+      if (t) deliver(t, 'voice');
     },
   });
 
   const submit = async (e) => {
     e?.preventDefault?.();
     const t = prepareText(text, mode);
-    if (!t || disabled || busy) return;
-    const ok = await onSend(t, 'text');
+    if (!t) return;
+    const ok = await deliver(t, 'text');
     if (ok !== false) setText('');
   };
 
@@ -68,15 +80,15 @@ export default function TalkBar({ mode = 'talk', reason, onSend, onHistory, disa
           aria-label={speech.listening ? 'Listening. Let go to send.' : 'Hold to talk'}
           aria-pressed={speech.listening}
           disabled={disabled}
-          onPointerDown={(e) => { e.preventDefault(); try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch (err) { /* ok */ } speech.start(); }}
-          onPointerUp={() => speech.stop()}
+          onPointerDown={(e) => { e.preventDefault(); try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch (err) { /* ok */ } unlockSpeech(); speech.start(); }}
+          onPointerUp={() => { unlockSpeech(); speech.stop(); }}
           onPointerCancel={() => speech.stop()}
           onContextMenu={(e) => e.preventDefault()}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
         </button>
       )}
-      <button type="submit" className="nest-talk-send" aria-label={mode === 'note' ? 'Leave the note' : 'Send'} disabled={disabled || busy || !prepareText(text, mode)}>
+      <button type="submit" className="nest-talk-send" onClick={unlockSpeech} aria-label={mode === 'note' ? 'Leave the note' : 'Send'} disabled={disabled || busy || !prepareText(text, mode)}>
         {mode === 'note'
           ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10l4 4v12H5z" /><path d="M9 12h6M9 16h4" /></svg>
           : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" /></svg>}

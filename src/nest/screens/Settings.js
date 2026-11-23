@@ -10,6 +10,14 @@ import { soundChosen, setSoundChosen } from '../session';
 import { Button, Confirm, CopyField, Loading, NfcSteps, Notice, Quiet, Sheet, Toggle, when } from '../ui';
 import { nameProblem, cleanName } from './Onboarding';
 
+/* The date of an export file, or "this file" when it has none. */
+export function copyWhen(exportedAt) {
+  if (exportedAt === null || exportedAt === undefined || exportedAt === '') return 'this file';
+  const d = new Date(exportedAt);
+  if (Number.isNaN(d.getTime())) return 'this file';
+  return d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 export const MANAGE_USAGE_URL = 'https://chatgpt.com/settings/usage';
 
 export const PREFERENCES = [
@@ -169,6 +177,7 @@ function DevicesSection() {
   };
   return (
     <>
+      <p className="nest-hint">On an iPhone, touching its tag always opens Safari, so knock there. A nest on your home screen keeps its own key.</p>
       <h3 className="nest-subtitle">Keys (passkeys)</h3>
       {passkeys === undefined ? <Loading /> : passkeys.length ? (
         <ul className="nest-rows">
@@ -254,7 +263,7 @@ function PreferencesSection({ settings }) {
     <>
       <Section title="Sound and voice" id="nest-s-sound">
         <Toggle label="Sounds" hint="Its chirps and purrs, and the little noises of the burrow. On this phone only after you turn it on." checked={settings.soundOn && soundOnHere} onChange={(v) => { setSoundChosen(v); setSoundOnHere(v); save({ soundOn: v }); }} />
-        <Toggle label="Spoken replies" hint={synthesisSupported() ? 'It reads its replies aloud. Hatchlings chirp instead.' : 'This browser can’t speak aloud.'} checked={settings.voiceReplies} disabled={!synthesisSupported()} onChange={(v) => save({ voiceReplies: v })} />
+        <Toggle label="Spoken replies" hint={synthesisSupported() ? 'It reads its replies aloud, when Sounds is on here. Hatchlings chirp instead.' : 'This browser can’t speak aloud.'} checked={settings.voiceReplies} disabled={!synthesisSupported()} onChange={(v) => save({ voiceReplies: v })} />
       </Section>
 
       <Section title="Names" id="nest-s-names">
@@ -410,7 +419,7 @@ function BackupSection() {
       {pending && (
         <Confirm
           title="Replace it with this copy?"
-          body={<p>Everything it is now will be replaced by the copy from {new Date(pending.exportedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}. Nothing is merged. A backup of how it is right now is saved first.</p>}
+          body={<p>Everything it is now will be replaced by the copy from {copyWhen(pending.exportedAt)}. Nothing is merged. A backup of how it is right now is saved first.</p>}
           confirmLabel="Replace"
           danger
           busy={busy === 'restore'}

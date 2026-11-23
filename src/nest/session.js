@@ -99,11 +99,27 @@ export function routeIntent(pathname, hash) {
 /* Secrets taken from the address bar, kept across React's double render. */
 let taken = { claim: null, touch: null };
 
+const listeners = new Set();
+export function subscribeSecrets(fn) {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
+/* A fresh tag touch gets its own stamp, even inside the same millisecond. */
+let lastStamp = 0;
+function stamp() {
+  lastStamp = Math.max(Date.now(), lastStamp + 1);
+  return lastStamp;
+}
+
 export function takeFragmentSecrets(win = typeof window !== 'undefined' ? window : null) {
   if (!win) return taken;
   const intent = routeIntent(win.location.pathname, win.location.hash);
   if (intent.kind === 'claim' && intent.code) taken = { ...taken, claim: intent.code };
-  if (intent.kind === 'touch' && intent.secret) taken = { ...taken, touch: { tagId: intent.tagId, secret: intent.secret, at: Date.now() } };
+  if (intent.kind === 'touch' && intent.secret) {
+    taken = { ...taken, touch: { tagId: intent.tagId, secret: intent.secret, at: stamp() } };
+    listeners.forEach((fn) => fn());
+  }
   if (win.location.hash && intent.kind !== 'none') clearFragment(win);
   return taken;
 }

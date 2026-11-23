@@ -16,17 +16,31 @@ export function synthesisSupported() {
   return typeof window !== 'undefined' && 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function';
 }
 
+/* Unlocked only once the silent utterance really starts (or ends). iOS drops
+   an utterance spoken outside a gesture without an error, so setting the flag
+   on speak() would stop every later tap from trying again. */
 let unlocked = false;
 export function unlockSpeech() {
   if (unlocked || !synthesisSupported()) return;
   try {
     const u = new window.SpeechSynthesisUtterance(' ');
     u.volume = 0;
+    const done = () => { unlocked = true; };
+    u.onstart = done;
+    u.onend = done;
     window.speechSynthesis.speak(u);
-    unlocked = true;
   } catch (e) {
     /* not allowed here */
   }
+}
+
+export function speechUnlocked() {
+  return unlocked;
+}
+
+/* Tests only. */
+export function resetSpeechForTests() {
+  unlocked = false;
 }
 
 /* Stable 0..1 from a string (the seed), for a voice when none is given. */

@@ -134,7 +134,7 @@ export default function Home() {
       const chirpsOnly = stage === 'hatchling' || lang === 0;
       /* Hatchlings answer in chirps (when sound is on); older ones can speak. */
       if (soundOn && (chirpsOnly || !voiceReplies)) voice.emote(m.emotion || 'curious');
-      if (voiceReplies && !chirpsOnly) speak(m.text, voiceParams(pitch, stage));
+      if (soundOn && voiceReplies && !chirpsOnly) speak(m.text, voiceParams(pitch, stage));
     }
   }, [list, react, soundOn, voice, voiceReplies, stage, pitch, view?.creature?.languageLevel]);
 

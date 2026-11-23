@@ -5,11 +5,11 @@
    hand the moment to the burrow, and go home. The burrow shows the
    fallbackText at once and swaps in the real line when it arrives. */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useNestMutation, useSession } from '../context';
-import { consumeTouchSecret, peekSecrets } from '../session';
+import { consumeTouchSecret, peekSecrets, subscribeSecrets } from '../session';
 import { errorCode, errorText } from '../errors';
 import { Button } from '../ui';
 
@@ -33,7 +33,7 @@ export async function beginTouch(begin, tagId, secret, now = Date.now()) {
   return { kind: out.momentKind, fallbackText: out.fallbackText, messageId: out.messageId, jobId: out.jobId, visitId: out.visitId, at: now };
 }
 
-export default function TouchLanding() {
+function TouchLanding() {
   const { tagId } = useParams();
   const { setMoment } = useOutletContext() || {};
   const begin = useNestMutation(api.touch.begin);
@@ -78,4 +78,18 @@ export default function TouchLanding() {
       </div>
     </div>
   );
+}
+
+const touchStamp = () => peekSecrets().touch?.at || 0;
+
+/* Safari reuses the tab when the tag is touched again: only the fragment
+   changes, so nothing remounts. Key the landing on the stored secret's stamp
+   so each new touch runs once, on its own secret. The key only moves forward
+   (spending a secret must not remount a landing that is about to go home). */
+export default function TouchRoute() {
+  const { tagId } = useParams();
+  const at = useSyncExternalStore(subscribeSecrets, touchStamp);
+  const seen = useRef(at);
+  if (at && at !== seen.current) seen.current = at;
+  return <TouchLanding key={`${tagId}:${seen.current}`} />;
 }
