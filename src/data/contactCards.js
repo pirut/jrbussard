@@ -1,8 +1,10 @@
 import { about, contact } from "./site";
 
 /*
- * Contact cards, keyed by slug. `/contact` shows `jr`; `/contact/<slug>` shows
- * any other entry here. Adding a card is adding one entry to this object.
+ * Built-in contact cards, keyed by slug. `/contact` shows `jr`. Cards saved
+ * from the editor on the page (Convex, convex/contactCards.ts) take
+ * precedence; this file is the fallback, and the only source when no Convex
+ * URL is configured. New cards are easiest to add from `/contact?edit`.
  *
  * Only `name` is required. Every other field renders only when it is set.
  *
