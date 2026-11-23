@@ -2,9 +2,10 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /*
- * Every table the Commons and the main site's presence layer use. Only
- * convex/*.ts reads or writes these; the browser and the native app go
- * through the queries and mutations in world.ts, game.ts and site.ts.
+ * Every table the Commons, the main site's presence layer and the contact
+ * cards use. Only convex/*.ts reads or writes these; the browser and the
+ * native app go through the queries and mutations in world.ts, game.ts,
+ * site.ts and contactCards.ts.
  *
  * Where each row comes from:
  *   world     created lazily by world.ts (getWorld), kept by tick.ts
@@ -15,6 +16,8 @@ import { v } from "convex/values";
  *   projects  game.contribute
  *   visitors  site.here / site.leave
  *   chat      world.ts post() and tick.ts and game.ts announcements
+ *   contactCards  contactCards.upsert / remove (the /contact editor; only
+ *             emails in the ALLOWED_EMAILS env var may write)
  *
  * Index rule of thumb: the world is endless and cells and ground only ever
  * grow, so reads are bounded by an index (a tile, a chunk, a recent
@@ -264,4 +267,28 @@ export default defineSchema({
     text: v.string(),
     kind: v.string(),
   }),
+
+  /*
+   * Contact cards for /contact and /contact/<slug>, written from the editor
+   * on that page. Not part of the Commons. A row for "jr" overrides the card
+   * in src/data/contactCards.js; deleting it falls back to that one. Every
+   * field is checked by normalizeCard in src/lib/contactCard.js before it is
+   * stored. by_slug is the page's one point read, and keeps one row per slug
+   * (upsert looks before it inserts).
+   */
+  contactCards: defineTable({
+    slug: v.string(),
+    name: v.string(),
+    given: v.optional(v.string()),
+    family: v.optional(v.string()),
+    suffix: v.optional(v.string()),
+    title: v.optional(v.string()),
+    company: v.optional(v.string()),
+    location: v.optional(v.string()),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    note: v.optional(v.string()),
+    links: v.array(v.object({ label: v.string(), href: v.string() })),
+    updatedAt: v.number(),
+  }).index("by_slug", ["slug"]),
 });
