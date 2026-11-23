@@ -6,15 +6,25 @@ import { consoleLogger, errorMessage } from "../log.ts";
 import { JobLoop } from "../loop.ts";
 import { buildRouter, VERSION } from "../mind.ts";
 import { paths } from "../paths.ts";
+import { devFakeProvider } from "../providers/fake.ts";
+import { ProviderRouter } from "../providers/router.ts";
 import { fatal } from "./args.ts";
 
 async function main() {
   const log = consoleLogger("nest-mind");
   const config = await loadConfig();
   if (!config?.convexUrl || !config.mindSecret) fatal("Not configured. Run: npm run setup -- --convex-url <url>");
-  if (config.provider === "fake") fatal("Provider 'fake' is for `npm run selftest` only.");
   const env = await loadMindEnv();
-  const { router } = buildRouter({ config, env });
+  let router: ProviderRouter;
+  const devFake = process.env.NEST_MIND_DEV_FAKE === "1";
+  if (config.provider === "fake" && !devFake) fatal("Provider 'fake' is for `npm run selftest`, or dev testing with NEST_MIND_DEV_FAKE=1.");
+  if (devFake) {
+    // Dev only (see devFakeProvider): canned replies, no model calls. Never set it in production.
+    router = new ProviderRouter("fake", { fake: devFakeProvider(process.env) });
+    log.warn("DEV FAKE PROVIDER: no model is called; replies are canned", { mode: process.env.NEST_MIND_FAKE_MODE || "ok" });
+  } else {
+    router = buildRouter({ config, env }).router;
+  }
 
   const backend = new ConvexBackend(config.convexUrl, config.mindSecret);
   const loop = new JobLoop({
@@ -41,7 +51,7 @@ async function main() {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("unhandledRejection", (err) => log.error("unhandled rejection", { error: errorMessage(err) }));
 
-  log.info("starting", { version: VERSION, mindId: config.mindId, provider: config.provider, convex: new URL(config.convexUrl).host, apiKey: !!env.OPENAI_API_KEY });
+  log.info("starting", { version: VERSION, mindId: config.mindId, provider: devFake ? "fake (dev)" : config.provider, convex: new URL(config.convexUrl).host, apiKey: !!env.OPENAI_API_KEY });
   await loop.start();
 
   // Log connection changes (reconnects after sleep/wake or network loss are automatic).
