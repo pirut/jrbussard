@@ -148,8 +148,8 @@ function tell(h: PromptHappening, lvl: Lvl, rng: Rng, recent: string[]): Seg[] {
   }
   const text = h.memoryText.trim();
   const open = pickFresh(rng, TELL_OPEN, recent);
-  // "While you were away, I met…" keeps "I"; any other first word joins the sentence in lower case.
-  const joined = !open || /[.!?]\s$/.test(open) || /^I\b/.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1);
+  // "While you were away, I met…" keeps "I" and names; common first words join the sentence in lower case.
+  const joined = !open || /[.!?]\s$/.test(open) ? text : midSentence(text);
   return [{ say: `${open}${joined}` }];
 }
 
@@ -348,8 +348,13 @@ const NEXT = ['Later, ', 'After that, ', 'Then ', '', 'A bit later, '];
 const TIMES = ['', '', 'twice', 'three times', 'four times', 'five times'];
 
 const partOf = (hour: number) => (hour < 6 ? 'night' : hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening');
+/** A sentence carried on after a lead-in or "that": common first words go lower case, names keep their capital. */
+const COMMON_START = /^(It|Its|It's|Something|Someone|Somebody|The|A|An|Some|One|There|My|Me|This|That)\b/;
+export function midSentence(sentence: string): string {
+  return COMMON_START.test(sentence) ? sentence.charAt(0).toLowerCase() + sentence.slice(1) : sentence;
+}
 /** "It found…" can take a lead-in ("Later, it found…"); a sentence that starts with a name keeps its capital. */
-const lead = (open: string, sentence: string) => (!open ? sentence : `${open}${/^(It|Its|It's)\b/.test(sentence) ? sentence.charAt(0).toLowerCase() + sentence.slice(1) : sentence}`);
+const lead = (open: string, sentence: string) => (!open ? sentence : `${open}${midSentence(sentence)}`);
 
 /**
  * Plain facts from the day, grouped by part of the day (at most six entries). The same happening text
@@ -428,7 +433,7 @@ function overlap(a: string, b: string): number {
 function shorten(text: string): string {
   const t = text.replace(/^I /, 'I ').replace(/\s+/g, ' ').trim();
   const first = t.split(/(?<=[.!?])\s/)[0] ?? t;
-  return first.length > 160 ? first.slice(0, 157) + '…' : first.charAt(0).toLowerCase() === 'i' ? first : first.charAt(0).toLowerCase() + first.slice(1);
+  return first.length > 160 ? first.slice(0, 157) + '…' : midSentence(first);
 }
 
 export function fallbackNameReaction(ctx: PromptContext, name: string): NameReactionOutput {

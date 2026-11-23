@@ -56,6 +56,12 @@ export function seedUnit(seed = '') {
 const STAGE_RATE = { hatchling: 1.15, fledgling: 1.1, juvenile: 1.05, adult: 1, elder: 0.88 };
 const STAGE_PITCH = { hatchling: 0.5, fledgling: 0.4, juvenile: 0.25, adult: 0, elder: -0.2 };
 
+/* The creature's voice pitch 0..1: the genome value from creature.get, or one derived from the seed when the backend does not send it. */
+export function creaturePitch(voicePitch, seed = '') {
+  if (typeof voicePitch === 'number' && Number.isFinite(voicePitch)) return Math.min(1, Math.max(0, voicePitch));
+  return seedUnit(seed || '');
+}
+
 /* SpeechSynthesis pitch 0..2 and rate 0.1..10 from voicePitch 0..1 and stage. */
 export function voiceParams(voicePitch = 0.5, stage = 'adult') {
   const pitch = Math.min(2, Math.max(0.4, 0.9 + voicePitch * 0.7 + (STAGE_PITCH[stage] ?? 0)));

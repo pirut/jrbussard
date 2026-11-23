@@ -506,6 +506,20 @@ describe('fallback voice (polish, round 2)', () => {
       expect(say.toLowerCase()).toMatch(/pe… pe!|pemberley/);
     }
   });
+  it('names keep their capital in the middle of a sentence', () => {
+    const hs = [
+      { id: 'a', at: T0, summary: 'Something at home reminded it of the crab claw.', memoryText: '', kind: 'x' },
+      { id: 'b', at: T0 + HOUR, summary: 'Quillkin the toad came by the nest and knocked.', memoryText: '', kind: 'x' },
+    ];
+    const text = fallbackJournal(ctx(), hs, 'caps').entries.map((e) => e.text).join(' ');
+    expect(text).toMatch(/, something at home|^Something/);
+    expect(text).toContain('Quillkin');
+    const eps = [
+      { id: 'q', text: 'Quillkin the toad came by the nest and knocked.', at: T0 - DAY, kind: 'episode', salience: 0.9 },
+      { id: 'r', text: 'I met a heron called Quillka at the Tidepools.', at: T0 - DAY, kind: 'episode', salience: 0.9 },
+    ];
+    for (let i = 0; i < 20; i++) expect(fallbackConsolidate(T0, eps, `c${i}`).dream!.text).toContain('Quillkin');
+  });
   it('dreams mix two different memories, never two tellings of one', () => {
     const eps = [
       { id: 'a', text: 'I hatched.', at: T0 - DAY, kind: 'episode', salience: 0.9 },
