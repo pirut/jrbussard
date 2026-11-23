@@ -16,6 +16,16 @@
             "permanent": false
         }
     ],
+    "headers": [
+        {
+            "source": "/nest",
+            "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+        },
+        {
+            "source": "/nest/:path*",
+            "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+        }
+    ],
     "rewrites": [
         {
             "source": "/(.*)",

@@ -22,6 +22,15 @@ export type HeartbeatArgs = {
  * The `mind:*` contract (docs/nest-design.md §7) without the secret, which
  * the real backend adds to every call.
  */
+export type BackupPage = {
+  docs: Record<string, unknown>[];
+  isDone: boolean;
+  cursor: string;
+  format: string;
+  schemaVersion: number;
+  tables: string[];
+};
+
 export interface Backend {
   /** Live `mind:queue`. Returns an unsubscribe function. */
   subscribeQueue(onJobs: (jobs: QueuedJob[]) => void, onError?: (err: Error) => void): () => void;
@@ -30,6 +39,7 @@ export interface Backend {
   complete(jobId: string, r: { provider: ProviderName; model: string; outputText: string; usage?: Usage }): Promise<CompleteResult>;
   fail(jobId: string, r: { code: string; message: string; retryable: boolean }): Promise<void>;
   heartbeat(args: HeartbeatArgs): Promise<{ ok: true; serverTime: number }>;
-  backupSnapshot(): Promise<unknown>;
+  /** `mind:backupPage`: one page (up to 500 rows) of one export table. */
+  backupPage(table: string, cursor: string | null): Promise<BackupPage>;
   close(): Promise<void>;
 }

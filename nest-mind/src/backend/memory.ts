@@ -1,5 +1,5 @@
 import type { MindRequest, ProviderName, QueuedJob, Usage } from "../types.ts";
-import type { Backend, ClaimResult, CompleteResult, HeartbeatArgs } from "./types.ts";
+import type { Backend, BackupPage, ClaimResult, CompleteResult, HeartbeatArgs } from "./types.ts";
 
 export type MemoryJob = {
   _id: string;
@@ -28,7 +28,10 @@ export type MemoryJob = {
 export class MemoryBackend implements Backend {
   readonly jobs = new Map<string, MemoryJob>();
   readonly heartbeats: (HeartbeatArgs & { at: number })[] = [];
-  snapshot: unknown = { format: "nest-export/v1", exportedAt: 0, schemaVersion: 1, tables: {} };
+  /** Rows per table served by `backupPage`; tests lower the page size to force paging. */
+  backupTables: Record<string, Record<string, unknown>[]> = { creatures: [] };
+  backupPageSize = 500;
+  backupPageCalls = 0;
   private subs = new Set<(jobs: QueuedJob[]) => void>();
   private seq = 0;
   /** Validate output like the server would; return an error string to reject. */
@@ -126,8 +129,19 @@ export class MemoryBackend implements Backend {
     return { ok: true, serverTime: this.now() };
   }
 
-  async backupSnapshot(): Promise<unknown> {
-    return this.snapshot;
+  async backupPage(table: string, cursor: string | null): Promise<BackupPage> {
+    this.backupPageCalls++;
+    const all = this.backupTables[table] ?? [];
+    const start = cursor === null ? 0 : Number(cursor);
+    const end = Math.min(all.length, start + this.backupPageSize);
+    return {
+      docs: all.slice(start, end),
+      isDone: end >= all.length,
+      cursor: String(end),
+      format: "nest-export/v1",
+      schemaVersion: 1,
+      tables: Object.keys(this.backupTables),
+    };
   }
 
   async close(): Promise<void> {

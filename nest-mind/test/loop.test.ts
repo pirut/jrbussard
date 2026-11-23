@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryBackend } from "../src/backend/memory.ts";
 import { listBackups, runDailyBackup } from "../src/backup.ts";
+import { createHash } from "node:crypto";
 import { parseEnvFile } from "../src/config.ts";
 import { MindError } from "../src/errors.ts";
 import { consoleLogger, redact } from "../src/log.ts";
@@ -248,10 +249,20 @@ describe("progress throttle", () => {
   });
 });
 
+// Verbatim port of `canonicalJson` / `checksumOf` in nest-backend/convex/engine/sha256.ts and
+// convex/lib/exporter.ts, kept separate from src/checksum.ts so the two can be compared.
+function backendCanonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value === undefined ? null : value);
+  if (Array.isArray(value)) return "[" + value.map((v) => backendCanonicalJson(v === undefined ? null : v)).join(",") + "]";
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + backendCanonicalJson(obj[k])).join(",") + "}";
+}
+const backendSha256Hex = (input: string) => createHash("sha256").update(input, "utf8").digest("hex");
+
 describe("backups", () => {
   it("writes one backup a day (0600) and keeps 30", async () => {
     const backend = new MemoryBackend();
-    backend.snapshot = { format: "nest-export/v1", tables: { creatures: [] } };
     const dir = path.join(home, "backups");
     let now = new Date(2026, 0, 1, 12).getTime();
     expect(await runDailyBackup({ backend, dir, now: () => now })).toBeTruthy();
@@ -265,7 +276,28 @@ describe("backups", () => {
     const all = await listBackups(dir);
     expect(all.length).toBe(30);
     expect(all).not.toContain(first);
-    expect(JSON.parse(await fs.readFile(path.join(dir, all.at(-1)!), "utf8"))).toEqual(backend.snapshot);
+    const file = JSON.parse(await fs.readFile(path.join(dir, all.at(-1)!), "utf8"));
+    expect(file.format).toBe("nest-export/v1");
+    expect(file.data).toEqual({ creatures: [] });
+  });
+
+  it("pages every table and the checksum matches the backend's algorithm", async () => {
+    const backend = new MemoryBackend();
+    backend.backupPageSize = 2;
+    backend.backupTables = {
+      creatures: [{ _id: "c1", name: "Nest", marks: [{ b: 1, a: 2 }] }],
+      memories: Array.from({ length: 5 }, (_, i) => ({ _id: `m${i}`, text: `memory ${i}`, z: i, a: { y: 1, x: 2 } })),
+      journal: [],
+    };
+    const dir = path.join(home, "backups-paged");
+    const out = await runDailyBackup({ backend, dir, now: () => Date.UTC(2026, 0, 1) });
+    const file = JSON.parse(await fs.readFile(out!, "utf8"));
+    expect(file.data.memories.map((m: { _id: string }) => m._id)).toEqual(["m0", "m1", "m2", "m3", "m4"]);
+    expect(file.data.creatures).toHaveLength(1);
+    expect(file.data.journal).toEqual([]);
+    expect(file.exportedAt).toBe(Date.UTC(2026, 0, 1));
+    expect(backend.backupPageCalls).toBeGreaterThan(3);
+    expect(file.checksum).toBe(backendSha256Hex(backendCanonicalJson(file.data)));
   });
 });
 

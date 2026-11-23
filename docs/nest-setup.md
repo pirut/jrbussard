@@ -72,8 +72,8 @@ Nothing deploys to production without JR. When it is time:
 
 1. `cd nest-backend && npx convex deploy` (creates the prod deployment on first run; confirm it is project `nest-creature`).
 2. Set the variables: `npx convex env set --prod NEST_RP_ID jrbussard.com`, `NEST_ORIGINS https://jrbussard.com,https://www.jrbussard.com`, `NEST_SITE_URL https://jrbussard.com`. Do **not** set `NEST_DEV_TOOLS`.
-3. Point the mind at prod (`npm run setup -- --convex-url https://<prod>.convex.cloud --prod`, mind section).
-4. In the `jrbussard` Vercel project set `REACT_APP_NEST_CONVEX_URL` to the prod URL (Production), and the dev URL for Preview and Development. Only the public URL belongs there; never a deploy key or secret.
+3. Point the mind at prod (`npm run setup -- --convex-url https://neat-bass-730.convex.cloud`, mind section; the deployment comes from the URL, there is no `--prod` flag).
+4. In the `jrbussard` Vercel project set `REACT_APP_NEST_CONVEX_URL` to the prod URL (Production), and the dev URL (`https://tangible-cobra-899.convex.cloud`) for Preview and Development. Only the public URL belongs there; never a deploy key or secret. Vercel previews are look-only: passkeys are bound to `localhost` on dev and `jrbussard.com` on prod, so signing in on a preview URL cannot work.
 5. Deploy the site, then claim (below) and make the tag.
 
 ### Claim it (first passkey)
@@ -112,6 +112,8 @@ The tag holds a URL: `https://jrbussard.com/nest/touch/<tagId>#<secret>`. The se
    - NTAG213/215/216 stickers or cards work. The URL is about 80 bytes, which fits an NTAG213.
 
 3. Touch the tag with the iPhone (unlocked, screen on). iOS shows a banner; tap it to open the nest. Three touches hatch the egg.
+
+Claim in Safari: NFC tags always open Safari, and a home-screen icon keeps its own sign-in, so it needs its own Face ID once.
 
 Lost or copied tag: Settings → revoke it (`touch.revokeTag`), then make a new one.
 
@@ -169,6 +171,8 @@ export PATH="$HOME/.local/share/node/node-v24.14.1-darwin-arm64/bin:$PATH"
 cd ~/repos/jrbussard/nest-mind
 npm ci
 ```
+
+launchd runs the mind from `~/repos/jrbussard/nest-mind`, so that checkout must stay on `main`. After updates: pull, `npm ci` in `nest-mind`, then restart the agent.
 
 1. **Point it at Convex and share the mind secret.** You need `npx convex`
    logged in for `nest-backend/` (see the backend section). Use the
