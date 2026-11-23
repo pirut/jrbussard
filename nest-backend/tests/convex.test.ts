@@ -7,7 +7,7 @@ import type { Id } from '../convex/_generated/dataModel';
 import { createEgg } from '../convex/auth';
 import { DEFAULT_SETTINGS, hashCode, hashTagSecret, hashToken, SESSION_TTL } from '../convex/lib/core';
 import { queueConsolidate, queueJournal } from '../convex/lib/queue';
-import { addMemory, loadWorld, recordHappening } from '../convex/lib/world';
+import { addMemory, loadWorld, recordHappening, rememberOnce } from '../convex/lib/world';
 import { maybeJournal, readNotes } from '../convex/sim';
 import { RESTORE_LOCK_STALE_MS } from '../convex/backup';
 import { canonicalJson, sha256Hex } from '../convex/engine/sha256';
@@ -1235,5 +1235,114 @@ describe('backend polish', () => {
     await t.mutation(internal.sim.tick, { now: now + 3 * 3600_000 });
     const later = (await t.run(async (ctx) => ctx.db.get(cid)))!;
     expect(later.activity.startedAt).toBeGreaterThanOrEqual(now + 2 * 3600_000 - 20 * 60_000);
+  });
+});
+
+describe('backend polish (fix round 1)', () => {
+  const sim = (at: number, text: string, salience = 0.6) => ({
+    at, kind: 'had_visitor', summary: `Junisom the beetle ${text}.`, memoryText: `Junisom the beetle ${text}.`, data: {}, salience, shareable: true, tags: ['visitor'], valence: 0.4,
+  });
+  const mindOnline = (t: T) => t.mutation(api.mind.heartbeat, { mindSecret: MIND_SECRET, mindId: 'mini', provider: 'chatgpt-plan', model: 'm', planStatus: 'ok', canServe: true, version: '1' });
+  const answer = async (t: T, jobId: Id<'jobs'>, out: unknown) => {
+    await t.mutation(api.mind.claim, { mindSecret: MIND_SECRET, jobId, mindId: 'mini' });
+    await t.mutation(api.mind.complete, { mindSecret: MIND_SECRET, jobId, provider: 'chatgpt-plan', model: 'gpt', outputText: JSON.stringify(out) });
+  };
+
+  it('S1: a journal entry that repeats a recent one is kept when it carries a new happening, and only a pure repeat is dropped', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    const cid = await owned(t, { hatched: true });
+    const now = Date.now();
+    const [old, fresh] = await t.run(async (ctx) => [
+      (await recordHappening(ctx, cid, sim(now - 2 * 3600_000, 'knocked', 0.4))).hid,
+      (await recordHappening(ctx, cid, sim(now - 3600_000, 'knocked', 0.4))).hid,
+    ]);
+    await t.run(async (ctx) => { await ctx.db.insert('journal', { creatureId: cid, day: '2026-11-20', at: now - 60_000, text: 'Junisom knocked.', happeningIds: [old], fallback: true }); });
+    await mindOnline(t);
+    const { jobId } = await t.run(async (ctx) => queueJournal(ctx, (await ctx.db.get(cid))!, '2026-11-20', [(await ctx.db.get(fresh))!]));
+    await answer(t, jobId, { entries: [{ happeningIds: [fresh], text: 'Junisom knocked.' }, { happeningIds: [], text: 'junisom   knocked!' }] });
+    const rows = await t.run(async (ctx) => ctx.db.query('journal').collect());
+    expect(rows).toHaveLength(2); // the old one, plus the repeat that carries the new happening
+    expect(rows.find((r) => r.jobId === jobId)!.happeningIds).toEqual([fresh]);
+  });
+
+  it('S3: repeats strengthen a memory by a shrinking amount, never past the original plus 0.15', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    const at = Date.now();
+    const { id, after } = await t.run(async (ctx) => {
+      const first = await rememberOnce(ctx, cid, { text: 'I watched the rain.', salience: 0.6, source: 'conversation', sourceIds: ['m'], at });
+      for (let i = 0; i < 10; i++) await rememberOnce(ctx, cid, { text: 'I watched the rain.', salience: 0.6, source: 'conversation', sourceIds: ['m'], at: at + i });
+      return { id: first.id, after: (await ctx.db.get(first.id))! };
+    });
+    expect(after._id).toBe(id);
+    expect(after.recallCount).toBe(10);
+    expect(after.salience).toBeGreaterThan(0.6);
+    expect(after.salience).toBeLessThanOrEqual(0.6 + 0.15);
+    expect(after.salience).toBeLessThan(0.7); // still archivable; ten repeats used to reach 1.0
+  });
+
+  it('S4: gifts and owner words with the same text are only one memory when they share a source', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    const at = Date.now();
+    const r = await t.run(async (ctx) => {
+      const text = 'My person gave me a button.';
+      const a = await rememberOnce(ctx, cid, { text, salience: 0.6, source: 'gift', sourceIds: ['t1'], at });
+      const other = await rememberOnce(ctx, cid, { text, salience: 0.6, source: 'gift', sourceIds: ['t2'], at: at + 1000 });
+      const bare = await rememberOnce(ctx, cid, { text, salience: 0.6, source: 'gift', at: at + 2000 });
+      const same = await rememberOnce(ctx, cid, { text, salience: 0.6, source: 'gift', sourceIds: ['t1'], at: at + 3000 });
+      const o1 = await rememberOnce(ctx, cid, { text: 'I love you.', salience: 0.6, source: 'owner', sourceIds: ['x'], at });
+      const o2 = await rememberOnce(ctx, cid, { text: 'I love you.', salience: 0.6, source: 'owner', sourceIds: ['y'], at: at + 1000 });
+      // Other sources still dedupe by text alone.
+      const c1 = await rememberOnce(ctx, cid, { text: 'Rain again.', salience: 0.6, source: 'conversation', sourceIds: ['x'], at });
+      const c2 = await rememberOnce(ctx, cid, { text: 'Rain again.', salience: 0.6, source: 'conversation', sourceIds: ['y'], at: at + 1000 });
+      return { a, other, bare, same, o1, o2, c1, c2 };
+    });
+    expect(r.other.id).not.toBe(r.a.id);
+    expect(r.bare.id).not.toBe(r.a.id);
+    expect(r.same.id).toBe(r.a.id);
+    expect(r.o2.id).not.toBe(r.o1.id);
+    expect(r.c2.id).toBe(r.c1.id);
+  });
+
+  it('S5: a summary that merges into one of its own sources does not point that memory at itself', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    const cid = await owned(t, { hatched: true });
+    const text = 'The water place has pebbles.';
+    const [own, other] = await t.run(async (ctx) => {
+      const mk = (kind: 'consolidated' | 'episode', txt: string) => ctx.db.insert('memories', { creatureId: cid, kind, text: txt, at: Date.now(), salience: 0.7, valence: 0, tags: [], source: 'happening', sourceIds: [], pinned: false, archived: false, recallCount: 0 });
+      return [await mk('consolidated', text), await mk('episode', 'I found a pebble.')];
+    });
+    await mindOnline(t);
+    const { jobId } = await t.run(async (ctx) => queueConsolidate(ctx, (await ctx.db.get(cid))!, [(await ctx.db.get(own))!, (await ctx.db.get(other))!]));
+    await answer(t, jobId, { summaries: [{ text, salience: 0.8, tags: [], fromMemoryIds: [own, other] }], archiveMemoryIds: [], beliefs: [], interests: [], dream: null, opinionShifts: [] });
+    const a = await t.run(async (ctx) => ctx.db.get(own));
+    const b = await t.run(async (ctx) => ctx.db.get(other));
+    expect(a!.consolidatedInto).toBeUndefined();
+    expect(b!.consolidatedInto).toBe(own);
+  });
+
+  it('hatching writes one hatch memory (the pinned one), even when the reply remembers the moment too', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    await owned(t);
+    await mindOnline(t);
+    await begin(t);
+    vi.advanceTimersByTime(5 * 60_000);
+    await begin(t);
+    vi.advanceTimersByTime(5 * 60_000);
+    const third = await begin(t);
+    expect(third.momentKind).toBe('hatch');
+    expect(third.jobId).not.toBeNull();
+    await answer(t, third.jobId!, JSON.parse(replyJson({ say: '*chirrup*', remember: [{ text: 'I hatched and saw my person for the first time.', salience: 0.9, tags: ['hatch'] }], learnedWords: [], ownerFacts: [], interests: [] })));
+    const mems = await t.run(async (ctx) => ctx.db.query('memories').collect());
+    expect(mems).toHaveLength(1);
+    expect(mems[0].pinned).toBe(true);
+    expect(mems[0].text).toMatch(/hatched/);
+    const hap = (await t.run(async (ctx) => ctx.db.query('happenings').collect())).filter((h) => h.kind === 'hatched');
+    expect(hap).toHaveLength(1);
+    expect(hap[0].memoryId).toBe(mems[0]._id);
   });
 });

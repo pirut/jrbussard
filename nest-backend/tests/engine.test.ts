@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newEgg, hatch } from '../convex/engine/creature';
-import { EVENTS } from '../convex/engine/events';
+import { EVENTS, voice, type EventCtx } from '../convex/engine/events';
 import { branchFor, earnedStage, experienceFor, morphAt, applyDailyDrift, makeGenome } from '../convex/engine/growth';
 import { pickMoment, type MomentInput } from '../convex/engine/moments';
 import { computePhenotype } from '../convex/engine/phenotype';
@@ -8,10 +8,10 @@ import { buildRequest, quote, type PromptContext } from '../convex/engine/prompt
 import { makeRng } from '../convex/engine/rng';
 import { enforceLanguage, validateOutput, MAX_OUTPUT_CHARS } from '../convex/engine/schemas';
 import { canonicalJson, sha256Hex, safeEqual } from '../convex/engine/sha256';
-import { advance, MAX_ACTIVITY_MS, MAX_DETAILED_STEPS, rebaseActivity } from '../convex/engine/sim';
+import { advance, GROWTH_LINES, MAX_ACTIVITY_MS, MAX_DETAILED_STEPS, rebaseActivity } from '../convex/engine/sim';
 import { DAY, HOUR, STEP_MS, localTime, moonPhase, simWeather } from '../convex/engine/time';
 import { fallbackReply, fallbackConsolidate, fallbackJournal, fallbackNameReaction, knownWords } from '../convex/engine/fallback';
-import type { SimWorld } from '../convex/engine/types';
+import { REGION_IDS, STAGES, WEATHER_KINDS, type SimWorld } from '../convex/engine/types';
 
 const T0 = Date.UTC(2026, 10, 1, 12, 0, 0);
 
@@ -531,5 +531,105 @@ describe('fallback voice (polish, round 2)', () => {
       expect(d.fromMemoryIds).toContain('c');
       expect(d.text).not.toMatch(/\. —|\.,/);
     }
+  });
+});
+
+describe('fallback voice (fix round 1)', () => {
+  const lvlCtx = (lvl: number, happenings: PromptContext['happenings']) => ctx({ creature: { ...ctx().creature, languageLevel: lvl, vocabulary: [] }, happenings });
+  const hap = (over: Partial<PromptContext['happenings'][number]>): PromptContext['happenings'][number] => ({ id: 'x1', at: T0 - HOUR, summary: 'Junisom the beetle came by the nest and knocked.', memoryText: 'Junisom the beetle came by the nest and knocked.', kind: 'had_visitor', ...over });
+
+  it('a journal for a single happening has plenty of different openers, so repeats are rare (S1)', () => {
+    const one = [{ id: 'a', at: T0, summary: 'Junisom the beetle came by the nest and knocked.', memoryText: '', kind: 'had_visitor' }];
+    const texts = new Set<string>();
+    for (let i = 0; i < 60; i++) texts.add(fallbackJournal(ctx(), one, `open-${i}`).entries[0].text);
+    expect(texts.size).toBeGreaterThanOrEqual(5);
+  });
+
+  it('hatchlings and level-2 tellings only mention going out when the happening was an outing (S2)', () => {
+    const OUT = /\bout\b|door|walk/i;
+    for (const lvl of [0, 1, 2]) {
+      const home = lvlCtx(lvl, [hap({})]);
+      for (let i = 0; i < 100; i++) {
+        const say = fallbackReply(home, { kind: 'moment', momentKind: 'ordinary' }, `home-${lvl}-${i}`).say;
+        expect(say, say).not.toMatch(OUT);
+      }
+      const trip = lvlCtx(lvl, [hap({ kind: 'mishap', regionId: 'tidepools', summary: 'It got a little lost at the Tidepools.', memoryText: 'I got lost.' })]);
+      let outings = 0;
+      for (let i = 0; i < 100; i++) if (OUT.test(fallbackReply(trip, { kind: 'moment', momentKind: 'ordinary' }, `trip-${lvl}-${i}`).say)) outings++;
+      if (lvl > 0) expect(outings, `level ${lvl}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('the journal says "in all", never "that day", because the window can span two days (S7)', () => {
+    const knock = 'Junisom the beetle came by the nest and knocked.';
+    const hs = [0, 1, 2, 3].map((i) => ({ id: `k${i}`, at: T0 - i * HOUR, summary: knock, memoryText: '', kind: 'had_visitor' }));
+    for (let i = 0; i < 30; i++) {
+      const text = fallbackJournal(ctx(), hs, `all-${i}`).entries.map((e) => e.text).join(' ');
+      expect(text).toMatch(/four times in all\./);
+      expect(text).not.toMatch(/that day/);
+    }
+  });
+
+  it('a gift moment does not also tell the finding of that same trinket (S8)', () => {
+    const found = hap({ id: 'tr1', kind: 'kept_for_owner', summary: 'It found a snail-shell whistle at the Tidepools.', memoryText: 'I found a snail-shell whistle at the Tidepools.', data: { trinket: 'snail-shell whistle' } });
+    const other = hap({ id: 'other', at: T0 - 2 * HOUR });
+    for (const lvl of [1, 2, 3, 4]) {
+      const detail = 'the present is snail-shell whistle: it hoots';
+      const only = fallbackReply(lvlCtx(lvl, [found]), { kind: 'moment', momentKind: 'gift', detail }, `g-${lvl}`);
+      expect(only.sharedHappeningIds).toEqual([]);
+      const both = fallbackReply(lvlCtx(lvl, [found, other]), { kind: 'moment', momentKind: 'gift', detail }, `g2-${lvl}`);
+      expect(both.sharedHappeningIds).toEqual(['other']);
+    }
+    // A different trinket is still worth telling about.
+    const diff = fallbackReply(lvlCtx(3, [found]), { kind: 'moment', momentKind: 'gift', detail: 'the present is a red button: it is red' }, 'g3');
+    expect(diff.sharedHappeningIds).toEqual(['tr1']);
+  });
+});
+
+describe('first-person grammar in happenings', () => {
+  // Past tense reads the same in both voices; a present-tense verb has to agree with "I".
+  const BAD_FIRST = [/\bI (has|keeps|is|does|goes|seems|wants|likes|remembers|finds|looks|feels)\b/, /\bI (were)\b/, /\b(my|My) [a-z ]+ (have|are) /];
+  const BAD_THIRD = [/\b[Ii]t (have|am|are|keep|remember)\b/];
+  const check = (text: string) => {
+    const first = voice(text, 'first');
+    const third = voice(text, 'third');
+    for (const re of BAD_FIRST) expect(first, `first person: ${first}`).not.toMatch(re);
+    for (const re of BAD_THIRD) expect(third, `third person: ${third}`).not.toMatch(re);
+    expect(first).not.toMatch(/\{|\}|\|/);
+    expect(third).not.toMatch(/\{|\}|\|/);
+  };
+
+  it('every stage growth line reads right in both voices', () => {
+    for (const st of STAGES) check(GROWTH_LINES[st]);
+    expect(voice(GROWTH_LINES.juvenile, 'first')).toBe('I have grown long and quick. I keep trying out new words.');
+    expect(voice(GROWTH_LINES.juvenile, 'third')).toBe('It has grown long and quick. It keeps trying out new words.');
+    expect(voice(GROWTH_LINES.adult, 'first')).toMatch(/^I am grown now/);
+  });
+
+  it('every event template reads right in both voices, across regions, weather, hours and seeds', () => {
+    const w = world('grammar');
+    const acq = (region: (typeof REGION_IDS)[number]) => ({ key: `aq-${region}`, name: 'Pim', species: 'crab', regionId: region, disposition: 0.7, metAt: T0, encounters: 3, lastSeenAt: T0, notes: [] });
+    const tr = (key: string, name: string, place: 'shelf' | 'forOwner') => ({ key, name, description: 'a small thing', regionId: 'tidepools' as const, foundAt: T0, rarity: 'common' as const, place });
+    let rendered = 0;
+    const seen = new Set<string>();
+    for (const tpl of EVENTS) {
+      for (const region of REGION_IDS) for (const weather of WEATHER_KINDS) for (const hour of [3, 7, 12, 22]) for (let i = 0; i < 3; i++) {
+        const acquaintance = acq(region);
+        const c: EventCtx = {
+          world: { ...w, creature: { ...w.creature, relationship: { ...w.creature.relationship, trust: 0.6 } }, regions: Object.fromEntries(REGION_IDS.map((r) => [r, { visits: 0 }])), acquaintances: [acquaintance], trinkets: [tr('a', 'Blue Pebble', 'shelf'), tr('b', 'Crab Claw', 'shelf')] },
+          rng: makeRng('grammar', tpl.id, region, weather, hour, i),
+          t: T0, hour, weather, moon: i === 0 ? 0.5 : 0.2, activity: tpl.on === 'any' ? 'rest' : tpl.on[0], regionId: region, acquaintance,
+        };
+        if (tpl.when && !tpl.when(c)) continue;
+        const out = tpl.make(c);
+        if (!out) continue;
+        check(out.text);
+        seen.add(tpl.id);
+        rendered++;
+      }
+    }
+    expect(rendered).toBeGreaterThan(500);
+    // Every template got rendered at least once, so none escapes the check.
+    expect(EVENTS.filter((e) => !seen.has(e.id)).map((e) => e.id)).toEqual([]);
   });
 });

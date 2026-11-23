@@ -129,11 +129,16 @@ export async function persistWorld(ctx: MutationCtx, c: Doc<'creatures'>, before
   return { happeningIds, memoryIds, transitions: adv.transitions };
 }
 
-export async function recordHappening(ctx: MutationCtx, creatureId: Id<'creatures'>, h: SimHappening): Promise<{ hid: Id<'happenings'>; mid: Id<'memories'> | null; fresh: boolean }> {
+/** `memoryId`: this happening is already remembered by that memory (so it does not write a second one). */
+export async function recordHappening(ctx: MutationCtx, creatureId: Id<'creatures'>, h: SimHappening, opts: { memoryId?: Id<'memories'> } = {}): Promise<{ hid: Id<'happenings'>; mid: Id<'memories'> | null; fresh: boolean }> {
   const hid = await ctx.db.insert('happenings', {
     creatureId, at: h.at, kind: h.kind, regionId: h.regionId, summary: h.summary, memoryText: h.memoryText, data: h.data,
     salience: h.salience, seen: false, shareable: h.shareable,
   });
+  if (opts.memoryId) {
+    await ctx.db.patch(hid, { memoryId: opts.memoryId });
+    return { hid, mid: opts.memoryId, fresh: false };
+  }
   if (h.salience < 0.5) return { hid, mid: null, fresh: false };
   const r = await rememberOnce(ctx, creatureId, { text: h.memoryText, at: h.at, salience: h.salience, valence: h.valence, tags: h.tags, source: 'happening', sourceIds: [hid] });
   await ctx.db.patch(hid, { memoryId: r.id });
@@ -151,7 +156,7 @@ const sameText = (a: string, b: string) => a.toLowerCase().replace(/\s+/g, ' ').
 
 /**
  * Write a memory once. If a live memory of the same kind has the same text (or, for happenings, the same source happening) within
- * MEMORY_DEDUPE_MS, strengthen that one (salience, recall count) instead of writing a duplicate.
+ * MEMORY_DEDUPE_MS, strengthen that one (a shrinking salience boost, recall count) instead of writing a duplicate.
  */
 export async function rememberOnce(ctx: MutationCtx, creatureId: Id<'creatures'>, m: NewMemory): Promise<{ id: Id<'memories'>; created: boolean }> {
   const kind = m.kind ?? 'episode';
@@ -166,10 +171,14 @@ export async function rememberOnce(ctx: MutationCtx, creatureId: Id<'creatures'>
     .take(100);
   // Source ids only identify a memory for happenings (one happening, one memory). Several replies or summaries can share a source.
   const fromHappening = m.source === 'happening' && sourceIds.length > 0;
-  const twin = near.find((x) => x.kind === kind && (sameText(x.text, text) || (fromHappening && x.source === 'happening' && x.sourceIds.some((s) => sourceIds.includes(s)))));
+  // Gifts and the owner's own words are one-offs: the same text twice is two events unless it is the same source.
+  const needsSource = m.source === 'gift' || m.source === 'owner';
+  const sameSource = (x: Doc<'memories'>) => x.source === m.source && x.sourceIds.some((s) => sourceIds.includes(s));
+  const twin = near.find((x) => x.kind === kind && ((sameText(x.text, text) && (!needsSource || sameSource(x))) || (fromHappening && sameSource(x))));
   if (twin) {
     await ctx.db.patch(twin._id, {
-      salience: Math.min(1, Math.max(twin.salience, salience) + 0.05),
+      // Each repeat counts for half as much as the last (+0.05, +0.025, …), so repeats add at most 0.1 and never make it unarchivable.
+      salience: Math.min(1, Math.max(twin.salience, salience) + 0.05 / 2 ** twin.recallCount),
       recallCount: twin.recallCount + 1,
       lastRecalledAt: Math.max(at, twin.lastRecalledAt ?? 0),
       sourceIds: [...new Set([...twin.sourceIds, ...sourceIds])].slice(-12),

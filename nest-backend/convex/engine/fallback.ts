@@ -123,28 +123,33 @@ function hello(rng: Rng, ctx: PromptContext, emotion: Emotion, recent: string[])
 
 // --- Telling one real thing from time away ---
 
+// Neutral tellings fit any happening. Outing tellings ("the door", "out") only fit one that really was an outing.
 const TELL_LOW = [
   'waves its paws about something that happened while you were away',
   'mimes something very big, then something very small, and looks at you hopefully',
-  'pats the floor and points at the door, very serious',
   'tries very hard to tell you something with its paws',
-  'acts out a long walk, with lots of sniffing',
+  'bounces on the spot, as if it has news',
 ];
-const TELL_TWO = ['out. look!', 'out! big.', 'go out. look.', 'out. pretty!'];
+const TELL_LOW_OUT = ['pats the floor and points at the door, very serious', 'acts out a long walk, with lots of sniffing'];
+const TELL_TWO = ['big! look.', 'look! pretty!', 'look. big!', 'pretty! you.'];
+const TELL_TWO_OUT = ['out. look!', 'out! big.', 'go out. look.', 'out. pretty!'];
+/** Did this happening take it out of the nest? True with a region, or for an exploring or visiting kind. */
+const wentOut = (h: PromptHappening) => !!h.regionId || /^(explor|visit)/.test(h.kind);
 const TELL_OPEN = ['Oh! ', 'Guess what. ', 'Also, ', 'Listen. ', 'While you were away, ', ''];
 
 function tell(h: PromptHappening, lvl: Lvl, rng: Rng, recent: string[]): Seg[] {
   const trinket = h.data?.trinket ? String(h.data.trinket) : null;
   const species = h.data?.species ? String(h.data.species) : null;
+  const out = wentOut(h);
   if (lvl <= 1) {
     if (trinket) return [{ act: pickFresh(rng, [`shows you the ${trinket}`, `holds up the ${trinket} for you to see`, `sets the ${trinket} in front of you, very carefully`], recent) }];
     if (h.kind === 'met_acquaintance' && species) return [{ act: pickFresh(rng, [`acts out meeting a ${species}`, `pretends to be a ${species}, quite badly`], recent) }];
-    return [{ act: pickFresh(rng, TELL_LOW, recent) }];
+    return [{ act: pickFresh(rng, out ? [...TELL_LOW, ...TELL_LOW_OUT] : TELL_LOW, recent) }];
   }
   if (lvl === 2) {
     if (trinket) return [{ act: `holds up the ${trinket}` }, { say: rng.pick(['look! shiny.', 'shiny! look.', 'look. pretty!']) }];
     if (h.kind === 'met_acquaintance') return [{ act: rng.pick(['wriggles', 'bounces']) }, { say: rng.pick(['friend! look.', 'friend! happy.', 'look! friend.']) }];
-    return [{ act: pickFresh(rng, ['points at the door', 'wriggles', 'waves its paws'], recent) }, { say: pickFresh(rng, TELL_TWO, recent) }];
+    return [{ act: pickFresh(rng, out ? ['points at the door', 'wriggles', 'waves its paws'] : ['wriggles', 'waves its paws', 'bounces'], recent) }, { say: pickFresh(rng, out ? [...TELL_TWO, ...TELL_TWO_OUT] : TELL_TWO, recent) }];
   }
   const text = h.memoryText.trim();
   const open = pickFresh(rng, TELL_OPEN, recent);
@@ -286,12 +291,15 @@ function compose(ctx: PromptContext, event: JobEvent, rng: Rng, recent: string[]
     segs.push(...hello(rng, ctx, emotion, recent));
   }
   const oneOff = event.kind === 'moment' && !!ONE_OFF[event.momentKind];
-  if (!asleep && !oneOff && ctx.happenings.length && event.kind !== 'reply') {
-    const h = [...ctx.happenings].sort((a, b) => b.at - a.at)[0];
+  // The trinket it is handing over in this very moment is not also "something it found while you were away".
+  const gift = event.kind === 'moment' && event.momentKind === 'gift' ? giftName(event.detail)?.toLowerCase() : undefined;
+  const tellable = gift ? ctx.happenings.filter((x) => String(x.data?.trinket ?? '').toLowerCase() !== gift) : ctx.happenings;
+  if (!asleep && !oneOff && tellable.length && event.kind !== 'reply') {
+    const h = [...tellable].sort((a, b) => b.at - a.at)[0];
     segs.push(...tell(h, lvl, rng, recent));
     shared.push(h.id);
-  } else if (!asleep && ctx.happenings.length && event.kind === 'reply' && !(/\?\s*$/.test(event.ownerText) && lvl >= 3) && rng.chance(0.5)) {
-    const h = ctx.happenings[0];
+  } else if (!asleep && tellable.length && event.kind === 'reply' && !(/\?\s*$/.test(event.ownerText) && lvl >= 3) && rng.chance(0.5)) {
+    const h = tellable[0];
     segs.push(...tell(h, lvl, rng, recent));
     shared.push(h.id);
   }
@@ -339,10 +347,10 @@ export function knownWords(ctx: PromptContext): Set<string> {
 // --- Journal ---
 
 const PART_OPEN: Record<'night' | 'morning' | 'afternoon' | 'evening', string[]> = {
-  night: ['In the night, ', 'Very late, ', 'While it was dark, '],
-  morning: ['In the morning, ', 'Early on, ', 'First thing, '],
-  afternoon: ['In the afternoon, ', 'Around midday, ', 'After lunch, '],
-  evening: ['In the evening, ', 'As it got dark, ', 'Towards bedtime, '],
+  night: ['In the night, ', 'Very late, ', 'While it was dark, ', 'Long after dark, ', 'Under the moon, ', 'In the small hours, '],
+  morning: ['In the morning, ', 'Early on, ', 'First thing, ', 'As the day began, ', 'Before noon, ', 'With the morning light, '],
+  afternoon: ['In the afternoon, ', 'Around midday, ', 'After lunch, ', 'As the day went on, ', 'Somewhere past noon, ', 'In the long middle of the day, '],
+  evening: ['In the evening, ', 'As it got dark, ', 'Towards bedtime, ', 'As the light went, ', 'When the lantern was lit, ', 'At the end of the day, '],
 };
 const NEXT = ['Later, ', 'After that, ', 'Then ', '', 'A bit later, '];
 const TIMES = ['', '', 'twice', 'three times', 'four times', 'five times'];
@@ -386,7 +394,7 @@ export function fallbackJournal(ctx: PromptContext, happenings: PromptHappening[
   const write = (g: (typeof groups)[number], rng: Rng) =>
     g.items.map((it, i) => {
       const n = it.ids.length;
-      const times = n > 1 ? ` ${rng.pick(['That happened', 'It happened'])} ${TIMES[Math.min(n, 5)]}${n > 5 ? ' or more' : ''} ${rng.pick(['that day', 'in all'])}.` : '';
+      const times = n > 1 ? ` ${rng.pick(['That happened', 'It happened'])} ${TIMES[Math.min(n, 5)]}${n > 5 ? ' or more' : ''} in all.` : '';
       return lead(i === 0 ? rng.pick(PART_OPEN[g.part]) : rng.pick(NEXT), endWith(it.summary)) + times;
     }).join(' ').slice(0, 900);
   const entries = groups.map((g, gi) => {

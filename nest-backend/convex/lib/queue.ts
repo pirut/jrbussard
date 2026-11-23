@@ -58,7 +58,7 @@ export async function queueMoment(ctx: MutationCtx, c: Doc<'creatures'>, a: { mo
   const event: JobEvent = { kind: 'moment', momentKind: a.momentKind, detail: a.detail };
   const messageId = await pendingMessage(ctx, c, 'moment', a.visitId);
   const fb = fallbackReply(pctx, event, `${c.seed}|${messageId}`);
-  const r = await make(ctx, c, 'moment', pctx, event, fb, { messageId });
+  const r = await make(ctx, c, 'moment', pctx, event, fb, { messageId, extra: { momentKind: a.momentKind } });
   return { ...r, messageId, fallbackText: fb.say };
 }
 

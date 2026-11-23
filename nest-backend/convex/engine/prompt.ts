@@ -15,7 +15,7 @@ export type MindRequest = {
 };
 
 export type PromptMemory = { id: string; text: string; at: number; kind: string; salience: number; pinned?: boolean; recallCount?: number };
-export type PromptHappening = { id: string; at: number; summary: string; memoryText: string; kind: string; data?: Record<string, unknown> };
+export type PromptHappening = { id: string; at: number; summary: string; memoryText: string; kind: string; regionId?: string; data?: Record<string, unknown> };
 
 export type PromptContext = {
   now: number;

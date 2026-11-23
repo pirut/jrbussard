@@ -1,7 +1,8 @@
 // The event table: what can happen when an activity ends. Facts only; words come later.
 //
 // Text patterns use {S}/{s} for the subject ("It"/"I", "it"/"I") and {P}/{p} for the
-// possessive ("Its"/"My", "its"/"my"), {o} for the object ("it"/"me"). Past tense, so verbs read the same either way.
+// possessive ("Its"/"My", "its"/"my"), {o} for the object ("it"/"me"). Write verbs in the past tense so they read the same either way;
+// a present-tense verb takes both forms: {has|have}, {keeps|keep}, {is|am} (third person first).
 import { REGIONS, WORLD_FACTS, makeAcquaintanceName, makeTrinket, titleCase } from './catalog';
 import { clamp, round, type Rng } from './rng';
 import type {
@@ -402,7 +403,9 @@ export function voice(pattern: string, person: 'first' | 'third'): string {
     .replace(/\{s\}/g, first ? 'I' : 'it')
     .replace(/\{P\}/g, first ? 'My' : 'Its')
     .replace(/\{p\}/g, first ? 'my' : 'its')
-    .replace(/\{o\}/g, first ? 'me' : 'it');
+    .replace(/\{o\}/g, first ? 'me' : 'it')
+    // Present-tense verbs agree with the speaker: {has|have} is the third person form, then the first person one.
+    .replace(/\{([a-z]+)\|([a-z]+)\}/g, (_, third: string, firstForm: string) => (first ? firstForm : third));
 }
 
 function article(name: string) {
