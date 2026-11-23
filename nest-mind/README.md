@@ -16,6 +16,7 @@ Setup and operations: `docs/nest-setup.md` ("The mind (Mac mini)").
 | `npm run status` | Account, plan scope, models, provider, last heartbeat, backups. No secrets. |
 | `npm start` | The job loop. |
 | `npm run selftest [-- --provider fake]` | The real loop against an in-memory backend. Fake provider by default (no network). |
+| `NEST_MIND_DEV_FAKE=1 npm start` | **Dev deployments only.** The real loop against Convex with canned fake replies, no model calls (see `docs/nest-setup.md`, "Testing the whole loop without a model"). |
 | `npm run check` / `npm test` | Typecheck / unit tests. |
 | `launchd/install-launchd.sh` / `uninstall-launchd.sh` | Run it at login under launchd (`com.jrbussard.nest-mind`), logs in `~/Library/Logs/nest-mind/`. |
 
