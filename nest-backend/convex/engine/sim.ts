@@ -324,3 +324,16 @@ function checkStage(w: SimWorld, t: number, out: SimHappening[], transitions: Tr
     salience: 0.9, shareable: true, tags: ['growth', earned], valence: 0.5,
   });
 }
+
+/** No planned activity runs longer than this (a night's sleep is the longest). */
+export const MAX_ACTIVITY_MS = 12 * HOUR;
+
+/**
+ * Move an activity onto a new clock (a restore resets `lastTickAt`). Keeps the time it had left, but never
+ * less than one step or more than MAX_ACTIVITY_MS, so it ends and the sim picks the next one as usual.
+ */
+export function rebaseActivity(a: Activity, oldTickAt: number, newTickAt: number): Activity {
+  const left = Math.min(MAX_ACTIVITY_MS, Math.max(STEP_MS, a.endsAt - oldTickAt));
+  const ran = Math.min(MAX_ACTIVITY_MS, Math.max(0, oldTickAt - a.startedAt));
+  return { ...a, startedAt: newTickAt - ran, endsAt: newTickAt + left };
+}

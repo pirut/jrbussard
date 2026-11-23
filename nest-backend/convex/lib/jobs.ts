@@ -81,6 +81,8 @@ export async function completeJob(ctx: MutationCtx, job: Doc<'jobs'>, outputText
   return { ok: true };
 }
 
+const sameWords = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
 function knownWords(job: Doc<'jobs'>) {
   return new Set([...STARTER_WORDS, ...job.context.vocabulary].map((w) => w.toLowerCase()));
 }
@@ -142,9 +144,17 @@ export async function applyOutput(ctx: MutationCtx, job: Doc<'jobs'>, output: Jo
     case 'journal': {
       const o = output as JournalOutput;
       const day = String(job.context.extra?.day ?? localTime(now, 'America/New_York').dayIndex);
+      // Each happening is journaled once, and no entry repeats a recent one word for word.
+      const recent = await ctx.db.query('journal').withIndex('by_creature_and_at', (q) => q.eq('creatureId', creature._id)).order('desc').take(60);
+      const done = new Set<string>(recent.flatMap((r) => r.happeningIds as string[]));
+      const said = new Set(recent.slice(0, 8).map((r) => sameWords(r.text)));
       for (const e of o.entries) {
-        const ids = e.happeningIds.map((h) => ctx.db.normalizeId('happenings', h)).filter((x): x is Id<'happenings'> => !!x);
+        const all = e.happeningIds.map((h) => ctx.db.normalizeId('happenings', h)).filter((x): x is Id<'happenings'> => !!x);
+        const ids = all.filter((id) => !done.has(id));
+        if ((all.length && !ids.length) || said.has(sameWords(e.text))) continue;
         await ctx.db.insert('journal', { creatureId: creature._id, day, at: now, text: e.text, happeningIds: ids, fallback, jobId: job._id });
+        for (const id of ids) done.add(id);
+        said.add(sameWords(e.text));
       }
       break;
     }

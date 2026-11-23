@@ -70,11 +70,11 @@ export async function queueNoteReply(ctx: MutationCtx, c: Doc<'creatures'>, note
   return await make(ctx, c, 'note_reply', pctx, event, fb, { messageId, ownerText: notes.map((n) => n.text).join('\n') });
 }
 
-export async function queueJournal(ctx: MutationCtx, c: Doc<'creatures'>, day: string, happenings: Doc<'happenings'>[]) {
+export async function queueJournal(ctx: MutationCtx, c: Doc<'creatures'>, day: string, happenings: Doc<'happenings'>[], recentEntries: string[] = []) {
   const pctx = await buildContext(ctx, c, { memoryLimit: 6 });
   const hs: PromptHappening[] = happenings.map(toPromptHappening);
   const event: JobEvent = { kind: 'journal', day, happenings: hs };
-  const fb = fallbackJournal(pctx, hs);
+  const fb = fallbackJournal(pctx, hs, `${c.seed}|${day}|${c.tickCount}`, recentEntries);
   return await make(ctx, c, 'journal', pctx, event, fb, { happeningIds: hs.map((h) => h.id), extra: { day } });
 }
 

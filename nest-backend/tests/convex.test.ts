@@ -6,9 +6,9 @@ import { api, internal } from '../convex/_generated/api';
 import type { Id } from '../convex/_generated/dataModel';
 import { createEgg } from '../convex/auth';
 import { DEFAULT_SETTINGS, hashCode, hashTagSecret, hashToken, SESSION_TTL } from '../convex/lib/core';
-import { queueConsolidate } from '../convex/lib/queue';
-import { loadWorld } from '../convex/lib/world';
-import { readNotes } from '../convex/sim';
+import { queueConsolidate, queueJournal } from '../convex/lib/queue';
+import { addMemory, loadWorld, recordHappening } from '../convex/lib/world';
+import { maybeJournal, readNotes } from '../convex/sim';
 import { RESTORE_LOCK_STALE_MS } from '../convex/backup';
 import { canonicalJson, sha256Hex } from '../convex/engine/sha256';
 import { verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
@@ -1134,5 +1134,106 @@ describe('round 2 fixes', () => {
     expect((await t.run(async (ctx) => (await ctx.db.get(reg))!)).usedAt).toBeDefined();
     const failures = await t.run(async (ctx) => (await ctx.db.query('audit').collect()).filter((x) => x.event === 'auth.failed').map((x) => x.detail));
     expect(failures).toEqual(expect.arrayContaining(['login: not verified', 'register: not verified']));
+  });
+});
+
+describe('backend polish', () => {
+  const sim = (at: number, text: string, salience = 0.6) => ({
+    at, kind: 'had_visitor', summary: `Junisom the beetle ${text}.`, memoryText: `Junisom the beetle ${text}.`, data: {}, salience, shareable: true, tags: ['visitor'], valence: 0.4,
+  });
+
+  it('the same happening text inside the window is one memory, recalled again, not two', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    const now = Date.now();
+    const r = await t.run(async (ctx) => {
+      const a = await recordHappening(ctx, cid, sim(now, 'came by the nest and knocked'));
+      const b = await recordHappening(ctx, cid, sim(now + 3600_000, 'came by the nest and knocked'));
+      const c = await recordHappening(ctx, cid, sim(now + 7200_000, 'brought a leaf'));
+      const far = await recordHappening(ctx, cid, sim(now + 5 * 86_400_000, 'came by the nest and knocked'));
+      // Replies may remember several things from one message: same source, different text, two memories.
+      const x = await addMemory(ctx, cid, { text: 'My person likes tea.', salience: 0.6, source: 'conversation', sourceIds: ['msg1'] });
+      const y = await addMemory(ctx, cid, { text: 'My person has a cat.', salience: 0.6, source: 'conversation', sourceIds: ['msg1'] });
+      return { a, b, c, far, x, y };
+    });
+    expect(r.b.mid).toBe(r.a.mid);
+    expect(r.b.fresh).toBe(false);
+    expect(r.c.mid).not.toBe(r.a.mid);
+    expect(r.far.mid).not.toBe(r.a.mid);
+    expect(r.x).not.toBe(r.y);
+    const mems = await t.run(async (ctx) => ctx.db.query('memories').collect());
+    const knocks = mems.filter((m) => m.text === 'Junisom the beetle came by the nest and knocked.');
+    expect(knocks).toHaveLength(2); // one now, one five days later
+    const first = knocks.find((m) => m._id === r.a.mid)!;
+    expect(first.recallCount).toBe(1);
+    expect(first.salience).toBeCloseTo(0.65);
+    expect(first.sourceIds).toEqual([r.a.hid, r.b.hid]);
+    const hb = await t.run(async (ctx) => ctx.db.get(r.b.hid));
+    expect(hb!.memoryId).toBe(r.a.mid);
+  });
+
+  it('journals each happening at most once, even when happenings are stamped after the journal row', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    const now = Date.now();
+    // Sim time ahead of the wall clock (a dev tick or a restore): the old "since last journal row" rule journaled these twice.
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 4; i++) await recordHappening(ctx, cid, sim(now + (i + 1) * 3600_000, 'came by the nest and knocked', 0.4));
+      await recordHappening(ctx, cid, sim(now + 5 * 3600_000, 'left a feather on the doorstep', 0.4));
+    });
+    const first = await t.run(async (ctx) => maybeJournal(ctx, (await ctx.db.get(cid))!, now + 6 * 3600_000));
+    expect(first).toBe(true);
+    await settle(t);
+    const again = await t.run(async (ctx) => maybeJournal(ctx, (await ctx.db.get(cid))!, now + 7 * 3600_000));
+    expect(again).toBe(false);
+    const rows = await t.run(async (ctx) => ctx.db.query('journal').collect());
+    const ids = rows.flatMap((r) => r.happeningIds);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.length).toBeGreaterThanOrEqual(5); // ours plus the hatch
+    const text = rows.map((r) => r.text).join(' ');
+    expect(text.split('came by the nest and knocked').length - 1).toBe(1);
+    expect(new Set(rows.map((r) => r.text)).size).toBe(rows.length);
+  });
+
+  it('a journal answer that repeats already journaled happenings is not written twice', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    const cid = await owned(t, { hatched: true });
+    const now = Date.now();
+    const hid = await t.run(async (ctx) => (await recordHappening(ctx, cid, sim(now - 3600_000, 'knocked', 0.4))).hid);
+    await t.run(async (ctx) => { await ctx.db.insert('journal', { creatureId: cid, day: '2026-11-20', at: now - 60_000, text: 'Junisom knocked.', happeningIds: [hid], fallback: true }); });
+    await t.mutation(api.mind.heartbeat, { mindSecret: MIND_SECRET, mindId: 'mini', provider: 'chatgpt-plan', model: 'm', planStatus: 'ok', canServe: true, version: '1' });
+    const { jobId } = await t.run(async (ctx) => queueJournal(ctx, (await ctx.db.get(cid))!, '2026-11-20', [(await ctx.db.get(hid))!]));
+    await t.mutation(api.mind.claim, { mindSecret: MIND_SECRET, jobId, mindId: 'mini' });
+    await t.mutation(api.mind.complete, { mindSecret: MIND_SECRET, jobId, provider: 'chatgpt-plan', model: 'gpt', outputText: JSON.stringify({ entries: [{ happeningIds: [hid], text: 'The beetle knocked again today.' }] }) });
+    expect(await t.run(async (ctx) => (await ctx.db.query('journal').collect()).length)).toBe(1);
+  });
+
+  it('sound starts off and the view carries the voice pitch', async () => {
+    expect(DEFAULT_SETTINGS.soundOn).toBe(false);
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    const view = (await t.query(api.creature.get, { sessionToken: TOKEN }))!;
+    const genome = await t.run(async (ctx) => (await ctx.db.get(cid))!.genome);
+    expect(view.creature.voicePitch).toBe(genome.voicePitch);
+    expect(view.creature.voicePitch).toBeGreaterThanOrEqual(0);
+    expect(view.creature.voicePitch).toBeLessThanOrEqual(1);
+  });
+
+  it('finishing a restore re-plans an activity that would otherwise run for days', async () => {
+    const t = make();
+    const cid = await owned(t, { hatched: true });
+    const now = Date.now();
+    const ahead = now + 3 * 86_400_000;
+    await t.run(async (ctx) => { await ctx.db.patch(cid, { restoring: true, lastTickAt: ahead, activity: { kind: 'explore', regionId: 'mossy-hollow', startedAt: ahead - 3600_000, endsAt: ahead + 2 * 3600_000 } }); });
+    await t.mutation(internal.backup.finishRestore, { creatureId: cid, checksum: 'x'.repeat(64) });
+    const c = (await t.run(async (ctx) => ctx.db.get(cid)))!;
+    expect(c.lastTickAt).toBe(now);
+    expect(c.activity.endsAt).toBe(now + 2 * 3600_000);
+    expect(c.activity.endsAt - c.lastTickAt).toBeLessThanOrEqual(12 * 3600_000);
+    // The next tick moves on to a new activity within hours, not days.
+    await t.mutation(internal.sim.tick, { now: now + 3 * 3600_000 });
+    const later = (await t.run(async (ctx) => ctx.db.get(cid)))!;
+    expect(later.activity.startedAt).toBeGreaterThanOrEqual(now + 2 * 3600_000 - 20 * 60_000);
   });
 });
