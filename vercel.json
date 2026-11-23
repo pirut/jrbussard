@@ -16,6 +16,16 @@
             "permanent": false
         }
     ],
+    "headers": [
+        {
+            "source": "/contact",
+            "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+        },
+        {
+            "source": "/contact/:path*",
+            "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+        }
+    ],
     "rewrites": [
         {
             "source": "/(.*)",
