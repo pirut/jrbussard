@@ -1,0 +1,31 @@
+{
+  "name": "nest-mind",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local AI service for the nest creature. Runs on the Mac mini, holds the ChatGPT credentials, turns prepared requests from Convex into model text.",
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "start": "tsx src/cli/start.ts",
+    "login": "tsx src/cli/login.ts",
+    "logout": "tsx src/cli/logout.ts",
+    "status": "tsx src/cli/status.ts",
+    "setup": "tsx src/cli/setup.ts",
+    "selftest": "tsx src/cli/selftest.ts",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "convex": "^1.42.3",
+    "jose": "^6.2.18",
+    "openai": "^7.62.0",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.1"
+  }
+}
