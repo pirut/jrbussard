@@ -175,7 +175,9 @@ function lerpAngle(a, b, t) {
  * `container` is the element the canvas goes in. Options: `cellWidth` and
  * `cellHeight`, one character cell in CSS pixels (see AsciiField.DENSITIES),
  * and `reducedMotion`, which stills the sea, embers, rain splashes, lightning,
- * camera shake, the build ghost's breath and the rise of new structures.
+ * camera shake, the build ghost's breath, the rise of new structures and the
+ * puffs work throws up. It can be switched later through the reducedMotion
+ * property.
  */
 export default class AsciiWorld {
     constructor(container, options) {
@@ -187,6 +189,19 @@ export default class AsciiWorld {
             abandon(this);
             throw error;
         }
+    }
+
+    /* Reduced motion can change while the world runs: Commons.js sets it
+       from the player's setting. Everything else reads it every frame, but
+       the puffs keep a flag of their own, so it is passed on to them here
+       (switching it on also drops any bits already in the air). */
+    get reducedMotion() {
+        return this.calm;
+    }
+
+    set reducedMotion(on) {
+        this.calm = Boolean(on);
+        this.puffs?.setStill(this.calm);
     }
 
     init(container, { cellWidth = 8, cellHeight = 14, reducedMotion = false } = {}) {

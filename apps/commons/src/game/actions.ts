@@ -62,6 +62,9 @@ export function perform(action: Action, me: Me, { call, facing }: Deps): Promise
     case 'drink':
       if (me.potions <= 0) return Promise.resolve('No potions left.');
       return call('drink', {}).then(() => 'You feel restored.');
+    /* The browser's claim key (L by default). */
+    case 'claimQuest':
+      return claimQuest({ call });
     default:
       return undefined;
   }

@@ -37,6 +37,7 @@ export const ACTIONS = [
   { id: "act", label: "Act on what you aim at", group: "Act" },
   { id: "eat", label: "Eat", group: "Act" },
   { id: "drink", label: "Drink a potion", group: "Act" },
+  { id: "claimQuest", label: "Claim a finished task", group: "Act" },
   { id: "shovel", label: "Shovel: dig · raise · level · off", group: "Act" },
   { id: "remove", label: "Remove something you built", group: "Act" },
   { id: "build", label: "Build mode on and off", group: "Build" },
@@ -53,6 +54,7 @@ export const ACTIONS = [
   { id: "firstPerson", label: "First person view", group: "Panels" },
   { id: "fullscreen", label: "Full screen", group: "Panels" },
   { id: "raw", label: "Raw render", group: "Panels" },
+  { id: "sound", label: "Sound on and off", group: "Panels" },
   { id: "help", label: "Controls list", group: "Panels" },
   { id: "pause", label: "Menu", group: "Panels", remap: false },
   { id: "respawn", label: "Wake up after a death", group: "Act" },
@@ -89,6 +91,7 @@ export const DEFAULT_KEYS = {
   act: [" "],
   eat: ["e"],
   drink: ["q"],
+  claimQuest: ["l"],
   shovel: ["g"],
   remove: ["x"],
   build: ["b"],
@@ -105,6 +108,7 @@ export const DEFAULT_KEYS = {
   firstPerson: ["p"],
   fullscreen: ["f"],
   raw: ["v"],
+  sound: ["n"],
   help: ["h", "?"],
   pause: ["Escape"],
   respawn: ["r"],
@@ -154,18 +158,32 @@ export function keyLabel(key) {
  * them. `custom` only holds what was changed, so new defaults still reach
  * players who never touched the settings.
  *
+ * No key may end up on two actions (R's pair aside). The player's own keys
+ * are placed first and win: a default that lands on a key they chose is
+ * dropped, which is what happens when a new action's default (mute on N,
+ * claim on L) arrives after a player already gave that key to something
+ * else. Settings then show the newcomer as having no key. Between two of the
+ * player's own, the one earlier in ACTIONS keeps it.
+ *
  * A custom entry replaces an action's keys wholesale, and an empty array is
  * kept as is: that is how an action the player took a key from ends up
  * unbound (see unboundActions) rather than quietly getting its default back.
  * Returns a fresh object each call; callers may mutate it.
  */
 export function resolveBindings(custom = {}) {
+  const owners = new Map();
+  const take = (id) => (key) => {
+    const had = owners.get(key) || [];
+    if (!had.every((other) => mayShare(other, id))) return false;
+    owners.set(key, [...had, id]);
+    return true;
+  };
   const out = {};
-  for (const id of ACTION_IDS) {
-    const mine = custom && Array.isArray(custom[id]) ? custom[id].map(normalizeKey).filter(Boolean) : null;
-    out[id] = mine || DEFAULT_KEYS[id].slice();
-  }
-  return out;
+  const stored = (id) => custom && Array.isArray(custom[id]);
+  for (const id of ACTION_IDS)
+    if (stored(id)) out[id] = custom[id].map(normalizeKey).filter(Boolean).filter(take(id));
+  for (const id of ACTION_IDS) if (!stored(id)) out[id] = DEFAULT_KEYS[id].filter(take(id));
+  return Object.fromEntries(ACTION_IDS.map((id) => [id, out[id]]));
 }
 
 /* key → the actions it asks for, for looking up a key press. A Map of
@@ -220,17 +238,142 @@ export function rebind(custom, action, key) {
   return { custom: next, displaced };
 }
 
-/* Put one action back to its default keys, or (with no `action`) all of
-   them. Returns the new custom overrides; `custom` is not mutated. */
+/*
+ * Put one action back to its default keys, or (with no `action`) all of
+ * them. Like rebind, a default key that something else now has is taken back
+ * off it (unless the two may share), so a reset never leaves one key on two
+ * actions. Returns `{ custom, displaced }`: the new custom overrides and what
+ * lost a key. `custom` is not mutated.
+ */
 export function resetBinding(custom, action) {
-  if (!action) return {};
+  if (!action) return { custom: {}, displaced: [] };
+  const all = resolveBindings(custom);
   const next = { ...custom };
   delete next[action];
-  return next;
+  const displaced = [];
+  for (const id of ACTION_IDS) {
+    if (id === action || mayShare(id, action)) continue;
+    const kept = all[id].filter((k) => !DEFAULT_KEYS[action].includes(k));
+    if (kept.length === all[id].length) continue;
+    displaced.push(id);
+    next[id] = kept;
+  }
+  return { custom: next, displaced };
+}
+
+/* Whether an action's keys are other than it started with. */
+export function isRebound(bindings, action) {
+  return (bindings[action] || []).join("\n") !== (DEFAULT_KEYS[action] || []).join("\n");
 }
 
 /* Actions left with no key at all, to warn about in the settings. Actions
    with `remap: false` are skipped: they cannot be unbound by the player. */
 export function unboundActions(bindings) {
   return ACTION_IDS.filter((id) => BY_ID[id].remap !== false && !(bindings[id] || []).length);
+}
+
+/*
+ * The walking keys held down, tracked by physical key: letting go of W while
+ * ↑ is still down keeps walking up. Each key remembers the action it meant
+ * when it went down, so a remap mid-hold cannot strand it; a repeat that
+ * now means another walk swaps the old one for the new. `held` is the
+ * walking actions in the order they were first pressed; it is a new array
+ * only when it changes.
+ */
+export function createHeldMoves() {
+  const keys = new Map();
+  let held = [];
+  const letGo = (k) => {
+    const action = keys.get(k);
+    keys.delete(k);
+    if (action && ![...keys.values()].includes(action)) held = held.filter((a) => a !== action);
+  };
+  return {
+    down(key, action) {
+      const k = normalizeKey(key);
+      /* Remapped while held (a repeat now means something else): let go of
+         what it meant before, or that walk would be stranded. */
+      if (keys.has(k) && keys.get(k) !== action) letGo(k);
+      keys.set(k, action);
+      if (!held.includes(action)) held = [...held, action];
+      return held;
+    },
+    up(key) {
+      letGo(normalizeKey(key));
+      return held;
+    },
+    clear() {
+      keys.clear();
+      held = [];
+      return held;
+    },
+    get held() {
+      return held;
+    },
+  };
+}
+
+/*
+ * Which way the player leans this frame, in screen terms, or null to stand.
+ * Commons.js's frame loop asks once a frame.
+ *
+ *   held     walking actions whose keys are down (createHeldMoves)
+ *   tap      the walk of a key let go before its step was taken, or null
+ *   stick    the touch thumbstick's lean, or null
+ *   pad      the controller's left stick, or null
+ *   alive    false while waiting to wake up
+ *   covered  the menu, settings, the controls list or the character
+ *            screen is over the game
+ *
+ * Keys win over a tap, a tap over the touch stick, and that over the pad.
+ * Every key held counts, so W and D together give [1, -1] (up and to the
+ * right); keys give -1, 0 or 1 per axis, a stick any lean up to 1. Nothing
+ * leans while the player is down or something covers the game, so a key
+ * still held when Esc opens the menu does not walk on under it.
+ */
+export function walkLean({ held, tap = null, stick = null, pad = null, alive = true, covered = false }) {
+  if (!alive || covered) return null;
+  const keys = held?.length ? held : tap;
+  if (keys?.length)
+    return [
+      Math.sign(keys.reduce((sum, k) => sum + MOVE_VECTORS[k][0], 0)),
+      Math.sign(keys.reduce((sum, k) => sum + MOVE_VECTORS[k][1], 0)),
+    ];
+  return stick || pad || null;
+}
+
+const ARROW_DIRS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+const PANEL_TABS = { craft: "Craft", pack: "Pack", journal: "Journal" };
+
+/*
+ * What a key does while focus is inside a window: the menu, settings, the
+ * controls list, the Fieldcraft panel, any dialog. The window has the
+ * keyboard: Tab and the arrows move between its controls and Esc backs
+ * out. The panel keys switch Fieldcraft's tab (or shut it) only when
+ * Fieldcraft itself has focus, and Tab never does, even while it is bound
+ * to Craft, so a key pressed in Settings or the menu changes nothing
+ * behind it.
+ *
+ *   key        the KeyboardEvent key
+ *   actions    what the bindings make of it
+ *   inPanel    focus is inside the Fieldcraft window
+ *   ownsArrows the focused control takes the arrows itself (a slider)
+ *   helpOpen   the controls list is up
+ *   dead       the player is waiting to wake up
+ *
+ * Returns one of { type: "focus" } (leave Tab to the window's own focus
+ * trap), { type: "step", dir }, { type: "back" }, { type: "panel", tab },
+ * { type: "closeHelp" }, { type: "respawn" }, or null for nothing.
+ */
+export function windowKey({ key, actions = [], inPanel = false, ownsArrows = false, helpOpen = false, dead = false }) {
+  if (key === "Tab") return { type: "focus" };
+  if (ARROW_DIRS[key] && !ownsArrows) return { type: "step", dir: ARROW_DIRS[key] };
+  if (key === "Escape") return { type: "back" };
+  if (inPanel) {
+    const panelAction = ["pack", "journal", "craft"].find((a) => actions.includes(a));
+    if (panelAction) return { type: "panel", tab: PANEL_TABS[panelAction] };
+  }
+  if (helpOpen && actions.includes("help")) return { type: "closeHelp" };
+  if (dead && actions.includes("respawn")) return { type: "respawn" };
+  return null;
 }

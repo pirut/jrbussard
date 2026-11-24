@@ -14,12 +14,14 @@ import { Glyph } from "./input/InputContext";
  *   onClose  the × button only. Esc and the controller's back button are
  *            handled by Commons.js (for the controller, by sending Esc, see
  *            input/useGamepad.js), not here.
+ *   ...rest  other props (data-* markers such as data-fieldcraft) go on the
+ *            window element itself.
  *
  * role="dialog" is also how the controller code finds the menu on top and
  * switches to menu controls (input/useGamepad.js topMenu), so every window
  * built on this is controller-navigable for free.
  */
-export default function HudWindow({ label, className = "", onClose, children }) {
+export default function HudWindow({ label, className = "", onClose, children, ...rest }) {
   const ref = useRef(null);
   useDialogFocus(ref);
   /* Runs after useDialogFocus's own effect (it is declared first and effects
@@ -35,6 +37,7 @@ export default function HudWindow({ label, className = "", onClose, children }) 
       aria-modal="true"
       aria-label={label}
       tabIndex={-1}
+      {...rest}
     >
       <button className="hud-close" onClick={onClose} aria-label={`Close ${label.toLowerCase()}`}>
         <Glyph action="back" /> ×

@@ -3,6 +3,7 @@ import {
   ACTION_IDS,
   DEFAULT_KEYS,
   actionsForKey,
+  createHeldMoves,
   createKeymap,
   keyLabel,
   normalizeKey,
@@ -10,6 +11,8 @@ import {
   resetBinding,
   resolveBindings,
   unboundActions,
+  walkLean,
+  windowKey,
 } from "../src/arcade/commons/input/actions";
 import {
   BUTTON,
@@ -18,15 +21,18 @@ import {
   controllerFamily,
   createPadReader,
   padAction,
+  padTouched,
   rumbleFor,
   stickDirection,
   stickVector,
+  thirdPersonLook,
 } from "../src/arcade/commons/input/gamepad";
 import { nextInDirection } from "../src/arcade/commons/input/focus";
 import {
   DEFAULT_SETTINGS,
   createSettingsStore,
   loadSettings,
+  mouseLook,
   resolveReducedMotion,
   resolveUiScale,
   sanitizeSettings,
@@ -103,10 +109,194 @@ describe("keyboard bindings", () => {
     expect(rebind({}, "pause", "p").error).toBeTruthy();
   });
 
+  it("routes muting and claiming through the bindings, so N bound elsewhere stops muting", () => {
+    /* The sound hook used to listen for N itself: binding N to the journal
+       opened it and muted too, and settings could not move or show mute. */
+    const keymap = createKeymap(resolveBindings());
+    expect(actionsForKey(keymap, "N")).toEqual(["sound"]);
+    expect(actionsForKey(keymap, "l")).toEqual(["claimQuest"]);
+    const { custom, displaced } = rebind({}, "journal", "n");
+    expect(displaced).toEqual(["sound"]);
+    expect(actionsForKey(createKeymap(resolveBindings(custom)), "n")).toEqual(["journal"]);
+  });
+
+  it("gives no two actions the same default key, R aside", () => {
+    const seen = new Map();
+    for (const id of ACTION_IDS)
+      for (const key of DEFAULT_KEYS[id]) seen.set(key, [...(seen.get(key) || []), id]);
+    const shared = [...seen].filter(([, ids]) => ids.length > 1);
+    expect(shared).toEqual([["r", ["turnPiece", "respawn"]]]);
+  });
+
   it("resets one action or all of them", () => {
     const { custom } = rebind({}, "build", "n");
-    expect(resolveBindings(resetBinding(custom, "build")).build).toEqual(["b"]);
-    expect(resetBinding(custom)).toEqual({});
+    expect(resolveBindings(resetBinding(custom, "build").custom).build).toEqual(["b"]);
+    expect(resetBinding(custom).custom).toEqual({});
+  });
+
+  /* Every key on at most one action, R's pair aside. */
+  const clashes = (bindings: Record<string, string[]>) =>
+    [...createKeymap(bindings)].filter(
+      ([, ids]) => ids.length > 1 && !(ids.length === 2 && ids.includes("turnPiece") && ids.includes("respawn")),
+    );
+
+  it("lets keys saved before mute and claim had defaults keep winning over the new defaults", () => {
+    /* What rebind stored for "journal on N, map on L" before N muted and L
+       claimed: those defaults must not land on the same keys. */
+    const legacy = { journal: ["n", "j"], map: ["l", "m"] };
+    const bindings = resolveBindings(legacy);
+    expect(clashes(bindings)).toEqual([]);
+    const keymap = createKeymap(bindings);
+    expect(actionsForKey(keymap, "n")).toEqual(["journal"]);
+    expect(actionsForKey(keymap, "l")).toEqual(["map"]);
+    expect(bindings.sound).toEqual([]);
+    expect(bindings.claimQuest).toEqual([]);
+    expect(unboundActions(bindings)).toEqual(["claimQuest", "sound"]);
+    /* Taking N off the journal gives mute its default back. */
+    expect(resolveBindings({ ...legacy, journal: ["j"] }).sound).toEqual(["n"]);
+  });
+
+  it("keeps a hand-edited copy from putting one key on two of the player's own actions", () => {
+    const bindings = resolveBindings({ eat: ["x", "x"], remove: ["x"] });
+    expect(bindings.eat).toEqual(["x"]);
+    expect(bindings.remove).toEqual([]);
+    expect(clashes(bindings)).toEqual([]);
+  });
+
+  it("takes a reset action's default key back off whatever was given it, as rebinding does", () => {
+    const moved = rebind({}, "build", "e").custom;
+    const { custom, displaced } = resetBinding(moved, "eat");
+    expect(displaced).toEqual(["build"]);
+    const bindings = resolveBindings(custom);
+    expect(clashes(bindings)).toEqual([]);
+    expect(bindings.eat).toEqual(["e"]);
+    expect(bindings.build).toEqual(["b"]);
+    expect(actionsForKey(createKeymap(bindings), "e")).toEqual(["eat"]);
+    /* Resetting mute after a legacy journal-on-N does the same to the journal. */
+    const legacy = resetBinding({ journal: ["n", "j"] }, "sound");
+    expect(legacy.displaced).toEqual(["journal"]);
+    expect(resolveBindings(legacy.custom).journal).toEqual(["j"]);
+    expect(resolveBindings(legacy.custom).sound).toEqual(["n"]);
+  });
+
+  it("leaves R shared by turning and waking after a reset", () => {
+    const { custom, displaced } = resetBinding(rebind({}, "respawn", "y").custom, "respawn");
+    expect(displaced).toEqual([]);
+    expect(actionsForKey(createKeymap(resolveBindings(custom)), "r")).toEqual(["turnPiece", "respawn"]);
+  });
+});
+
+describe("keys inside a window", () => {
+  const keymap = createKeymap(resolveBindings());
+  const inside = (key: string, more = {}) => windowKey({ key, actions: actionsForKey(keymap, key), ...more });
+
+  it("leaves Tab to the window even though Tab is bound to Craft", () => {
+    /* Tab used to shut Fieldcraft instead of moving to its next button. */
+    expect(actionsForKey(keymap, "Tab")).toEqual(["craft"]);
+    expect(inside("Tab", { inPanel: true })).toEqual({ type: "focus" });
+    expect(inside("Tab")).toEqual({ type: "focus" });
+  });
+
+  it("changes nothing behind Settings or the menu", () => {
+    /* Focus in Settings, Fieldcraft open behind it: C, I, J do nothing. */
+    expect(inside("c")).toBe(null);
+    expect(inside("i")).toBe(null);
+    expect(inside("j")).toBe(null);
+  });
+
+  it("switches Fieldcraft's tabs from inside Fieldcraft", () => {
+    expect(inside("c", { inPanel: true })).toEqual({ type: "panel", tab: "Craft" });
+    expect(inside("i", { inPanel: true })).toEqual({ type: "panel", tab: "Pack" });
+    expect(inside("j", { inPanel: true })).toEqual({ type: "panel", tab: "Journal" });
+  });
+
+  it("moves with the arrows unless a slider takes them, and backs out on Esc", () => {
+    expect(inside("ArrowDown")).toEqual({ type: "step", dir: "down" });
+    expect(inside("ArrowLeft", { ownsArrows: true })).toBe(null);
+    expect(inside("Escape")).toEqual({ type: "back" });
+    expect(inside("h", { helpOpen: true })).toEqual({ type: "closeHelp" });
+    expect(inside("r", { dead: true })).toEqual({ type: "respawn" });
+  });
+});
+
+describe("walking keys", () => {
+  it("keeps walking while another key for the same way is still down", () => {
+    /* Letting go of W while ↑ was held used to stop the walk. */
+    const moves = createHeldMoves();
+    moves.down("w", "moveUp");
+    moves.down("ArrowUp", "moveUp");
+    expect(moves.up("w")).toEqual(["moveUp"]);
+    expect(moves.up("ArrowUp")).toEqual([]);
+  });
+
+  it("matches a key let go with Shift down to the one pressed", () => {
+    const moves = createHeldMoves();
+    moves.down("d", "moveRight");
+    moves.down("w", "moveUp");
+    expect(moves.held).toEqual(["moveRight", "moveUp"]);
+    expect(moves.up("D")).toEqual(["moveUp"]);
+  });
+
+  it("lets go of a key's old walk when a remap changes it mid-hold", () => {
+    const moves = createHeldMoves();
+    moves.down("w", "moveUp");
+    /* W remapped to walk left; its repeat now says so. */
+    expect(moves.down("w", "moveLeft")).toEqual(["moveLeft"]);
+    expect(moves.up("w")).toEqual([]);
+  });
+
+  it("keeps the old walk on a remap while another key still holds it", () => {
+    const moves = createHeldMoves();
+    moves.down("w", "moveUp");
+    moves.down("ArrowUp", "moveUp");
+    expect(moves.down("w", "moveLeft")).toEqual(["moveUp", "moveLeft"]);
+    expect(moves.up("w")).toEqual(["moveUp"]);
+    expect(moves.up("ArrowUp")).toEqual([]);
+  });
+
+  it("hands back the same list while nothing changes, and empties on clear", () => {
+    const moves = createHeldMoves();
+    const first = moves.down("a", "moveLeft");
+    expect(moves.down("a", "moveLeft")).toBe(first);
+    expect(moves.up("x")).toBe(first);
+    expect(moves.clear()).toEqual([]);
+    expect(moves.up("a")).toEqual([]);
+  });
+});
+
+describe("which way the player leans", () => {
+  it("adds up every walking key held: W and D together go up and to the right", () => {
+    expect(walkLean({ held: ["moveUp", "moveRight"] })).toEqual([1, -1]);
+    expect(walkLean({ held: ["moveUp", "moveDown"] })).toEqual([0, 0]);
+  });
+
+  it("takes held keys over a tap, a tap over the touch stick, and that over the pad", () => {
+    const stick = [0.4, 0.2];
+    const pad = [-0.9, 0];
+    expect(walkLean({ held: ["moveLeft"], tap: ["moveRight"], stick, pad })).toEqual([-1, 0]);
+    expect(walkLean({ held: [], tap: ["moveRight"], stick, pad })).toEqual([1, 0]);
+    expect(walkLean({ held: [], tap: null, stick, pad })).toBe(stick);
+    expect(walkLean({ held: [], pad })).toBe(pad);
+    expect(walkLean({ held: [] })).toBeNull();
+  });
+
+  it("stands while the player is down", () => {
+    expect(walkLean({ held: ["moveUp"], stick: [1, 0], alive: false })).toBeNull();
+  });
+
+  it("does not walk on under the menu with W still held", () => {
+    /* Hold W, then Esc opens the menu. Before, the held walk carried on at
+       full speed under it until W was let go. */
+    const moves = createHeldMoves();
+    const held = moves.down("w", "moveUp");
+    expect(walkLean({ held })).toEqual([0, -1]);
+    expect(walkLean({ held, covered: true })).toBeNull();
+    /* W's key repeat, a touch stick or the pad changes nothing while it is up. */
+    expect(walkLean({ held: moves.down("w", "moveUp"), stick: [0.5, 0], pad: [0, 1], covered: true })).toBeNull();
+    /* Commons.js lets go of what was held when the menu opened, so closing
+       it does not resume a walk; the next key down (or repeat) does. */
+    expect(walkLean({ held: moves.clear() })).toBeNull();
+    expect(walkLean({ held: moves.down("w", "moveUp") })).toEqual([0, -1]);
   });
 });
 
@@ -153,6 +343,59 @@ describe("controllers", () => {
     expect(held.pressed).toEqual([]);
     expect(held.held.has("build")).toBe(true);
     expect(reader.read(pad(), 32, "build").released).toEqual(["build"]);
+  });
+
+  it("keeps an action held while another button bound to it is still down", () => {
+    /* A and RT both act: letting go of one must not stop a held swing. */
+    const reader = createPadReader();
+    expect(reader.read(pad([BUTTON.south]), 0, "play").pressed).toEqual(["act"]);
+    const both = reader.read(pad([BUTTON.south, BUTTON.rt]), 16, "play");
+    expect(both.pressed).toEqual([]);
+    const one = reader.read(pad([BUTTON.rt]), 32, "play");
+    expect(one.released).toEqual([]);
+    expect(one.held.has("act")).toBe(true);
+    expect(reader.read(pad(), 48, "play").released).toEqual(["act"]);
+  });
+
+  it("does not drop a hold when one button lets go as the other goes down", () => {
+    const reader = createPadReader();
+    reader.read(pad([BUTTON.south]), 0, "play");
+    const swap = reader.read(pad([BUTTON.rt]), 16, "play");
+    expect(swap.pressed).toEqual([]);
+    expect(swap.released).toEqual([]);
+    expect(swap.held.has("act")).toBe(true);
+  });
+
+  it("turns the camera on a full flick whatever the look sensitivity", () => {
+    /* The flick used to be judged after sensitivity: at 0.5 a full push
+       came to 0.5 and never passed 0.6. */
+    const reader = createPadReader();
+    const frame = reader.read(pad([], [0, 0, 1, 0]), 0, "play", { sensitivity: 0.5 });
+    expect(frame.look[0]).toBeCloseTo(0.5);
+    expect(frame.lookRaw[0]).toBeCloseTo(1);
+    const flick = thirdPersonLook(frame.lookRaw, true, { sensitivity: 0.5 });
+    expect(flick.turn).toBe("cameraRight");
+    expect(flick.armed).toBe(false);
+    /* Held over: no second turn until the stick comes back. */
+    expect(thirdPersonLook([1, 0], flick.armed, { sensitivity: 0.5 }).turn).toBe(null);
+    const back = thirdPersonLook([0.1, 0], flick.armed);
+    expect(back.armed).toBe(true);
+    expect(thirdPersonLook([-0.9, 0], back.armed, { sensitivity: 3 }).turn).toBe("cameraLeft");
+    /* A light touch does not turn even at high sensitivity. */
+    expect(thirdPersonLook([0.4, 0], true, { sensitivity: 3 }).turn).toBe(null);
+  });
+
+  it("zooms at a rate set by sensitivity and invert", () => {
+    expect(thirdPersonLook([0, 0.5], true, { sensitivity: 2 }).zoom).toBeCloseTo(1);
+    expect(thirdPersonLook([0, 0.5], true, { sensitivity: 2, invertY: true }).zoom).toBeCloseTo(-1);
+    expect(thirdPersonLook([0, 0.05], true).zoom).toBe(0);
+  });
+
+  it("tells a touched controller from one lying idle", () => {
+    expect(padTouched(pad())).toBe(false);
+    expect(padTouched(pad([], [0.1, 0.1, 0, 0]))).toBe(false);
+    expect(padTouched(pad([BUTTON.start]))).toBe(true);
+    expect(padTouched(pad([], [0, 0, 0, -0.9]))).toBe(true);
   });
 
   it("repeats menu steps while the d-pad is held", () => {
@@ -230,6 +473,14 @@ describe("settings", () => {
     store.set({ hints: false });
     expect(heard).toBe(2);
     expect(createSettingsStore(storage).get()).toMatchObject({ volume: 0.25, invertY: true, hints: false });
+  });
+
+  it("applies look sensitivity and invert to the mouse", () => {
+    const [turn, tilt] = mouseLook(100, 50, { lookSensitivity: 1, invertY: false });
+    const [fast, flipped] = mouseLook(100, 50, { lookSensitivity: 2, invertY: true });
+    expect(fast).toBeCloseTo(turn * 2);
+    expect(flipped).toBeCloseTo(-tilt * 2);
+    expect(mouseLook(100, 0, { lookSensitivity: 0.5 })[0]).toBeCloseTo(turn / 2);
   });
 
   it("draws the HUD bigger for a controller on a big screen", () => {

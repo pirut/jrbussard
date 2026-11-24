@@ -22,6 +22,7 @@ import Nametags from "./commons/Nametags";
 import Vitals from "./commons/Vitals";
 import WorldPanel from "./commons/WorldPanel";
 import QuestTracker from "./commons/QuestTracker";
+import { questStatus } from "../lib/game/quests";
 import Chat from "./commons/Chat";
 import ActionBar, { BUILD_MENU } from "./commons/ActionBar";
 import HelpOverlay from "./commons/HelpOverlay";
@@ -49,11 +50,20 @@ import PauseMenu from "./commons/PauseMenu";
 import SettingsPanel from "./commons/SettingsPanel";
 import Coach from "./commons/Coach";
 import { ConnectionBanner, LoadingScreen, useOnline } from "./commons/ConnectionNotice";
-import { InputContext } from "./commons/input/InputContext";
-import { MOVE_VECTORS, actionsForKey, createKeymap, resolveBindings } from "./commons/input/actions";
+import { InputContext, controlText } from "./commons/input/InputContext";
+import {
+  MOVE_VECTORS,
+  actionsForKey,
+  createHeldMoves,
+  createKeymap,
+  resolveBindings,
+  walkLean,
+  windowKey,
+} from "./commons/input/actions";
 import useGamepad, { menuStep } from "./commons/input/useGamepad";
+import { thirdPersonLook } from "./commons/input/gamepad";
 import { settingsStore, useCommonsSettings } from "./commons/input/useSettings";
-import { resolveReducedMotion, resolveUiScale } from "./commons/input/settings";
+import { mouseLook, resolveReducedMotion, resolveUiScale } from "./commons/input/settings";
 import { advanceTutorial, loadTutorial, saveTutorial, skipTutorial, tutorialStep } from "./commons/input/tutorial";
 import "./commons/ux.css";
 
@@ -98,11 +108,11 @@ import "./commons/ux.css";
  *     radians, pointer distances in CSS pixels.
  */
 
-/* Arrow keys step through an open menu instead of walking. */
-const ARROWS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
-/* Controls that use the arrow keys themselves (a slider, a tab list), so the
-   menu must not steal them. input/useGamepad.js has a similar list for the
-   controller; the two differ slightly (radio there, tab here). */
+/* Arrow keys step through an open menu instead of walking, except on
+   controls that use the arrow keys themselves (a slider, a tab list), which
+   the menu must not steal (see windowKey in input/actions.js).
+   input/useGamepad.js has a similar list for the controller; the two differ
+   slightly (radio there, tab here). */
 const ownsArrows = (el) =>
   el && (el.type === "range" || ["tab", "slider"].includes(el.getAttribute?.("role")));
 
@@ -421,8 +431,6 @@ function Game({
      Its methods are in ascii3d/AsciiWorld.js (driveSelf, pick, rotate, ...). */
   const fieldApi = useRef(null);
   const chatRef = useRef(null);
-  /* Sound listens to the field's events through the same ref. */
-  const [muted, toggleSound] = useCommonsSound(fieldApi);
 
   /* ── Input: settings, the device in hand, and what it calls things ─── */
 
@@ -430,6 +438,7 @@ function Game({
   const settings = useCommonsSettings();
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const [muted, toggleSound] = useCommonsSound(fieldApi, settings);
   const bindings = useMemo(() => resolveBindings(settings.keys), [settings.keys]);
   const keymap = useMemo(() => createKeymap(bindings), [bindings]);
   /* key → actions. A ref because the keyboard listener is not reinstalled
@@ -679,6 +688,9 @@ function Game({
   const planRef = useRef(null);
   /* Movement action ids (moveUp...) currently held, in press order. */
   const heldRef = useRef([]);
+  /* Which physical keys hold those walks down (see createHeldMoves). */
+  const movesRef = useRef(null);
+  if (!movesRef.current) movesRef.current = createHeldMoves();
   /* Keys pressed and let go between two frames still take their step. */
   const tapRef = useRef(null);
   /* The touch thumbstick's lean, in screen pixels, while a finger drags
@@ -694,6 +706,23 @@ function Game({
      onKeyUp). */
   const downAtRef = useRef(0);
   const stepAtRef = useRef(0);
+
+  /* Something covers the game: the menu, settings, the controls list or the
+     character screen. The frame loop stands the player still under it
+     (walkLean), and whatever was held when it opened is let go, so a walk
+     begun before Esc does not carry on under the menu. A key still down
+     when it closes walks again on its next key repeat. Fieldcraft panels
+     are left out: they sit beside play. */
+  const covered = Boolean(menuOpen || settingsOpen || help || customizing);
+  const coveredRef = useRef(covered);
+  coveredRef.current = covered;
+  useEffect(() => {
+    if (!covered) return;
+    heldRef.current = movesRef.current.clear();
+    tapRef.current = null;
+    planRef.current = null;
+    mouseRef.current.held = false;
+  }, [covered]);
 
   /* The body that walks: the same continuous motion as the site. The
      server hears about the tiles it crosses; what you see is the body. */
@@ -870,7 +899,7 @@ function Game({
     const kind = selectedRef.current;
     let text = "";
     if (kind === "sign") {
-      heldRef.current = [];
+      heldRef.current = movesRef.current.clear();
       text = window.prompt("What should the sign say?") || "";
       if (!text) return;
       spots = spots.slice(0, 1);
@@ -1107,25 +1136,29 @@ function Game({
       if (navRef.current.state !== st) navRef.current = { state: st, nav: passability(st) };
       const nav = navRef.current.nav;
       const alive = st.me.hp > 0;
+      /* Read from the ref: this loop outlives the render it was made in. */
+      const isCovered = coveredRef.current;
       /* A tap lasts exactly one frame: it is consumed here. */
-      const held = heldRef.current.length ? heldRef.current : tapRef.current;
+      const tap = tapRef.current;
       tapRef.current = null;
-      /* Every key held counts, so W and D together walk up and to the
-         right of the screen, which from the isometric corner is due north
-         on the map. The thumbstick leans any way at all. `lean` is in screen
-         terms; screenToMap turns it by the camera's heading below. */
-      const lean = !alive
-        ? null
-        : held?.length
-          ? [
-              Math.sign(held.reduce((sum, k) => sum + MOVE_VECTORS[k][0], 0)),
-              Math.sign(held.reduce((sum, k) => sum + MOVE_VECTORS[k][1], 0)),
-            ]
-          : stickRef.current || padMoveRef.current;
+      /* Held keys, else a tap, else the thumbstick or pad stick (see
+         walkLean). W and D together walk up and to the right of the screen,
+         which from the isometric corner is due north on the map. `lean` is
+         in screen terms; screenToMap turns it by the camera's heading
+         below. Nothing leans while something covers the game. */
+      const lean = walkLean({
+        held: heldRef.current,
+        tap,
+        stick: stickRef.current,
+        pad: padMoveRef.current,
+        alive,
+        covered: isCovered,
+      });
       /* `want`: the direction to steer in, on the map, [0, 0] to stand. */
       let want = [0, 0];
-      /* Any lean overrides (and cancels) a click-to-walk plan. */
-      const plan = alive && !lean ? planRef.current : null;
+      /* Any lean overrides (and cancels) a click-to-walk plan, and nothing
+         follows one under the menu. */
+      const plan = alive && !lean && !isCovered ? planRef.current : null;
       if (lean) {
         planRef.current = null;
         stepAtRef.current = now;
@@ -1242,6 +1275,7 @@ function Game({
       const spot = hoverRef.current;
       if (
         mouse.held &&
+        !isCovered &&
         heldSwing({
           state: stateRef.current,
           spot,
@@ -1268,7 +1302,7 @@ function Game({
      press always runs the latest `run`. */
 
   /* The right stick turns the camera a quarter per flick; it has to come
-     back to the middle before it turns again. */
+     back to the middle before it turns again (see thirdPersonLook). */
   const lookArmed = useRef(true);
   const { rumble } = useGamepad({
     rootRef,
@@ -1309,14 +1343,17 @@ function Game({
         if (lx || ly) field.look(lx * dt * 2.6, ly * dt * 2);
         return;
       }
-      /* Flick past 0.6 to turn a quarter, then it must return below 0.25
-         before it can turn again. */
-      if (Math.abs(lx) > 0.6 && lookArmed.current) {
-        lookArmed.current = false;
-        runRef.current.run(lx > 0 ? "cameraRight" : "cameraLeft");
-      } else if (Math.abs(lx) < 0.25) lookArmed.current = true;
-      /* Stick down zooms out (factors above 1 do, as in the zoomOut action). */
-      if (Math.abs(ly) > 0.1) field.zoomBy(Math.exp(ly * dt * 1.6));
+      /* Flick past 0.6 to turn a quarter, then the stick must return below
+         0.25 before it can turn again; both judged on the raw stick, so look
+         sensitivity cannot put the flick out of reach. Stick down zooms out
+         (factors above 1 do, as in the zoomOut action). */
+      const { turn, armed, zoom } = thirdPersonLook(frame.lookRaw, lookArmed.current, {
+        sensitivity: settingsRef.current.lookSensitivity ?? 1,
+        invertY: settingsRef.current.invertY ?? false,
+      });
+      lookArmed.current = armed;
+      if (turn) runRef.current.run(turn);
+      if (zoom) field.zoomBy(Math.exp(zoom * dt * 1.6));
       /* No pointer: aim at whatever is in front of you. */
       if (deviceRef.current === "gamepad") setHover(facingSpot());
     },
@@ -1448,22 +1485,30 @@ function Game({
       /* Every action this key is bound to; a shared key (R) names several
          and `run` takes the one that applies. */
       const actions = actionsForKey(keymapRef.current, event.key);
-      const has = (a) => actions.includes(a);
       /* Inside a window the keyboard belongs to the window: Tab and the
          arrows move between its buttons and Enter or Space presses them.
-         Only Esc and the keys that switch panels still reach the game. */
+         Only Esc, and inside Fieldcraft the keys that switch its tabs,
+         still reach the game (see windowKey). */
       const active = document.activeElement;
       const inWindow = active?.closest?.('[role="dialog"], [role="alertdialog"], [data-pad-menu]');
       if (inWindow) {
-        if (ARROWS[event.key] && !ownsArrows(active)) {
+        const does = windowKey({
+          key: event.key,
+          actions,
+          inPanel: Boolean(panel) && Boolean(active.closest("[data-fieldcraft]")),
+          ownsArrows: ownsArrows(active),
+          helpOpen: help,
+          dead: me?.hp <= 0,
+        });
+        /* Tab is the window's own: HudWindow keeps it inside. */
+        if (!does || does.type === "focus") return;
+        if (does.type === "step") {
           event.preventDefault();
-          menuStep(inWindow, ARROWS[event.key]);
-        } else if (event.key === "Escape") back(false);
-        else if (panel && (has("craft") || has("pack") || has("journal"))) {
-          const tab = has("pack") ? "Pack" : has("journal") ? "Journal" : "Craft";
-          setPanel((p) => (p === tab ? null : tab));
-        } else if (has("help") && help) setHelp(false);
-        else if (has("respawn") && me?.hp <= 0) act("respawn");
+          menuStep(inWindow, does.dir);
+        } else if (does.type === "back") back(false);
+        else if (does.type === "panel") setPanel((p) => (p === does.tab ? null : does.tab));
+        else if (does.type === "closeHelp") setHelp(false);
+        else if (does.type === "respawn") act("respawn");
         return;
       }
       /* The title screen is a menu: its buttons have the keys. */
@@ -1477,10 +1522,9 @@ function Game({
       const move = actions.find((a) => MOVE_VECTORS[a]);
       if (move) {
         event.preventDefault();
-        if (!heldRef.current.includes(move)) {
-          heldRef.current = [...heldRef.current, move];
-          downAtRef.current = performance.now();
-        }
+        const before = heldRef.current;
+        heldRef.current = movesRef.current.down(event.key, move);
+        if (heldRef.current !== before) downAtRef.current = performance.now();
         return;
       }
       if (event.key === "Escape") {
@@ -1507,12 +1551,11 @@ function Game({
       actions.forEach(run);
     };
     const onKeyUp = (event) => {
-      const moves = actionsForKey(keymapRef.current, event.key).filter((a) => MOVE_VECTORS[a]);
-      if (!moves.length) return;
-      /* Note: not gated on `playing` or windows, so a key let go after a
-         window opened still stops the walk. */
+      /* By physical key: W let go while ↑ is still down keeps walking.
+         Not gated on `playing` or windows, so a key let go after a window
+         opened still stops the walk. */
       const before = heldRef.current;
-      heldRef.current = before.filter((k) => !moves.includes(k));
+      heldRef.current = movesRef.current.up(event.key);
       /* Let go before the step it asked for was taken: take it anyway. */
       if (
         before.length !== heldRef.current.length &&
@@ -1524,7 +1567,7 @@ function Game({
     /* Losing focus swallows the key-up events, so let everything go rather
        than walk on forever. */
     const release = () => {
-      heldRef.current = [];
+      heldRef.current = movesRef.current.clear();
       mouseRef.current.held = false;
     };
     window.addEventListener("keydown", onKeyDown);
@@ -1558,7 +1601,8 @@ function Game({
   useEffect(() => {
     const onMove = (event) => {
       if (!firstPersonRef.current || document.pointerLockElement !== stageRef.current) return;
-      fieldApi.current?.look(event.movementX * 0.0024, event.movementY * 0.0024);
+      const [turn, tilt] = mouseLook(event.movementX, event.movementY, settingsRef.current);
+      fieldApi.current?.look(turn, tilt);
     };
     document.addEventListener("mousemove", onMove);
     return () => document.removeEventListener("mousemove", onMove);
@@ -1906,7 +1950,10 @@ function Game({
      closes. Unknown names fall through the switch and do nothing. */
   const run = (action) => {
     const alive = me?.hp > 0;
-    const toggle = (tab) => setPanel((p) => (p === tab ? null : tab));
+    /* Nothing changes Fieldcraft from behind another window (`covered`). */
+    const toggle = (tab) => {
+      if (!covered) setPanel((p) => (p === tab ? null : tab));
+    };
     switch (action) {
       case "act":
         primary(hoverRef.current || facingSpot());
@@ -1937,6 +1984,13 @@ function Game({
         break;
       case "drink":
         act("drink");
+        break;
+      case "claimQuest":
+        if (questStatus(me).complete) act("claimQuest");
+        else flash("nothing to claim yet");
+        break;
+      case "sound":
+        toggleSound();
         break;
       case "shovel":
         setDigMode((m) => nextMode(m));
@@ -2011,6 +2065,7 @@ function Game({
   /* What is aimed at, and the line describing it (the creature's health, the
      shovel's effect, or what the tile holds). */
   const aim = playing ? hover || null : null;
+  const soundKey = controlText({ ...input, device: "keyboard" }, "sound");
   const aimedCreature =
     aim && state.monsters.find((m) => m.x === aim.x && m.y === aim.y);
   const aimInfo = digMode && aim && !aimedCreature
@@ -2148,7 +2203,7 @@ function Game({
               <button
                 onClick={toggleSound}
                 aria-pressed={!muted}
-                title={muted ? "Sound off (N)" : "Sound on (N)"}
+                title={`${muted ? "Sound off" : "Sound on"}${soundKey ? ` (${soundKey})` : ""}`}
                 aria-label={muted ? "Turn sound on" : "Turn sound off"}
               >
                 <span
@@ -2221,7 +2276,7 @@ function Game({
           </p>
 
           {panel && (
-            <HudWindow label="Fieldcraft" onClose={() => setPanel(null)}>
+            <HudWindow label="Fieldcraft" onClose={() => setPanel(null)} data-fieldcraft>
               <Fieldcraft
                 me={me}
                 state={state}
@@ -2265,6 +2320,8 @@ function Game({
           <PauseMenu
             me={me}
             fullscreen={fullscreen}
+            muted={muted}
+            onSound={toggleSound}
             onResume={() => setMenuOpen(false)}
             onSettings={() => setSettingsOpen(true)}
             onControls={() => setHelp(true)}

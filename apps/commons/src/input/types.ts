@@ -24,6 +24,7 @@ export const WORLD_ACTIONS = [
   'act',
   'eat',
   'drink',
+  'claimQuest',
   'shovel',
   'remove',
   'build',
@@ -40,6 +41,7 @@ export const WORLD_ACTIONS = [
   'firstPerson',
   'fullscreen',
   'raw',
+  'sound',
   'help',
   'pause',
   'respawn',
@@ -86,7 +88,11 @@ export type InputFrame = {
   move: Axis;
   /* Actions held right now. */
   held: ReadonlySet<Action>;
-  /* Actions pressed since the last frame, in order. */
+  /* Presses since the last frame, in order. Each is every action one
+     button stood for (a remote's Select is `act` and `confirm`); whoever
+     handles one of them handles the press (game/press.ts). */
+  presses: readonly (readonly Action[])[];
+  /* The same, flattened. */
   pressed: readonly Action[];
 };
 
@@ -106,6 +112,7 @@ export interface InputSink {
      a keyboard source must ignore them, or typing "wasd" walks the player. */
   readonly typing: boolean;
   setAxis(source: string, x: number, y: number): void;
-  hold(source: string, action: Action, down: boolean): void;
-  press(action: Action): void;
+  /* Several actions from one button go down as one press (InputHub.press). */
+  hold(source: string, actions: Action | readonly Action[], down: boolean): void;
+  press(actions: Action | readonly Action[]): void;
 }

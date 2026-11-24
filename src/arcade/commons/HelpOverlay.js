@@ -44,6 +44,7 @@ const KEY_GROUPS = [
       [<A a="remove" />, "remove something you built"],
       [<A a="shovel" />, "shovel: dig · raise · level · off"],
       [<><A a="eat" /> · <A a="drink" /></>, "eat · drink a potion"],
+      [<A a="claimQuest" />, "claim a finished task"],
     ],
   },
   {
@@ -68,6 +69,7 @@ const KEY_GROUPS = [
       [<A a="map" />, "map"],
       [<A a="chat" />, "talk"],
       [<><A a="fullscreen" /> · <A a="raw" /></>, "full screen · raw render"],
+      [<A a="sound" />, "sound on and off"],
       [<A a="help" />, "this list"],
       [<K>Esc</K>, "back out, or the menu"],
     ],

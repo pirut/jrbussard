@@ -71,21 +71,6 @@ function box(w, h, d, color, set, x, y, z, options) {
     return part(boxGeo(w, h, d), material(color, set, options), x, y, z);
 }
 
-/* Rounded parts for things added to a figure after it is built (a troll's
-   club). Geometry is cached: a crowd shares one of each. */
-const sphereGeo = (r, sx = 1, sy = 1, sz = 1) =>
-    geo(`sph${r},${sx},${sy},${sz}`, () => new THREE.SphereGeometry(r, 10, 7).scale(sx, sy, sz));
-const taperGeo = (rt, rb, h, seg = 10, sz = 1) =>
-    geo(`tap${rt},${rb},${h},${seg},${sz}`, () => new THREE.CylinderGeometry(rt, rb, h, seg).scale(1, 1, sz));
-const coneGeo = (r, h, seg = 8) => geo(`cone${r},${h},${seg}`, () => new THREE.ConeGeometry(r, h, seg));
-
-/* Build a part with a shared material and add it to `parent`. */
-function add(parent, geometry, color, x, y, z, set = "solid", options) {
-    const mesh = part(geometry, material(color, set, options), x, y, z);
-    parent.add(mesh);
-    return mesh;
-}
-
 /* People and creatures draw in the figure set; see asciiPass.js. Swaps each
    mesh's material for the figure-set clone (asFigure leaves vertex-coloured
    figure parts and parts that chose another set alone). */
@@ -228,20 +213,9 @@ const CREATURES = {
         model.scale.setScalar(1.4);
         const { armR, armL } = model.userData.rig;
         model.userData.hunch = 0.3;
-        /* Long arms, and a club studded with bone. */
+        /* Long arms. The club in the right fist is part of trollSpec(). */
         armL.top.scale.setScalar(1.2);
         armR.top.scale.setScalar(1.2);
-        const club = new THREE.Group();
-        club.position.set(0, -0.27, 0.04);
-        club.rotation.x = Math.PI / 2.6;
-        add(club, taperGeo(0.035, 0.05, 0.55, 6), 0x7b5a3a, 0, 0.2, 0, "timber");
-        add(club, sphereGeo(0.13, 1, 1.4, 1), 0x8a6a46, 0, 0.55, 0, "timber");
-        for (let i = 0; i < 6; i += 1) {
-            const a = (i / 6) * Math.PI * 2;
-            const y = 0.5 + (i % 2) * 0.12;
-            add(club, coneGeo(0.03, 0.1, 4), "#efe2c0", Math.cos(a) * 0.13, y, Math.sin(a) * 0.13).rotation.set(Math.sin(a) * 1.4, 0, -Math.cos(a) * 1.4);
-        }
-        armR.joint.add(club);
         return model;
     },
     shade: () => {

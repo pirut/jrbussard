@@ -43,6 +43,13 @@ describe('perform', () => {
     expect(perform('pause', me(), deps)).toBeUndefined();
     expect(perform('craft', me(), deps)).toBeUndefined();
     expect(perform('navUp', me(), deps)).toBeUndefined();
+    expect(perform('sound', me(), deps)).toBeUndefined();
+  });
+
+  it('claims the quest in hand on the browser\'s claim key', async () => {
+    const { call, deps } = rig('Claimed: 20 xp');
+    await expect(perform('claimQuest', me(), deps)).resolves.toBe('Claimed: 20 xp');
+    expect(call).toHaveBeenCalledWith('claimQuest', {});
   });
 
   describe('when you are down', () => {

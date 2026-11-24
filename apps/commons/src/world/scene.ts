@@ -31,6 +31,22 @@ type Who = { id: string; x: number; y: number; hp: number; self?: boolean; appea
 
 type Figure = { group: THREE.Group; x: number; y: number };
 
+/*
+ * The shapes figures are made of, cut once per scene and shared by every
+ * figure in it. A figure owns only its materials (its colours), which go
+ * when it leaves; the shapes go with the scene (dispose()).
+ */
+function cutParts() {
+  return {
+    body: new THREE.CylinderGeometry(0.22, 0.28, 0.9, 10),
+    head: new THREE.SphereGeometry(0.2, 12, 8),
+    nose: new THREE.BoxGeometry(0.08, 0.08, 0.14),
+    beast: new THREE.BoxGeometry(0.5, 0.4, 0.8),
+    eye: new THREE.BoxGeometry(0.36, 0.08, 0.04),
+  };
+}
+type Parts = ReturnType<typeof cutParts>;
+
 export type Body = { x: number; y: number; facing: number };
 
 export class WorldScene {
@@ -48,6 +64,7 @@ export class WorldScene {
   private others = new Map<string, Figure>();
   private monsters = new Map<string, Figure>();
   private self: THREE.Group;
+  private parts: Parts = cutParts();
   private centre: { x: number; y: number } | null = null;
   private dirty = true;
   private cells: WorldState['cells'] = [];
@@ -81,7 +98,7 @@ export class WorldScene {
     });
     this.scene.add(this.tiles, this.trees, this.rocks, this.structures, this.water);
 
-    this.self = makeFigure('#d1a35a', '#e0b48a');
+    this.self = makeFigure(this.parts, '#d1a35a', '#e0b48a');
     this.scene.add(this.self);
   }
 
@@ -97,9 +114,9 @@ export class WorldScene {
     this.layStructures();
     this.track(this.others, state.players.filter((p) => !p.self), (p) => {
       const look = appearanceOf(p) as { skin: string };
-      return makeFigure(playerColor(p), (PALETTES.skin as Record<string, string>)[look.skin] ?? '#e0b48a');
+      return makeFigure(this.parts, playerColor(p), (PALETTES.skin as Record<string, string>)[look.skin] ?? '#e0b48a');
     });
-    this.track(this.monsters, state.monsters, (m) => makeCreature(MONSTER_COLOURS[(m as { kind: string }).kind] ?? '#a0453a'));
+    this.track(this.monsters, state.monsters, (m) => makeCreature(this.parts, MONSTER_COLOURS[(m as { kind: string }).kind] ?? '#a0453a'));
     this.light(state.phase);
   }
 
@@ -241,30 +258,57 @@ export class WorldScene {
     });
     map.forEach((f, id) => {
       if (seen.has(id)) return;
-      this.scene.remove(f.group);
+      this.drop(f.group);
       map.delete(id);
     });
   }
+
+  /* Take a figure out of the world and free its materials (its shapes are
+     the scene's, shared with everyone else). */
+  private drop(group: THREE.Group) {
+    this.scene.remove(group);
+    group.traverse((o) => {
+      if (o instanceof THREE.Mesh) (o.material as THREE.Material).dispose();
+    });
+  }
+
+  /* Free everything the scene put on the GPU. Called when the world screen
+     closes; the scene is not used again. */
+  dispose() {
+    [this.others, this.monsters].forEach((map) => {
+      map.forEach((f) => this.drop(f.group));
+      map.clear();
+    });
+    this.drop(this.self);
+    Object.values(this.parts).forEach((g) => g.dispose());
+    [this.tiles, this.trees, this.rocks, this.structures, this.water].forEach((mesh) => {
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+      if (mesh instanceof THREE.InstancedMesh) mesh.dispose();
+    });
+    this.scene.clear();
+  }
 }
 
-function makeFigure(outfit: string, skin: string) {
+function makeFigure(parts: Parts, outfit: string, skin: string) {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.9, 10), new THREE.MeshLambertMaterial({ color: outfit }));
+  const body = new THREE.Mesh(parts.body, new THREE.MeshLambertMaterial({ color: outfit }));
   body.position.y = 0.45;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), new THREE.MeshLambertMaterial({ color: skin }));
+  const face = new THREE.MeshLambertMaterial({ color: skin });
+  const head = new THREE.Mesh(parts.head, face);
   head.position.y = 1.08;
   /* A nose, so you can tell which way someone faces. */
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.14), new THREE.MeshLambertMaterial({ color: skin }));
+  const nose = new THREE.Mesh(parts.nose, face);
   nose.position.set(0, 1.06, 0.22);
   group.add(body, head, nose);
   return group;
 }
 
-function makeCreature(colour: string) {
+function makeCreature(parts: Parts, colour: string) {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.8), new THREE.MeshLambertMaterial({ color: colour }));
+  const body = new THREE.Mesh(parts.beast, new THREE.MeshLambertMaterial({ color: colour }));
   body.position.y = 0.3;
-  const eye = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.08, 0.04), new THREE.MeshLambertMaterial({ color: '#f2d36b', emissive: '#6b5310' }));
+  const eye = new THREE.Mesh(parts.eye, new THREE.MeshLambertMaterial({ color: '#f2d36b', emissive: '#6b5310' }));
   eye.position.set(0, 0.42, 0.41);
   group.add(body, eye);
   return group;

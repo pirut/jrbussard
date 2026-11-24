@@ -47,7 +47,9 @@ export default function QuestLog({ me, onClaim }) {
                             .join(" · ")}
                         </p>
                         {status.complete && (
-                          <button className="quest-claim" onClick={onClaim}>
+                          /* The journal opens onto this, so J (or the
+                             d-pad on a controller) then Enter claims. */
+                          <button className="quest-claim" onClick={onClaim} data-autofocus>
                             Claim · {rewardLabel(quest.reward)}
                           </button>
                         )}

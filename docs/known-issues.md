@@ -2,7 +2,8 @@
 
 Found while documenting the code (the comment pass), by reading it. None has
 been reproduced or fixed unless noted; each is a lead, not a verdict. Line
-numbers drift, so search for the named function.
+numbers drift, so search for the named function. Entries marked **Fixed**
+stay for a release so the history is easy to follow.
 
 ## Gameplay and server
 
@@ -31,11 +32,22 @@ numbers drift, so search for the named function.
 - Navigation vs server on doors: `arcade/ascii3d/navigation.js` treats a door as
   walkable only if `cell.open` is truthy; the server treats it as shut only if
   `cell.open === false`.
-- `arcade/commons/input/settings.js`: master volume / music / effects are saved
-  but nothing reads them, so the sliders do nothing (`sound.js` uses fixed gains).
-- `arcade/commons/input/useGamepad.js` + `Commons.js` `mouseRef`: releases are
-  not passed on while a menu is open, so "act" held as a menu opens can leave
-  the swing stuck on until a mouse-up.
+- **Fixed** (#25): `arcade/commons/input/settings.js`: master volume / music /
+  effects were saved but nothing read them, so the sliders did nothing.
+  `useCommonsSound` now passes them to `sound.js`'s master, music and effects
+  buses (`useCommonsSound.test.js`).
+- **Fixed** (#25): `arcade/commons/input/useGamepad.js` + `Commons.js`
+  `mouseRef`: releases were not passed on while a menu was open, so "act" held
+  as a menu opened could leave the swing stuck on until a mouse-up. The pad
+  now lets go of everything it told the game is held whenever it stops
+  reaching the game (menu, text field, blur, unplug, unmount)
+  (`useGamepad.test.js`).
+- **Fixed** (found in review of the integration branch): `Commons.js`: with a
+  walking key held, Esc opened the menu but the walk carried on under it
+  until the key was let go. The frame loop now stands still under the menu,
+  settings, the controls list and the character screen, and their opening
+  lets go of what was held (`walkLean` in `input/actions.js`,
+  `input.test.ts`).
 - `CharacterSheet.js` closes on a hard-coded `k`; `HelpOverlay.js` and
   `DigControl.js` hard-code default key names in text, wrong after a remap.
   `SettingsPanel.js` says a displaced action "now has no key" though `rebind`
@@ -51,6 +63,14 @@ numbers drift, so search for the named function.
 
 ## Renderer
 
+- **Fixed** (found in review of the integration branch): switching reduced
+  motion on in Settings stilled everything but the work puffs, which took the
+  flag once when the world was made. `AsciiWorld.reducedMotion` now passes it
+  on (`Puffs.setStill`; `AsciiWorld.mount.test.js`).
+- **Fixed** (found in review of the integration branch): the troll's club came
+  from `models.js`'s page-lifetime geometry cache, so it was never freed and
+  each renderer left a listener on it. It is part of `trollSpec()` now and
+  freed with the troll (`modelCleanup.test.ts`).
 - `AsciiWorld.js` `updateLighting`: `flash` only decays during a storm, so
   leaving a storm (or toggling reduced motion) within ~0.2 s of a strike leaves
   the sky lightning-tinted.

@@ -190,6 +190,19 @@ export function stickDirection([x, y], threshold = 0.5) {
 const pressedOf = (button) =>
   Boolean(button && (typeof button === "object" ? button.pressed || button.value > 0.5 : button > 0.5));
 
+/* Whether anyone is touching this controller: a button down or a stick
+   past its dead zone. Picks which of several pads is the player's. */
+export function padTouched(pad, dead = 0.2) {
+  if (!pad) return false;
+  if ((pad.buttons || []).some(pressedOf)) return true;
+  const axes = pad.axes || [];
+  for (let i = 0; i < axes.length; i += 2) {
+    const [x, y] = stickVector(axes[i], axes[i + 1] ?? 0, dead);
+    if (x || y) return true;
+  }
+  return false;
+}
+
 /* The d-pad, as menu steps. These bypass PAD_LAYOUT on purpose: the d-pad
    steps menus whatever the button means in play (eat, drink, ...). */
 const DIR_BUTTONS = { [BUTTON.up]: "up", [BUTTON.down]: "down", [BUTTON.left]: "left", [BUTTON.right]: "right" };
@@ -197,15 +210,20 @@ const DIR_BUTTONS = { [BUTTON.up]: "up", [BUTTON.down]: "down", [BUTTON.left]: "
 /*
  * Reads one controller frame by frame and reports what changed:
  *
- *   pressed    actions whose button went down this frame
- *   released   actions whose button came up this frame
+ *   pressed    actions that became held this frame
+ *   released   actions no longer held this frame
  *   held       actions whose button is down
  *   move       the left stick, after its dead zone
  *   look       the right stick, after its dead zone, sensitivity and invert
+ *   lookRaw    the right stick after its dead zone only, for thresholds
+ *              that must not move with sensitivity (see thirdPersonLook)
  *   nav        a menu step ("up", "down", "left", "right"), from the d-pad or
  *              left stick, repeating while held as menus usually do
  *   active     whether anything at all is being touched, to tell which
  *              device the player has picked up
+ *
+ * An action stays held while any button meaning it is down (A and RT both
+ * act): letting go of one while the other is held releases nothing.
  *
  * Options: `dead` is the stick dead-zone radius (0..1); `repeatDelay` and
  * `repeatRate` are milliseconds before a held direction first repeats and
@@ -227,6 +245,9 @@ export function createPadReader({ dead = 0.2, repeatDelay = 380, repeatRate = 12
   /* What each button meant when it went down, so letting go reports the
      same action even if a window opened in between. */
   let meant = [];
+  /* The actions held last frame, so pressed and released are reported per
+     action rather than per button. */
+  let wasHeld = new Set();
   /* The menu direction currently held, and when it may fire again. */
   let navHeld = null;
   let navNext = 0;
@@ -234,28 +255,24 @@ export function createPadReader({ dead = 0.2, repeatDelay = 380, repeatRate = 12
     read(pad, now, context = "play", { sensitivity = 1, invertY = false } = {}) {
       const buttons = pad?.buttons || [];
       const axes = pad?.axes || [];
-      const pressed = [];
-      const released = [];
       const held = new Set();
       const isDown = buttons.map(pressedOf);
       let active = false;
       isDown.forEach((on, i) => {
         if (on) active = true;
-        if (on && !wasDown[i]) {
-          meant[i] = padAction(context, i);
-          if (meant[i]) pressed.push(meant[i]);
-        }
+        if (on && !wasDown[i]) meant[i] = padAction(context, i);
+        if (!on) meant[i] = null;
         if (on && meant[i]) held.add(meant[i]);
-        if (!on && wasDown[i]) {
-          if (meant[i]) released.push(meant[i]);
-          meant[i] = null;
-        }
       });
       wasDown = isDown;
+      const pressed = [...held].filter((action) => !wasHeld.has(action));
+      const released = [...wasHeld].filter((action) => !held.has(action));
+      wasHeld = held;
 
       /* `lx`/`ly` are the right (look) stick; the name is not "left". */
       const move = stickVector(axes[0], axes[1], dead);
-      const [lx, ly] = stickVector(axes[2], axes[3], dead);
+      const lookRaw = stickVector(axes[2], axes[3], dead);
+      const [lx, ly] = lookRaw;
       const look = [lx * sensitivity, ly * sensitivity * (invertY ? -1 : 1)];
       if (move[0] || move[1] || lx || ly) active = true;
 
@@ -276,7 +293,7 @@ export function createPadReader({ dead = 0.2, repeatDelay = 380, repeatRate = 12
         nav = dir;
         navNext = now + repeatRate;
       }
-      return { pressed, released, held, move, look, nav, active };
+      return { pressed, released, held, move, look, lookRaw, nav, active };
     },
     /* Forget everything held, e.g. when the controller is unplugged, so
        nothing carries over to whichever pad is read next. (A button still
@@ -284,9 +301,30 @@ export function createPadReader({ dead = 0.2, repeatDelay = 380, repeatRate = 12
     reset() {
       wasDown = [];
       meant = [];
+      wasHeld = new Set();
       navHeld = null;
     },
   };
+}
+
+/*
+ * The right stick out of first person. Pushed past `flick` sideways it
+ * turns the camera a quarter, and has to come back under `rearm` before it
+ * turns again. Both are judged on the stick itself (`lookRaw`), so a low
+ * sensitivity cannot put the flick out of reach; sensitivity and invert
+ * only scale how fast up and down zoom.
+ *
+ * Returns { turn: "cameraLeft" | "cameraRight" | null, armed, zoom }.
+ */
+export function thirdPersonLook([x, y], armed, { sensitivity = 1, invertY = false, flick = 0.6, rearm = 0.25 } = {}) {
+  let turn = null;
+  let next = armed;
+  if (armed && Math.abs(x) > flick) {
+    turn = x > 0 ? "cameraRight" : "cameraLeft";
+    next = false;
+  } else if (Math.abs(x) < rearm) next = true;
+  const zoom = Math.abs(y) > 0.1 ? y * sensitivity * (invertY ? -1 : 1) : 0;
+  return { turn, armed: next, zoom };
 }
 
 /*

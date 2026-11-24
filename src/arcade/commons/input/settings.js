@@ -6,9 +6,8 @@
  *
  * Anything may read them through `settingsStore`: React with
  * useCommonsSettings (./useSettings.js), anything else with get/subscribe.
- * `volume`, `music` and `effects` are each 0–1 and have sliders in
- * SettingsPanel, but nothing reads them yet: sound.js uses fixed gains and
- * only knows the separate muted flag.
+ * Sound reads `volume`, `music` and `effects`, each 0–1 (useCommonsSound
+ * hands them to sound.js's master, music and effects buses).
  *
  * Not here: the store instance bound to window.localStorage (useSettings.js),
  * and the muted flag, which is a separate key owned by sound.js. Nothing in
@@ -25,11 +24,12 @@
 /* The one local-storage key; changing it discards every player's settings. */
 export const STORAGE_KEY = "commons:settings";
 
-/* Volumes are 0-1 (not yet wired to sound.js, see the header).
-   `lookSensitivity` scales the right stick (1 = as is). `rumble` is whether a controller shakes
-   (and a touch device vibrates) on hits and level-ups. `hints` shows the
-   tutorial card (Coach) in Commons.js. `keys` holds only
-   the player's remaps (see actions.js resolveBindings). */
+/* Volumes are 0-1 (sound.js's master, music and effects buses, see the
+   header). `lookSensitivity` scales the right stick (1 = as is) and mouse
+   look in first person (see mouseLook). `rumble` is whether a controller
+   shakes (and a touch device vibrates) on hits and level-ups. `hints` shows
+   the tutorial card (Coach) in Commons.js. `keys` holds only the player's
+   remaps (see actions.js resolveBindings). */
 export const DEFAULT_SETTINGS = {
   volume: 0.8,
   music: 0.6,
@@ -170,4 +170,14 @@ export function resolveReducedMotion(setting, systemPrefers) {
   if (setting === "on") return true;
   if (setting === "off") return false;
   return Boolean(systemPrefers);
+}
+
+/* Radians per pixel of mouse travel at sensitivity 1. */
+export const MOUSE_LOOK = 0.0024;
+
+/* A mouse move in first person as [turn, tilt]: look sensitivity and
+   invert apply to the mouse just as to the right stick. */
+export function mouseLook(dx, dy, { lookSensitivity = 1, invertY = false } = {}) {
+  const k = MOUSE_LOOK * lookSensitivity;
+  return [dx * k, dy * k * (invertY ? -1 : 1)];
 }

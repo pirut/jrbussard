@@ -126,6 +126,23 @@ export class Puffs {
         this.scene = scene;
     }
 
+    /* Reduced motion switched while the world runs (AsciiWorld's
+       reducedMotion setter). On, nothing more is thrown and the bits still
+       in the air are dropped at once; off, puffs are thrown again. */
+    setStill(still) {
+        this.still = Boolean(still);
+        if (!this.still || !this.live) return;
+        m4.makeScale(0, 0, 0);
+        for (let i = 0; i < this.seeds.length; i += 1) {
+            if (!this.seeds[i]) continue;
+            this.seeds[i] = null;
+            this.mesh.setMatrixAt(i, m4);
+        }
+        this.mesh.instanceMatrix.needsUpdate = true;
+        this.live = 0;
+        this.mesh.visible = false;
+    }
+
     /* Throw a puff of `kind` from the point `at`. */
     add(kind, at, time) {
         if (this.still) return;

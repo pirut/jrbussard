@@ -26,8 +26,14 @@ function resourcesOf(models) {
   return { geometries, materials };
 }
 
+/* The troll's club: the group on its right forearm that is not the hand. */
+function clubOf(troll) {
+  const { armR } = troll.userData.rig;
+  return armR.joint.children.find((node) => !node.isMesh && node !== armR.end);
+}
+
 function mount() {
-  const models = [buildSurvivor(LOOK), buildSurvivor(LOOK), buildCreature("wolf")].map((m) => mergeModel(m));
+  const models = [buildSurvivor(LOOK), buildSurvivor(LOOK), buildCreature("wolf"), buildCreature("troll")].map((m) => mergeModel(m));
   const used = resourcesOf(models);
   const disposed = new Set();
   [...used.geometries, ...used.materials].forEach((r) => r.addEventListener("dispose", () => disposed.add(r)));
@@ -75,7 +81,30 @@ describe("figure cleanup", () => {
       expect(h.geometry._listeners?.dispose?.length ?? 0).toBeLessThanOrEqual(1);
       expect(h.material._listeners?.dispose?.length ?? 0).toBeLessThanOrEqual(1);
     });
+    /* The same for the troll's club, which used to come from the page's
+       geometry cache: one copy for every visit, gathering a listener each. */
+    const clubs = mounts.map((m) => {
+      const meshes = [];
+      clubOf(m.models[3]).traverse((n) => n.isMesh && meshes.push(n));
+      return meshes;
+    });
+    clubs.forEach((meshes) => expect(meshes.length).toBeGreaterThan(0));
+    const clubGeometries = clubs.flat().map((m) => m.geometry);
+    expect(new Set(clubGeometries).size).toBe(clubGeometries.length);
+    clubGeometries.forEach((g) => expect(g._listeners?.dispose?.length ?? 0).toBeLessThanOrEqual(1));
     unmount(mounts[mounts.length - 1]);
+  });
+
+  it("frees a troll's club with the troll", () => {
+    const troll = mergeModel(buildCreature("troll"));
+    const club = new Set();
+    clubOf(troll).traverse((n) => n.isMesh && club.add(n.geometry));
+    expect(club.size).toBeGreaterThan(0);
+    const disposed = new Set();
+    club.forEach((g) => g.addEventListener("dispose", () => disposed.add(g)));
+    disposeMerged(troll);
+    disposeMaterials();
+    club.forEach((g) => expect(disposed.has(g)).toBe(true));
   });
 
   it("keeps geometry shared by a live figure when another with the same look leaves", () => {

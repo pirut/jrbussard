@@ -3,20 +3,37 @@ import type { Action } from './types';
 /*
  * Turns the TV event stream from react-native-tvos into held and pressed
  * actions. Kept free of React Native so it can be tested with the event
- * sequences the native code really sends (see tvEvents.test.ts):
+ * sequences the native code really sends (see tvRemote.test.ts). With the
+ * fork's default settings both TVs follow one contract:
  *
- * - Android TV sends a key-down (eventKeyAction 0) and a key-up (1) for
- *   every key, so a press is held exactly as long as the key is.
- * - tvOS reports short presses of the arrows, Play/Pause and Menu through
- *   tap recognizers, which only fire when the press ends: a lone key-up
- *   with no key-down before it. Select is the same (and only reaches JS
- *   while some view has focus). A lone key-up is therefore a whole tap,
- *   and is held for TAP_MS so a tapped arrow still walks about one tile.
- * - Holding a button on tvOS fires a long-press recognizer instead
- *   (longUp, longSelect, ...): key-down when it starts, key-up when the
- *   finger lifts. Those are held for as long as they last.
- * - Swipes on the touch surface come with no key action at all; they are
- *   taps too.
+ * - A short press is a lone key-up (eventKeyAction 1) with no key-down
+ *   before it. On tvOS it comes from a tap recognizer when the press ends
+ *   (Select only while some view has focus). On Android TV,
+ *   ReactAndroidHWInputDeviceHelper sends key-downs only when the native
+ *   flag ReactFeatureFlags.enableKeyDownEvents is on, and it is off by
+ *   default and this app never turns it on, so every short press arrives
+ *   as its key-up. A lone key-up is a whole tap, held for TAP_MS so a
+ *   tapped arrow still walks about one tile.
+ * - A hold comes as the fork's long event (longUp, longSelect, ...): one
+ *   key-down when the hold is recognised and one key-up when it ends.
+ *   Those are held for as long as they last. On tvOS a long-press
+ *   recognizer starts it after 0.5 s (UIKit's default minimumPressDuration;
+ *   Select's sets 0.5 explicitly). On Android TV the fork's own detector
+ *   starts it at the first key repeat that comes more than 300 ms after the
+ *   key went down, which in practice is Android's first auto-repeat, after
+ *   the system key-repeat timeout (the long-press timeout: 400 ms by
+ *   default on current Android, 500 ms on older versions). Before that, a
+ *   held key sends nothing.
+ * - Android's detector only covers Select and the d-pad arrows. Holding
+ *   Play/Pause sends nothing until it is let go, then a lone `playPause`
+ *   key-up, the same as a tap; longPlayPause comes only from tvOS. So on
+ *   Android TV a held direction runs (`holdRuns`) instead, and Play/Pause
+ *   is a tap on both.
+ * - Swipes on the Siri Remote touch surface come with no key action at
+ *   all; they are taps too.
+ *
+ * A key-down followed by a key-up for the same event type (which is what
+ * the long events send) is held from one to the other.
  */
 export const TAP_MS = 250;
 
@@ -26,7 +43,11 @@ type Binding = { action: Action; dir?: [number, number]; also?: Action };
    stick. Direction keys do both: in the world they walk (and, held, keep
    walking), and in a menu the same press steps the highlight (navUp…).
    Select is "act" in the world and "confirm" in a menu: the screen decides
-   which one it listens to, so both are sent. */
+   which one it listens to, so both are sent, as one press (InputHub.press):
+   whatever handles one of them handles the Select, so a menu's confirm is
+   not also an act, and the world's act is not also a confirm. Menu sends `pause` alone: the
+   world opens the pause menu on it and a menu's Back takes it (back.ts), so
+   a second action from the same key would close what the first opened. */
 const BINDINGS: Record<string, Binding> = {
   up: { action: 'navUp', dir: [0, 1] },
   down: { action: 'navDown', dir: [0, -1] },
@@ -45,15 +66,26 @@ const BINDINGS: Record<string, Binding> = {
   playPause: { action: 'shovel' },
   play: { action: 'shovel' },
   pause: { action: 'shovel' },
+  /* tvOS only (see above). */
   longPlayPause: { action: 'run' },
-  menu: { action: 'pause', also: 'back' },
+  menu: { action: 'pause' },
+};
+
+/* Android TV: a held direction also runs, as it has no Play/Pause hold. */
+const HOLD_RUNS: Record<string, Binding> = Object.fromEntries(
+  ['longUp', 'longDown', 'longLeft', 'longRight'].map((k) => [k, { ...BINDINGS[k], also: 'run' as Action }]),
+);
+
+export type TvOptions = {
+  /* A held direction runs as well as walks (Android TV). */
+  holdRuns?: boolean;
 };
 
 export type TvEvent = { eventType?: string; eventKeyAction?: number | null };
 
 export type TvSink = {
   setAxis(x: number, y: number): void;
-  hold(action: Action, down: boolean): void;
+  hold(actions: readonly Action[], down: boolean): void;
 };
 
 export type Timers = {
@@ -66,7 +98,8 @@ const realTimers: Timers = {
   clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
 };
 
-export function createTvEvents(sink: TvSink, timers: Timers = realTimers) {
+export function createTvEvents(sink: TvSink, timers: Timers = realTimers, options: TvOptions = {}) {
+  const bindings = options.holdRuns ? { ...BINDINGS, ...HOLD_RUNS } : BINDINGS;
   /* Keys currently held, by event type, so a longUp and a tapped up do not
      release each other. */
   const held = new Set<string>();
@@ -76,7 +109,7 @@ export function createTvEvents(sink: TvSink, timers: Timers = realTimers) {
     let x = 0;
     let y = 0;
     held.forEach((key) => {
-      const dir = BINDINGS[key].dir;
+      const dir = bindings[key].dir;
       if (dir) {
         x += dir[0];
         y += dir[1];
@@ -85,17 +118,17 @@ export function createTvEvents(sink: TvSink, timers: Timers = realTimers) {
     sink.setAxis(Math.sign(x), Math.sign(y));
   };
 
-  const holding = (action: Action) => [...held].some((k) => BINDINGS[k].action === action || BINDINGS[k].also === action);
+  const holding = (action: Action) => [...held].some((k) => bindings[k].action === action || bindings[k].also === action);
 
   const set = (key: string, down: boolean) => {
-    const b = BINDINGS[key];
+    const b = bindings[key];
     if (down) held.add(key);
     else held.delete(key);
-    [b.action, b.also].forEach((a) => {
-      if (!a) return;
-      /* Another key may still hold the same action (longUp after up). */
-      if (down || !holding(a)) sink.hold(a, down);
-    });
+    /* Everything the key stands for goes to the hub as one press, so a
+       menu or the world that uses one of them uses the press. Another key
+       may still hold the same action (longUp after up). */
+    const actions = [b.action, b.also].filter((a): a is Action => !!a && (down || !holding(a)));
+    if (actions.length) sink.hold(actions, down);
     sync();
   };
 
@@ -115,7 +148,7 @@ export function createTvEvents(sink: TvSink, timers: Timers = realTimers) {
   return {
     handle(evt: TvEvent | null | undefined) {
       const key = evt?.eventType;
-      if (!key || !(key in BINDINGS)) return;
+      if (!key || !Object.prototype.hasOwnProperty.call(bindings, key)) return;
       const action = evt?.eventKeyAction;
       if (action === 0) {
         timers.clear(taps.get(key));

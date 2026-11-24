@@ -23,14 +23,15 @@ apps/commons/
     shared.ts         every import from the browser game, in one place
     net/convex.ts     Convex client, typed api, per-install session id
     net/world.tsx     "the world": live Convex or the offline stand-in
-    game/GameScreen.tsx  connects the pieces to the screen; decides what a press means now
+    game/GameScreen.tsx  connects the pieces to the screen
+    game/press.ts     what a press means now: back, panels, pause, or the world (unit tested)
     game/walking.ts   body, walker and server steps (no React: unit tested)
     game/actions.ts   action -> server request (no React: unit tested)
     hud/model.ts      what the HUD says, from a snapshot (no React: unit tested)
     hud/              Vitals, QuestCard, Panels (craft / pack / journal), ChatBox
     world/scene.ts    three.js scene: terrain, trees, rocks, builds, people
     world/World3D.tsx GL surface and render loop
-    input/            InputHub and its sources (keyboard, gamepad, TV remote, touch)
+    input/            InputHub and its sources (keyboard, gamepad, TV remote, touch), back.ts
     ui/               Menu, useListNav, theme (sizes scale for TV), controlsText
 ```
 
@@ -60,7 +61,13 @@ fails the app's typecheck. Only types are imported from `_generated`, so the
 bundle never needs it.
 
 `convex/_generated` is gitignored. `npx convex dev` at the repo root writes it,
-and the app's typecheck needs it there. Running the app doesn't.
+and the app's typecheck needs it there. Running the app doesn't. Without a
+deployment, `npm run types:convex` (in `apps/commons/`) runs the root's
+`scripts/stub-convex-generated.cjs`, which writes a stand-in from the files in
+`convex/`: `api` and `internal` from the function modules, the data model from
+`schema.ts`, and the components `convex.config.ts` installs, typed the way
+codegen types npm components. It never overwrites real codegen output. CI
+uses it too.
 
 ### Configuration
 
@@ -100,11 +107,15 @@ uses them:
 - `input/types.ts` spells the action names out so the compiler can check them.
   `input/actions.test.ts` fails if the browser adds or renames one, so the app
   is updated on purpose instead of silently ignoring a button.
+  `input/gamepad.test.ts` presses every button in every layer and checks the
+  app hears what `PAD_LAYOUT` says.
 - **Quests, recipes, items and the day cycle** (`lib/game`, `lib/survival`) feed
   the HUD through `hud/model.ts`. The app has no rules of its own.
 
 What is still the app's own: `run` (hold Shift / long Play-Pause) and the menu
-steps (`navUp`…), which the browser handles with DOM focus instead.
+steps (`navUp`…), which the browser handles with DOM focus instead. Some of
+the browser's actions do nothing in the app yet (the camera, map, character
+sheet, first person, full screen, raw render, sound).
 
 ## Input
 
@@ -114,30 +125,80 @@ hub.
 
 | Device | Source | Notes |
 | --- | --- | --- |
-| Keyboard (web) | `keyboard.ts` | The browser's key table: WASD/arrows walk, Space act, E eat, G dig, B wall, Tab/C craft, I pack, J journal, Enter/T talk, Esc menu. Shift runs. Ignored while the chat box has focus |
-| Gamepad (web) | `gamepad.ts` | The browser's controller layout, by layer: walking, building, dead, menu. Left stick walks (and steps menus). A/RT act, X wall, LT dig, Y craft, d-pad eat/drink/journal/help, Start menu |
-| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select acts, Play/Pause digs, a long select builds a wall, a long Play/Pause runs, Menu pauses. The pause menu opens Craft, Pack and Journal. The menu key is claimed only during play, so it still exits from the title screen |
+| Keyboard (web) | `keyboard.ts` | The browser's key table: WASD/arrows walk, Space act, E eat, G dig, B wall, Tab/C craft, I pack, J journal, L claim a finished task, Enter/T talk, Esc menu, Backspace back. Shift runs. While the chat box has focus, keys are text; only Esc gets through, and closes the box |
+| Gamepad (web) | `gamepad.ts` | The browser's controller layout (`PAD_LAYOUT`), by layer: walking, building, dead, menu. In the world: left stick walks, A or RT acts, LT digs, X builds a wall, Y crafts, d-pad eat/drink/journal/help, Start or B opens the pause menu (in the browser B only closes an open window; the app has none open in the world). In a menu: d-pad or stick steps, A confirms, B or Start backs out, the bumpers switch panels. With several pads, the first one touched is used until it is unplugged |
+| Siri Remote, Android TV remote, controllers on TV | `tvRemote.ts` + `tvEvents.ts` | react-native-tvos TV events. Select acts, Play/Pause digs, a held Select builds a wall, Menu (Back on Android TV) pauses; the pause menu opens Craft, Pack and Journal. Running: a held Play/Pause on Apple TV, a held direction on Android TV |
 | Touch (phones, tablets) | `TouchStick.tsx` + buttons in `GameScreen` | Drag-anywhere thumbstick; Act, Dig, Wall, Eat on the right; Craft, Pack, II along the top; Talk opens chat |
 
-TV events differ by platform, and `tvEvents.ts` handles each case
-(`tvRemote.test.ts` replays the real sequences):
+With the fork's default settings both TVs send TV events the same way, and
+`tvEvents.ts` reads them (`tvRemote.test.ts` replays the real sequences; the
+Android ones go through a port of the fork's Android key handling, fed raw
+key-down, repeat and key-up events):
 
-- **tvOS short presses** (arrows, Select, Play/Pause, Menu) come from tap
-  recognizers. Each sends one key-up and no key-down, so a lone key-up counts
+- **Short presses** send one key-up and no key-down. On tvOS they come from
+  tap recognizers. On Android TV, `ReactAndroidHWInputDeviceHelper` sends
+  key-downs only when the native flag `ReactFeatureFlags.enableKeyDownEvents`
+  is on; it's off by default and the app leaves it off. A lone key-up counts
   as a whole tap: an arrow is held for 250 ms (about one tile), and a button
   presses once.
-- **tvOS holds** come from long-press recognizers (`longUp`, `longSelect`, …),
-  which fire after about 0.5 s and send key-down, then key-up when released.
-  They're held for as long as they last.
-- **Android TV** sends a key-down/key-up pair for every key.
+- **Holds** arrive as the fork's long events (`longUp`, `longSelect`, …): one
+  key-down when the hold is recognised, one key-up on release, held in
+  between. On tvOS a long-press recognizer starts them after 0.5 s. On
+  Android TV the fork's detector starts them at the first key repeat more
+  than 300 ms after the key went down, which in practice is Android's first
+  auto-repeat (its key-repeat timeout, 400 ms by default on current Android,
+  500 ms on older versions). Until then a held key sends nothing.
+- **Play/Pause hold** exists only on tvOS (`longPlayPause`), where it runs.
+  The fork's Android detector covers only Select and the d-pad, so a held
+  Play/Pause on Android TV sends a single key-up on release, the same as a
+  tap, and digs. On Android TV a held direction runs instead (`holdRuns`).
 - **Swipes** on the Siri Remote touch surface carry no key action and count as
   taps.
 - **Select** on tvOS only reaches JS from a focused view, so during play the game
   screen keeps one full-screen focusable.
 
-Menus (`ui/Menu.tsx`): on TV every item is a native focusable, so the platform
-focus engine handles the d-pad and select. On web and phones, items respond to
-touch and click, and the hub moves the highlight for keyboards and gamepads.
+Menus (`ui/Menu.tsx`) and the HUD panels share `ui/useListNav.ts`: on TV
+every item is a native focusable, so the platform focus engine handles the
+d-pad and select. On web and phones, items respond to touch and click, and
+the hub moves the highlight for keyboards and gamepads. The hub's context is
+`menu` on the title and Controls screens and whenever anything is open over
+the world (`padContext` in `game/press.ts`), so a controller uses its menu
+layout there.
+
+Back (`input/back.ts`) goes up one level and leaves the app only from the
+title screen:
+
+| Where | Apple TV Menu, Android Back, Esc or Backspace, pad B/Start |
+| --- | --- |
+| Title | leaves the app (nothing claims it) |
+| Controls | back to the title |
+| In the world | opens the pause menu (`game/press.ts`) |
+| Pause menu | resumes |
+| Controls, from the pause menu | back to the pause menu |
+| Craft, Pack or Journal | closes it |
+
+On Apple TV, the Menu button only reaches the app while claimed
+(`claimMenuKey`, counted so the pause menu letting go doesn't release the
+world's claim). Android's Back reaches JS only through `BackHandler`, newest
+listener first. A menu or list that handles a press consumes it
+(`hub.onPress` returning true), so the press that closes the pause menu
+doesn't also reach the world and reopen it, and Esc that closes a panel
+doesn't then open the pause menu. For the same reason Menu on a TV remote
+sends `pause` alone.
+
+One button is one press, however many actions it stands for. Enter is
+`chat` and `confirm`; a remote's Select is `act` and `confirm`. The source
+hands the hub all of them together (`hub.hold` with a list), and whoever
+handles one of them spends the whole press: a menu that takes the confirm
+drops the rest, and the press router (`game/press.ts`) does the first
+action that means something and skips the others. So Enter on Resume does
+not also open chat, and one Select while down is one respawn. On TV a menu
+row or panel button is pressed by the platform, and the remote then sends
+that same Select as a TV event; the control's onPress goes through
+`ui/nativePress.ts`, which tells the hub to drop that event
+(`hub.pressedNatively`), so Select on Resume does not also act in the
+world. `game/screen.test.ts` drives these through the real keyboard and TV
+sources, the hub, the pause Menu and the router.
 
 ## Running it
 
@@ -145,8 +206,9 @@ Requires Node 24. Run everything from `apps/commons/`.
 
 ```sh
 npm ci                      # .npmrc sets legacy-peer-deps; postinstall applies patches/
-npm test                    # vitest: input adapters and the render loop lifecycle
-npm run typecheck           # tsc; needs ../../convex/_generated (npx convex dev at root)
+npm test                    # vitest: input, walking, actions, HUD data, render loop
+npm run typecheck           # tsc; needs ../../convex/_generated (npx convex dev at root,
+                            # or npm run types:convex offline)
 npx expo-doctor
 
 # Browser
@@ -169,13 +231,12 @@ On a simulator with no remote or keyboard attached, start Metro with
 `commons://play` opens the world too, but iOS and tvOS first ask "Open in
 The Commons?", which needs a press.
 
-CI (`.github/workflows/validate.yml`, job `commons-app`) runs `npm ci`, the
-typecheck, `npm test` and the web export. The typecheck needs
-`convex/_generated`, which only a linked deployment can really write, so CI
-(and any unlinked machine) runs `node scripts/stub-convex-generated.cjs`
-first: it writes a stand-in from the files in `convex/` and refuses to
-overwrite real codegen output. A second job, `backend`, uses it to run the
-Convex tests and typecheck.
+CI (`.github/workflows/validate.yml`, job `commons-app`) installs the root
+and the app, writes the `convex/_generated` stand-in
+(`scripts/stub-convex-generated.cjs`, as `npm run types:convex` does), then
+runs `npm run typecheck`, `npm test` and the web export. A second job,
+`backend`, uses the same stand-in to typecheck `convex/` and run the root
+Convex tests. No secrets, no deployment.
 
 `ios/` and `android/` are generated (continuous native generation) and
 gitignored. Configure native behaviour in `app.json` and config plugins.
@@ -212,35 +273,48 @@ almost every React Native library. `apps/commons/.npmrc` sets
 
 ## Verified so far
 
-See the PR for the exact run log. In short:
+Evidence for the native runs (commands, log excerpts, screenshots) is in
+`apps/commons/docs/evidence/`. Anything not listed there wasn't run.
 
-- `npm test` (75 tests: input sources, TV event sequences, walking, actions,
-  HUD model, render loop resize and context restore), `npm run typecheck`, and `npx expo-doctor`
-  (20/20) pass.
-- **Apple TV:** with the expo-gl patch, `EXPO_TV=1` prebuild, `pod install`
-  and an `appletvsimulator` Debug build succeed. On the Apple TV 4K simulator
-  (tvOS 27.0), the title menu shows with native focus on Play, and the three.js
-  world renders and animates (two screenshots 15 s apart differ). Remote input
-  in the world has **not** been exercised: the simulator here had no remote or
-  keyboard, so walking and actions on tvOS are covered only by the
-  event-replay tests.
-- Browser resize: going from 1280×800 to 800×1000 changes the GL viewport from
-  1280×800 to 800×1000, following the drawing buffer.
-- `npm run build:web` exports. In Chromium the offline world renders in 3D
-  (terrain, trees, rocks, structures, other players), walks with WASD, and the
-  menu responds to the keyboard.
-- **iOS:** phone prebuild and an `iphonesimulator` Debug build succeed. On the
-  iPhone 17 simulator, the three.js world renders through expo-gl with the HUD,
-  the touch stick and the Gather/Dig/Wall buttons. Touch input wasn't
-  exercised: a headless simulator has no touches.
-- Root `npm run test:commons` (118 tests), `CI=true npm test` (135), and
-  `CI=true npm run build:frontend` still pass.
+- **This branch (2026-11-02), after merging `main`'s app work (native HUD,
+  shared input map, walking/actions modules) with this branch's input and Back
+  fixes:** `npm test` (117 tests: TV event sequences for tvOS and, through a
+  port of the fork's Android key handling, Android TV; Back on Apple TV,
+  Android and keyboard through the real Menu; every controller button in
+  every layer against the shared layout; controller B and Start pausing the
+  world through the press router; controller choice and disconnect; walking,
+  actions and the HUD model; GPU resources freed as figures leave and on
+  teardown; render loop resize and context restore), `npm run typecheck`
+  against the offline `convex/_generated`, and the web export pass. CI runs
+  all three. Nothing else was run on this state: the HUD, the panels and chat
+  have not been looked at in a browser, on a simulator or on a device.
+- **iOS (2026-11-02, Xcode 27.2), from commit `f58e517`, before the merge
+  above:** phone prebuild and an `iphonesimulator` Debug build succeed. On an
+  iPhone 18 Pro simulator (iOS 27.0), the title menu shows, a tap on Play
+  opens the three.js world through expo-gl (the earlier HUD, touch stick,
+  Gather/Dig/Wall), and a tap on II opens the pause menu. The taps were
+  simulated touches; walking with the stick wasn't exercised. Three
+  screenshots are in the evidence folder.
+- **Apple TV: not built.** With Xcode 27.2 (Swift 6.4.2) the
+  `appletvsimulator` build fails twice in a row: the Swift compiler crashes
+  compiling Expo's `ExpoModulesCore` for tvOS, before any app code (log in the
+  evidence folder). No Apple TV build has succeeded with a kept log, so
+  whether the app builds and renders on tvOS is unconfirmed. Remote input on
+  tvOS is covered only by the event-replay tests.
+- **Android and Android TV:** not run (no Android SDK on the build Mac).
+  Android TV remote handling and Back are covered only by tests: the remote
+  through a port of the fork's Android key handling, Back through a mocked
+  `BackHandler`.
+- **Hardware:** nothing has run on a real device, remote or controller.
+- Root `npm run test:commons` (234 tests), `CI=true npm test` (171), and
+  `CI=true npm run build:frontend` pass.
 
 ## Known gaps and risks
 
-- **Apple TV on hardware.** Runs on the simulator through the expo-gl patch
-  (above). Still untested on a real Apple TV: frame rate, the Siri Remote,
-  and a paired controller.
+- **Apple TV builds.** Xcode 27.2's Swift compiler crashes on Expo's
+  `ExpoModulesCore` for tvOS (see Verified so far). Until Expo or Xcode fixes
+  it, building for Apple TV needs an older Xcode. Nothing has been tested on
+  a real Apple TV: frame rate, the Siri Remote, a paired controller.
 - **Analog sticks on native.** On TV, controllers arrive as d-pad and button
   events through react-native-tvos, so walking is 8-way digital. Phones with a
   paired controller get nothing yet. Both need a native GameController
@@ -255,13 +329,18 @@ See the PR for the exact run log. In short:
 - **Identity.** Sessions are anonymous per install, as in the browser. Moving a
   character between devices needs accounts (Convex Auth, with Sign in with
   Apple required on iOS if any third-party login is offered).
-- **Tests.** Vitest covers the input adapters, walking, action dispatch and the
-  HUD model (75 tests). The React components and `GameScreen` wiring themselves
-  have no tests, and nothing here has been exercised on a real device.
+- **Tests.** Vitest covers the input sources, Back through the real Menu,
+  press routing, walking, action dispatch and the HUD model (125 tests).
+  `game/screen.test.ts` runs one press from the keyboard or TV source through
+  the hub, the pause Menu and the router the way `GameScreen` wires them, but
+  `GameScreen` itself, the panels and the other React components are not
+  rendered in any test, and nothing here has been exercised on a real
+  device.
 - **Not seen running since the HUD work.** The web export builds and the code
   typechecks, but the HUD and panels were not looked at in a browser or on a
   simulator when they were written (the dev host lacked the libraries a
-  headless browser needs). Do that first.
+  headless browser needs), nor since this branch merged them with its input
+  and Back fixes. Do that first.
 
 ## Release prerequisites
 
@@ -272,8 +351,9 @@ Nothing has been uploaded. Before any store build:
 - **Identifiers.** `com.jrbussard.commons` is set for iOS and Android in
   `app.json`. Register the bundle id in App Store Connect and create the Play
   app.
-- **EAS.** Add `eas.json` with `development`, `preview` and `production`
-  profiles plus `*_tv` variants that set `EXPO_TV=1`. tvOS needs its own
+- **EAS.** `eas.json` has `development`, `preview` and `production` profiles
+  plus `*_tv` variants that set `EXPO_TV=1`; nothing has been built with it.
+  tvOS needs its own
   provisioning profile created by hand in the Apple portal, because EAS doesn't
   create one. Use local credentials for tvOS if iOS credentials are in EAS.
 - **Assets.** App icons and splash, plus the Apple TV layered icons and
