@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Backend } from "./backend/types.ts";
+import { canonicalJson, sha256Hex } from "./checksum.ts";
 import { ensurePrivateDir, writeJsonAtomic } from "./secureFile.ts";
 
 const PREFIX = "nest-backup-";
@@ -20,8 +21,35 @@ export async function listBackups(dir: string): Promise<string[]> {
   }
 }
 
+const FIRST_TABLE = "creatures";
+const MAX_PAGES_PER_TABLE = 10_000;
+
 /**
- * The mind's local daily copy of `mind:backupSnapshot` (spec §9).
+ * Build a `nest-export/v1` file from paged `mind:backupPage` reads (docs/nest-api.md).
+ * The first reply names every table; each is read page by page until `isDone`.
+ * The checksum is computed exactly as the backend does, over `data`.
+ */
+export async function buildExportFile(backend: Backend, now: number): Promise<Record<string, unknown>> {
+  const first = await backend.backupPage(FIRST_TABLE, null);
+  if (!first || !Array.isArray(first.docs) || !Array.isArray(first.tables)) throw new Error("backupPage returned nothing");
+  const data: Record<string, unknown[]> = {};
+  for (const table of first.tables) {
+    const docs: unknown[] = [];
+    let page = table === FIRST_TABLE ? first : await backend.backupPage(table, null);
+    for (let n = 0; ; n++) {
+      if (!page || !Array.isArray(page.docs)) throw new Error(`backupPage returned nothing for ${table}`);
+      docs.push(...page.docs);
+      if (page.isDone) break;
+      if (n >= MAX_PAGES_PER_TABLE) throw new Error(`backupPage did not finish for ${table}`);
+      page = await backend.backupPage(table, page.cursor);
+    }
+    data[table] = docs;
+  }
+  return { format: first.format, exportedAt: now, schemaVersion: first.schemaVersion, checksum: sha256Hex(canonicalJson(data)), data };
+}
+
+/**
+ * The mind's local daily copy of the export, read with `mind:backupPage` (spec §9).
  * Files are `nest-backup-<local date>-<epoch ms>.json`, 0600; the newest
  * `keep` are kept. Returns the new file path, or undefined if today's
  * backup already exists.
@@ -40,8 +68,7 @@ export async function runDailyBackup(opts: {
   const today = localDate(now);
   if (!opts.force && existing.some((f) => f.startsWith(`${PREFIX}${today}-`))) return undefined;
 
-  const snapshot = await opts.backend.backupSnapshot();
-  if (snapshot === null || snapshot === undefined) throw new Error("backupSnapshot returned nothing");
+  const snapshot = await buildExportFile(opts.backend, now);
   const file = path.join(opts.dir, `${PREFIX}${today}-${String(now).padStart(13, "0")}.json`);
   await writeJsonAtomic(file, snapshot);
 

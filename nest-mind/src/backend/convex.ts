@@ -2,7 +2,7 @@ import { ConvexClient, type ConvexClientOptions } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { redactingConvexLogger, scrub } from "../log.ts";
 import type { QueuedJob, Usage } from "../types.ts";
-import type { Backend, ClaimResult, CompleteResult, HeartbeatArgs } from "./types.ts";
+import type { Backend, BackupPage, ClaimResult, CompleteResult, HeartbeatArgs } from "./types.ts";
 
 // References by name ("mind:queue", ...), the same thing `anyApi.mind.queue`
 // yields, so this package does not depend on nest-backend's generated code.
@@ -13,7 +13,7 @@ const mind = {
   complete: makeFunctionReference<"mutation">("mind:complete"),
   fail: makeFunctionReference<"mutation">("mind:fail"),
   heartbeat: makeFunctionReference<"mutation">("mind:heartbeat"),
-  backupSnapshot: makeFunctionReference<"query">("mind:backupSnapshot"),
+  backupPage: makeFunctionReference<"query">("mind:backupPage"),
 };
 
 function strip<T extends Record<string, unknown>>(o: T): T {
@@ -116,8 +116,8 @@ export class ConvexBackend implements Backend {
     return this.call(async () => (await this.client.mutation(mind.heartbeat, strip({ mindSecret: this.mindSecret, ...a }))) as { ok: true; serverTime: number });
   }
 
-  async backupSnapshot(): Promise<unknown> {
-    return this.call(() => this.client.query(mind.backupSnapshot, { mindSecret: this.mindSecret }));
+  async backupPage(table: string, cursor: string | null): Promise<BackupPage> {
+    return this.call(async () => (await this.client.query(mind.backupPage, { mindSecret: this.mindSecret, table, cursor })) as BackupPage);
   }
 
   async close(): Promise<void> {

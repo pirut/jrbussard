@@ -32,7 +32,7 @@ src/
                router.ts (auto | chatgpt-plan | openai-api | fake)
   backend/     types.ts (Backend interface = the mind:* contract), convex.ts, memory.ts
   loop.ts      queue → claim → progress → complete/fail, heartbeat, backups
-  backup.ts    daily local copy of mind:backupSnapshot (keep 30)
+  backup.ts    daily local copy of the export, read with mind:backupPage (keep 30)
   cli/         one file per npm script
 ```
 
