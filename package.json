@@ -13,6 +13,7 @@
         "@radix-ui/react-dialog": "^1.1.23",
         "@radix-ui/react-dropdown-menu": "^2.1.24",
         "@sanity/client": "^7.22.0",
+        "@simplewebauthn/browser": "^14.0.0",
         "convex": "^1.42.3",
         "convex-helpers": "^0.1.124",
         "lucide-react": "^1.44.0",
@@ -38,7 +39,12 @@
         "build:frontend": "react-scripts build",
         "prayer:check": "npm --prefix prayer-backend run check",
         "prayer:test": "npm --prefix prayer-backend test",
-        "prayer:deploy": "npm --prefix prayer-backend run deploy"
+        "prayer:deploy": "npm --prefix prayer-backend run deploy",
+        "nest:check": "npm --prefix nest-backend run check",
+        "nest:test": "npm --prefix nest-backend test",
+        "nest:claim": "npm --prefix nest-backend run claim --",
+        "mind:check": "npm --prefix nest-mind run check",
+        "mind:test": "npm --prefix nest-mind test"
     },
     "eslintConfig": {
         "extends": [

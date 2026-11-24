@@ -1,0 +1,25 @@
+{
+  "name": "nest-creature-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy",
+    "check": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "claim": "node scripts/claim.mjs",
+    "tag": "node scripts/tag.mjs",
+    "dev-setup": "convex run admin:devSetup"
+  },
+  "dependencies": {
+    "@convex-dev/rate-limiter": "^0.3.2",
+    "@simplewebauthn/server": "^14.1.0",
+    "convex": "^1.42.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "convex-test": "0.0.54",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}

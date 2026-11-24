@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. install-launchd.sh fills the __PLACEHOLDERS__. No secrets here:
+     the mind reads its config and credentials from
+     ~/Library/Application Support/nest-mind/ (0600). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jrbussard.nest-mind</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__DIR__/node_modules/tsx/dist/cli.mjs</string>
+    <string>__DIR__/src/cli/start.ts</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__NODE_BIN__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>NODE_ENV</key>
+    <string>production</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+  <key>ProcessType</key>
+  <string>Standard</string>
+  <key>Umask</key>
+  <integer>63</integer>
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/nest-mind.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/nest-mind.err.log</string>
+</dict>
+</plist>
