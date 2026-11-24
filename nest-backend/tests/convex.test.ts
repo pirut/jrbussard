@@ -1209,6 +1209,27 @@ describe('backend polish', () => {
     expect(await t.run(async (ctx) => (await ctx.db.query('journal').collect()).length)).toBe(1);
   });
 
+  it('a journal answer with empty entries falls back to the template entry; full coverage adds nothing extra', async () => {
+    const t = make();
+    vi.stubEnv('NEST_MIND_SECRET', MIND_SECRET);
+    const cid = await owned(t, { hatched: true });
+    const now = Date.now();
+    const hid = await t.run(async (ctx) => (await recordHappening(ctx, cid, sim(now - 3600_000, 'knocked', 0.4))).hid);
+    await t.mutation(api.mind.heartbeat, { mindSecret: MIND_SECRET, mindId: 'mini', provider: 'chatgpt-plan', model: 'm', planStatus: 'ok', canServe: true, version: '1' });
+    const run = async (entries: unknown[]) => {
+      const { jobId } = await t.run(async (ctx) => queueJournal(ctx, (await ctx.db.get(cid))!, '2026-11-20', [(await ctx.db.get(hid))!]));
+      await t.mutation(api.mind.claim, { mindSecret: MIND_SECRET, jobId, mindId: 'mini' });
+      await t.mutation(api.mind.complete, { mindSecret: MIND_SECRET, jobId, provider: 'chatgpt-plan', model: 'gpt', outputText: JSON.stringify({ entries }) });
+      return await t.run(async (ctx) => ctx.db.query('journal').collect());
+    };
+    const rows = await run([]);
+    expect(rows.length).toBe(1);
+    expect(rows[0].fallback).toBe(true);
+    expect(rows[0].happeningIds).toEqual([hid]);
+    // Already covered: a second answer that covers it adds nothing extra.
+    expect((await run([{ happeningIds: [hid], text: 'Something new.' }])).length).toBe(1);
+  });
+
   it('sound starts off and the view carries the voice pitch', async () => {
     expect(DEFAULT_SETTINGS.soundOn).toBe(false);
     const t = make();

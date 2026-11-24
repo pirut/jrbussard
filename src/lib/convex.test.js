@@ -59,3 +59,26 @@ describe("the client's Convex function map", () => {
         expect(unreferenced).toEqual([]);
     });
 });
+
+/* The contact page keeps its own map (src/contact/contactApi.js) so the home
+   page bundle does not carry it. Same two checks, against contactCards.ts. */
+describe("the contact page's Convex function map", () => {
+    const { contactApi } = require("../contact/contactApi");
+    const source = fs.readFileSync(
+        path.join(__dirname, "..", "..", "convex", "contactCards.ts"),
+        "utf8"
+    );
+    const exported = new Set(
+        [...source.matchAll(/export const (\w+) = (?:query|mutation)\(/g)].map((m) => `contactCards:${m[1]}`)
+    );
+    const named = new Set(Object.values(contactApi).map((ref) => getFunctionName(ref)));
+
+    it("only names functions that exist on the server", () => {
+        expect(exported.size).toBeGreaterThan(0);
+        expect([...named].filter((name) => !exported.has(name))).toEqual([]);
+    });
+
+    it("exposes every public function the server offers", () => {
+        expect([...exported].filter((name) => !named.has(name))).toEqual([]);
+    });
+});

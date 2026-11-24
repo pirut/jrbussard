@@ -293,6 +293,28 @@ why (`planStatus` and `detail`). The mind never claims a job it cannot serve.
 `model` comes from config or the last model list the mind fetched, so it can
 read `unknown` on the first heartbeat after a restart.
 
+### Testing the whole loop without a model (dev only)
+
+To test app → Convex → mind → app on the **dev** deployment before signing in
+to ChatGPT, run the mind with canned replies. Keep it away from your real
+config by pointing `NEST_MIND_HOME` at a scratch directory:
+
+```bash
+export NEST_MIND_HOME=/tmp/nest-mind-dev            # not ~/Library/Application Support/nest-mind
+npm run setup -- --convex-url https://tangible-cobra-899.convex.cloud
+NEST_MIND_DEV_FAKE=1 npm start                      # NEST_MIND_FAKE_MODE=ok|invalid-json|error|slow
+```
+
+`NEST_MIND_DEV_FAKE=1` swaps every provider for a fake that streams a
+schema-shaped JSON answer (say: `*a soft chirp* *a happy trill* *wiggles all
+over*`, or `NEST_MIND_FAKE_SAY`). Convex only accepts `chatgpt-plan` and
+`openai-api` from the mind, so the jobs record `provider: chatgpt-plan` with
+model `fake-fast` / `fake-deep`, and Settings says "your ChatGPT plan
+(fake-fast)". `NEST_MIND_FAKE_MODE` tests the fallbacks: `invalid-json`
+(Convex rejects the output and uses the template), `error` (the mind fails
+the job, non-retryable), `slow` (the mind misses the 25 s deadline). Never set
+`NEST_MIND_DEV_FAKE` on the Mac mini's launchd agent or against production.
+
 ### Everyday operations
 
 - **Status:** `npm run status` (no secrets printed).

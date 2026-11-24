@@ -18,12 +18,20 @@
     ],
     "headers": [
         {
+            "source": "/contact",
+            "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+        },
+        {
+            "source": "/contact/:path*",
+            "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+        },
+        {
             "source": "/nest",
-            "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+            "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
         },
         {
             "source": "/nest/:path*",
-            "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+            "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
         }
     ],
     "rewrites": [

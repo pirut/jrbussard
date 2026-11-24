@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useNestMutation, useNestPaginated, useNestQuery } from '../context';
 import { Button, Loading, Quiet, when } from '../ui';
+import { Spoken } from '../components/Bubbles';
 
 export function MemoryPeek({ memoryId, label, onClose }) {
   const memory = useNestQuery(api.memories.get, { memoryId });
@@ -15,7 +16,7 @@ export function MemoryPeek({ memoryId, label, onClose }) {
         <p className="nest-kicker">{label || 'A mark'}</p>
         {memory === undefined ? <Loading /> : memory === null ? <Quiet>That memory is gone now.</Quiet> : (
           <>
-            <p className="nest-peek-text">{memory.text}</p>
+            <p className="nest-peek-text"><Spoken text={memory.text} /></p>
             <p className="nest-hint">{when(memory.at)}</p>
           </>
         )}
@@ -44,7 +45,7 @@ export function DreamCard({ onClose }) {
   return (
     <div className="nest-dream" role="status">
       <p className="nest-kicker">It dreamed</p>
-      <p className="nest-dream-text">{dream.text}</p>
+      <p className="nest-dream-text"><Spoken text={dream.text} /></p>
       <button type="button" className="nest-link" onClick={close}>Let it fade</button>
     </div>
   );

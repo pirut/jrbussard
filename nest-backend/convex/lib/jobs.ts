@@ -159,6 +159,19 @@ export async function applyOutput(ctx: MutationCtx, job: Doc<'jobs'>, output: Jo
         for (const id of ids) done.add(id);
         said.add(sameWords(e.text));
       }
+      // The answer can leave offered happenings uncovered (even `{"entries":[]}`). Those get the deterministic template
+      // entry, so the morning is never left blank.
+      const offered = job.context.happeningIds.filter((h) => { const id = ctx.db.normalizeId('happenings', h); return !!id && !done.has(id); });
+      if (offered.length) {
+        const missing = new Set<string>(offered);
+        const fb = JSON.parse(job.context.fallbackOutput) as JournalOutput;
+        for (const e of fb.entries ?? []) {
+          const ids = e.happeningIds.filter((h) => missing.has(h)).map((h) => ctx.db.normalizeId('happenings', h)).filter((x): x is Id<'happenings'> => !!x);
+          if (!ids.length) continue;
+          await ctx.db.insert('journal', { creatureId: creature._id, day, at: now, text: e.text, happeningIds: ids, fallback: true, jobId: job._id });
+          for (const id of ids) missing.delete(id);
+        }
+      }
       break;
     }
     case 'consolidate': {

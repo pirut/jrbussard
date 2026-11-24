@@ -6,6 +6,7 @@ import { api } from '../api';
 import { useNestMutation, useNestPaginated, useNestQuery } from '../context';
 import { errorText } from '../errors';
 import { Button, Confirm, Loading, Notice, Quiet, Sheet, when } from '../ui';
+import { Spoken } from '../components/Bubbles';
 
 export const KINDS = [
   { id: null, label: 'All' },
@@ -61,7 +62,7 @@ function MemoryCard({ m, onChanged }) {
           </div>
         </form>
       ) : (
-        <p className="nest-memory-text">{m.text}</p>
+        <p className="nest-memory-text"><Spoken text={m.text} /></p>
       )}
       <p className="nest-memory-meta">
         {m.pinned && <span className="nest-pin" aria-label="pinned">✦ </span>}
